@@ -558,11 +558,16 @@ paths:
   (`viewport::TYPE_VALUE_UNAVAILABLE` otherwise).
 - It takes two length expressions split at top-level commas, a length and angle split at a top-level
   `<` (from the sketch's x axis; degrees unless a unit is named), `@` for an offset from the last
-  placed point, and a lone length from the last point toward the pointer. The point must be within
+  placed point, and a lone length from the last point toward the pointer (or perpendicularly/radially
+  for width-sized steps through `WidthTarget`: 3-point rectangle width, slot diameter `Ø`, arc-slot
+  width and ellipse minor radius `r`, matching the beside-pointer readout). The point must be within
   `MAX_LENGTH` of the origin. Offset's distance, Sketch fillet's radius and Move reuse it as one
   length expression (`modifying::Value`, `app-sketching.md`). Outside a sketch it opens the same way
   over a hovered or held handle of the open feature (`ViewportState::type_handle`,
-  `app-modelling.md`, Value handles).
+  `app-modelling.md`, Value handles). Its input shares `field::Assist` with value fields, so it
+  completes parameter names (and inserts clicked dimensions or parameters), steps plain numbers with
+  Up and Down (preserving any leading `=`), and shows a muted `= <value>` preview for compound
+  expressions.
 - An angle alone (`< 30`, `@< 30`; `typed_point::heading`) locks the direction from the last placed
   point (`Drawing::lock_heading`): `Drawing::place` projects the pointer onto that ray, ahead of
   snapping, Ctrl and the toggles; the preview draws a dashed guide, the prompt says so
@@ -593,12 +598,16 @@ paths:
   pending point snaps to it, like a click); an error keeps it open with the reason; Escape closes it
   without touching the shape. It is handled after the drawing syncs with the displayed sketch each
   frame, so a typed chain carries on from the end the previous segment added.
-- A point placed free keeps what was typed as dimensions, as typed (parameters included, a negative
-  value as its magnitude, a zero left out): x and y as distances from the origin, or from the last
-  placed point with `@` (`typed_point::parse_placed`, `TypedDimension`); a length as a distance; and
-  an angle between 0° and 360° as an `Angle` from the horizontal axis to the line drawn from that
-  point, when the shape draws one. `Drawing::type_dimensioned` keeps them with the placement and
-  `Draft::finish` adds them to the shape's transaction against the points at those places, through
-  the shadow check like any inferred constraint. Keep typed values as dimensions
+- A point placed free (or along an inferred direction guide, whose `Snap::Aligned` constraint
+  `Drawing::type_dimensioned` keeps when the typed point lies on the guide) keeps what was typed as
+  dimensions, as typed (parameters included, a negative value as its magnitude, a zero left out): x
+  and y as distances from the origin, or from the last placed point with `@`
+  (`typed_point::parse_placed`, `TypedDimension`); a length as a distance (or `Radius`, `Diameter`,
+  `MinorRadius` or width `Distance` via `Draft`'s `SizedTarget` for circles, slots, ellipses,
+  3-point rectangles and side-middle polygons); and an angle between 0° and 360° as an `Angle` from
+  the horizontal axis to the line drawn from that point, when the shape draws one.
+  `Drawing::type_dimensioned` keeps them with the placement and `Draft::finish` adds them to the
+  shape's transaction against the points at those places or the shape's `SizedTarget`, through the
+  shadow check like any inferred constraint. Keep typed values as dimensions
   (`Command::ToggleTypedDimensions`; on by default, `ViewportState::typed_dimensions`, session
   only, starting as Preferences › Sketching says) turns this off.

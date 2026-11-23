@@ -463,7 +463,8 @@ relative to the extent.
     parallel, perpendicular and angle constraints to a curve joined only at the far end move to the
     piece holding that end.
   - A new end joins its cutter: `Coincident` with the cutter's end point when the cut lies there,
-    else a point on the cutter (an axis included). End points no curve uses are removed.
+    else a point on the cutter (a reference axis cuts a curve only when no other curve cuts it).
+    End points no curve uses are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
     shared with another curve, coincident with another point, fixed or held by any other active
     constraint (a dimension, `Symmetric`, a point's `HorizontalPoints`) is refused, the last as

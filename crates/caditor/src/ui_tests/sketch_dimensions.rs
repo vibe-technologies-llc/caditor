@@ -2,7 +2,7 @@ use caditor_document::FeatureId;
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, EntityId, Sketch};
-use egui::{Event, Id, Key, Modifiers};
+use egui::{Event, Id, Key, Modifiers, PointerButton};
 
 use super::{
     CAMERA_SETTLE, Harness, constraint_of_kind, constraints_of_kind, edit_base_sketch,
@@ -937,4 +937,140 @@ fn typed_values_are_kept_as_dimensions_unless_turned_off() {
         "{}",
         ends[1]
     );
+}
+
+#[test]
+fn smart_dimension_previews_and_keeps_the_clicked_label_place_and_circle_radius_inside() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let circle = sketch.add_circle(Point2::new(0.0, 0.0), 15.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::D);
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(15.0, 0.0),
+        sketch_entity(feature, circle),
+    );
+    harness.frame();
+    harness.point_at(Point2::new(5.0, 4.0));
+    harness.frame();
+
+    assert!(harness.shows("R 15 mm"));
+
+    harness.click_at(Point2::new(5.0, 4.0));
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let placed: Vec<_> = sketch
+        .constraints()
+        .filter(|(_, constraint)| matches!(constraint, Constraint::Radius { .. }))
+        .collect();
+
+    assert_eq!(placed.len(), 1);
+    assert!(sketch.label_offset(placed[0].0).is_some());
+}
+
+#[test]
+fn right_clicking_a_dimension_label_toggles_reference_and_the_stacked_pill_lists_hidden_constraints()
+ {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 0.0));
+    let [start, end] = sketch.entity(line).unwrap().points()[..] else {
+        panic!("line has two endpoints");
+    };
+
+    let distance = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Number(30.0),
+        })
+        .unwrap();
+    let other_a = sketch.add_line(Point2::new(0.0, 20.0), Point2::new(30.0, 20.0));
+    let other_b = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(30.0, 30.0));
+    let other_c = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(30.0, 40.0));
+
+    sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    sketch
+        .add_constraint(Constraint::Parallel(line, other_a))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Parallel(line, other_b))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Parallel(line, other_c))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Equal(line, other_a))
+        .unwrap();
+
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.frame();
+    harness.frame();
+
+    let viewport = harness.workspace.viewport.rect().unwrap();
+    let label = harness
+        .texts
+        .iter()
+        .find(|(text, rect)| text == "30" && viewport.contains(rect.center()))
+        .map(|(_, rect)| rect.center())
+        .expect("dimension label is shown in the viewport");
+
+    harness.events.push(Event::PointerMoved(label));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: label,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        harness.frame();
+    }
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Make reference"));
+
+    harness.click("Make reference");
+    harness.settle();
+
+    assert!(!harness.sketch(feature).is_active(distance));
+
+    let more = harness
+        .texts
+        .iter()
+        .find(|(text, rect)| text == "+2" && viewport.contains(rect.center()))
+        .map(|(_, rect)| rect.center())
+        .expect("stacked +2 pill is shown in the viewport");
+
+    harness.events.push(Event::PointerMoved(more));
+    harness.frame();
+    harness.click_screen(more);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("More constraints"));
+
+    let hidden_label = harness
+        .texts
+        .iter()
+        .find(|(text, rect)| {
+            viewport.contains(rect.center())
+                && (text.starts_with("Parallel ") || text.starts_with("Equal "))
+        })
+        .map(|(_, rect)| rect.center())
+        .expect("hidden constraint is listed in the popover");
+
+    harness.click_screen(hidden_label);
+    harness.frame();
+
+    assert_eq!(harness.workspace.viewport.selection().iter().count(), 1);
 }

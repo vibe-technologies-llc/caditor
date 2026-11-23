@@ -8,7 +8,7 @@ for example `width / 2` or `30 deg`.
 
 {command:sketch.dimension} picks the right dimension from what you click:
 
-- A line gives its length, a circle its diameter and an arc its radius.
+- A line gives its length, a circle its diameter (outside the circle) or radius (inside it) and an arc its radius.
 - Two lines that are not parallel give the angle between them.
 - An ellipse alone gives its major and minor radii; with a point or any other curve, the
   distance between them, measured where they come closest. An elliptical arc and a line sharing
@@ -32,7 +32,7 @@ the same way: the horizontal distance of a point from a line is measured to wher
 the level through the point, and a circle's from its centre. For an arc, placing it beyond the arc gives its
 length; inside it, close to the arc gives its radius (as does off its sweep), further in its
 diameter and near its centre its sweep, so a radius or diameter can be placed on an arc of any
-sweep. The prompt says what the click would add. Enter adds the dimension of a
+sweep. A live preview follows the pointer, and clicking places the dimension's label there. The prompt says what the click would add. Enter adds the dimension of a
 single pick, and Escape lets go of the picks; changing to another tool lets go of them too.
 
 The Dimension group of the ribbon also has each dimension on its own: Distance, Horizontal
@@ -43,9 +43,9 @@ through the other item.
 
 ## Changing a dimension
 
-Double-click its label to edit the value; drag the label to move it. Typing `name = value` names
+Double-click its label to edit the value; drag the label to move it; right-click the label to switch between driving and reference, or delete it. Typing `name = value` names
 the value as a [parameter](parameters) that other values can use. The sketch's card in the
-[feature tree](feature-tree) lists every dimension too.
+[feature tree](feature-tree) lists every dimension too, with a button to toggle reference mode.
 
 Zoomed far out, a dimension of something only a few pixels across shrinks to a small dot on it;
 hover the dot to read the dimension, click it to select it and show its label, or double-click it

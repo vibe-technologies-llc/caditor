@@ -1040,7 +1040,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   entity's anchor is clipped to the view first (`within_view`; off-screen entities get no glyphs) and
   places are generated lazily from the middle out, at most `MAX_GLYPH_SHIFTS` each way, so zooming in
   never makes a frame walk a line's full length. An entity shows at most `MAX_STACKED` glyphs: past
-  that the last slot is a "+N" mark whose hover lists the rest and whose click selects the first.
+  that the last slot is a "+N" mark whose hover lists the rest and whose click selects the first and
+  opens a popup listing every hidden constraint (with hover highlight, click to select, disable/enable
+  and delete).
   Show or hide constraint glyphs (Alt+G, `ViewportState::glyphs_shown`, shown at start unless
   Preferences › Sketching says otherwise) hides them all, dimensions staying. Auto-hide crowded
   dimensions and glyphs (`Command::ToggleAutoHideMarks`, `ViewportState::auto_hide_marks`, on at
@@ -1083,8 +1085,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) and
   `sketch_card_costs_on_a_large_sketch` (`feature_tree.rs`) time it on `large_sketch`.
 - Labels and glyphs are `Pickable::SketchConstraint`: hover highlights the entities, click selects
-  (Shift or Ctrl toggles), Delete removes selected constraints and entities in one transaction. They
-  are painted but not interactive while a drawing tool is active. Only marks within `POINTER_REACH` of
+  (Shift or Ctrl toggles), right-click selects and opens the sketch context menu (which offers
+  Disable/Enable or Make reference/driving when constraints or dimensions are selected, as the
+  feature tree's constraint rows do too), Delete removes selected constraints and entities in one
+  transaction. They are painted but not interactive while a drawing tool is active. While Smart
+  dimension is active, `Annotations::paint_preview` draws a live ghost preview of the candidate
+  dimension (including circles' inside-Radius vs outside-Diameter placement and arc radial bands),
+  and clicking to place persists the pointer's `LabelFrame` offset in the same transaction. Only marks within `POINTER_REACH` of
   the pointer, the dragged label and a mark holding focus are handed to egui each frame
   (`PointerReach`); egui hit-tests against the previous frame's widgets, so the reach is wide enough
   that a mark is registered before the press that lands on it. Keyboard users reach marks through the

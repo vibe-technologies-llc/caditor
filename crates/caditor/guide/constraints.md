@@ -52,9 +52,8 @@ sketch without moving the view, **Disable** switches it off and **Delete** remov
 deleting are ordinary changes that Undo takes back; once one of the conflicting constraints is off
 or gone, add the refused constraint again.
 
-Constraint marks sit beside the geometry; hover one to light what it holds, click it to select it
-and Delete removes it. Where the view is crowded some marks are left out, as are the marks of a
+Constraint marks sit beside the geometry; hover one to light what it holds, click it to select it, right-click it to disable or delete it, and Delete removes it. When several marks share one spot, click the `+N` pill to list, disable or delete the hidden ones. Where the view is crowded some marks are left out, as are the marks of a
 line only a few pixels long, until you zoom in or select the line. {command:sketch.toggle_constraint_active} switches the selected constraints
-off without deleting them.
+off without deleting them, and each constraint row in the sketch's card in the feature tree has a toggle button as well.
 
 See also [dimensions](dimensions) and [constraining automatically](automatic-constraints).

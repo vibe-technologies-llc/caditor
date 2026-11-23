@@ -1115,6 +1115,17 @@ pub fn add_constraints(
     constraints: Vec<Constraint>,
     projections: &Projections,
 ) -> Added {
+    add_constraints_placed(model, feature, tool, constraints, projections, None)
+}
+
+pub fn add_constraints_placed(
+    model: &Model,
+    feature: FeatureId,
+    tool: ConstraintTool,
+    constraints: Vec<Constraint>,
+    projections: &Projections,
+    placed: Option<(&Sketch, Point2)>,
+) -> Added {
     let settled = model
         .settled_sketch(feature)
         .zip(model.settled_solution(feature))
@@ -1136,10 +1147,14 @@ pub fn add_constraints(
 
     projections.project(&mut transaction, feature);
 
-    let constraints: Vec<ConstraintId> = constraints
+    let added: Vec<(ConstraintId, Constraint)> = constraints
         .into_iter()
-        .map(|constraint| transaction.add_sketch_constraint(feature, constraint))
+        .map(|constraint| {
+            let id = transaction.add_sketch_constraint(feature, constraint.clone());
+            (id, constraint)
+        })
         .collect();
+    let constraints: Vec<ConstraintId> = added.iter().map(|(id, _)| *id).collect();
     let references: Vec<ConstraintId> = constraints
         .iter()
         .zip(&determined)
@@ -1149,6 +1164,15 @@ pub fn add_constraints(
 
     for id in &references {
         transaction.set_sketch_constraint_active(feature, *id, false);
+    }
+    if let Some((shown, at)) = placed {
+        for (id, constraint) in &added {
+            if let Some(measured) = caditor_sketch::annotation::measured(shown, constraint)
+                && let Some(frame) = crate::annotation_layout::label_frame(&measured)
+            {
+                transaction.set_sketch_label(feature, *id, Some(frame.offset_of(at)));
+            }
+        }
     }
     Added {
         transaction: transaction.finish(),
@@ -1202,6 +1226,7 @@ pub fn remove_items(
 pub struct ActivityChange {
     pub constraints: Vec<ConstraintId>,
     pub active: bool,
+    pub dimensions_only: bool,
 }
 
 impl ActivityChange {
@@ -1217,10 +1242,25 @@ impl ActivityChange {
             .into_iter()
             .filter(|id| sketch.is_active(*id) != active)
             .collect();
+        let dimensions_only = changed.iter().all(|id| {
+            sketch
+                .constraint(*id)
+                .is_some_and(|constraint| constraint.dimension().is_some())
+        });
         (!changed.is_empty()).then_some(Self {
             constraints: changed,
             active,
+            dimensions_only,
         })
+    }
+
+    pub fn action_label(&self) -> &'static str {
+        match (self.dimensions_only, self.active) {
+            (true, false) => "Make reference",
+            (true, true) => "Make driving",
+            (false, false) => "Disable",
+            (false, true) => "Enable",
+        }
     }
 
     pub fn verb(&self) -> &'static str {

@@ -1590,9 +1590,11 @@ impl Bar<'_, '_> {
             .activity
             .map(|_| ())
             .ok_or(Unavailable::NothingToDisable);
-        let invoked = self
-            .commands
-            .invoke(Command::ToggleConstraintActive, &availability);
+        let detail = self.activity.map(|change| change.action_label().to_owned());
+
+        let invoked =
+            self.commands
+                .invoke_detailed(Command::ToggleConstraintActive, detail, &availability);
         let enabling = self.activity.is_some_and(|change| change.active);
         let (label, help) = if enabling {
             (ENABLE_LABEL, ENABLE_HELP)

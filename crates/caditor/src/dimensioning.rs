@@ -259,6 +259,13 @@ pub fn placed(
                     }
                 })
         }
+        ([Some(Kind::Circle)], [circle]) => sketch.circle(*circle).map(|(center, radius)| {
+            if pointer.distance(center) < radius {
+                ConstraintTool::Radius
+            } else {
+                ConstraintTool::Diameter
+            }
+        }),
         ([Some(Kind::Arc)], [arc]) => sketch.arc(*arc).map(|arc| arc_part(&arc, pointer)),
         _ => None,
     }
@@ -504,11 +511,31 @@ pub enum DimensionToolError {
     Unproposed(#[from] ConstraintOfferError),
 }
 
+pub fn preview_constraint(
+    model: &Model,
+    staged: &Staged,
+    pointer: Option<Point2>,
+) -> Option<Constraint> {
+    let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
+
+    let Fit::Ready(tool) = fitting(shown, picks) else {
+        return None;
+    };
+    let tool = placed(shown, picks, pointer).unwrap_or(tool);
+    let candidates = tool
+        .candidates_among(definition, shown, picks, &definition.relations())
+        .ok()?;
+    sketch_tools::in_unit(candidates, model.units())
+        .into_iter()
+        .next()
+}
+
 pub fn dimension(
     model: &Model,
     feature: FeatureId,
     staged: &Staged,
     pointer: Option<Point2>,
+    place_label: bool,
 ) -> Result<Added, DimensionToolError> {
     let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
 
@@ -523,12 +550,17 @@ pub fn dimension(
     };
     let constraints = tool.candidates_among(definition, shown, picks, &definition.relations())?;
     let constraints = sketch_tools::in_unit(constraints, model.units());
-    Ok(sketch_tools::add_constraints(
+    let label_at = place_label
+        .then_some(pointer)
+        .flatten()
+        .map(|at| (shown, at));
+    Ok(sketch_tools::add_constraints_placed(
         model,
         feature,
         tool,
         constraints,
         &staged.projections,
+        label_at,
     ))
 }
 

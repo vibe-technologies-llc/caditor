@@ -416,12 +416,12 @@ fn tangent_arcs_arc_slots_and_spline_legs_show_their_size_too() {
     harness.click_at(Point2::new(10.0, 10.0));
     harness.point_at(Point2::new(20.0, 10.0));
 
-    assert!(harness.shows("10.00 mm   0.0°"));
+    assert!(harness.shows("10.00 mm   0.0°   2 points"));
 
     harness.click_at(Point2::new(20.0, 10.0));
     harness.point_at(Point2::new(20.0, 30.0));
 
-    assert!(harness.shows("20.00 mm   90.0°"));
+    assert!(harness.shows("20.00 mm   90.0°   3 points"));
 }
 
 #[test]

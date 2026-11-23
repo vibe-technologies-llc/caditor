@@ -3922,10 +3922,35 @@ fn constraint_row(
     } else {
         RichText::new(&description)
     };
-    let (row, deleted) = Sides::new().shrink_left().truncate().show(
+    let active = sketch.is_active(constraint);
+    let is_dimension = definition.dimension().is_some();
+
+    let toggle_label = match (is_dimension, active) {
+        (true, true) => "Make reference",
+        (true, false) => "Make driving",
+        (false, true) => "Disable",
+        (false, false) => "Enable",
+    };
+    let toggle_hover = match (is_dimension, active) {
+        (true, true) => "Turn this dimension into a reference that only reads the size",
+        (true, false) => "Make this dimension drive the sketch again",
+        (false, true) => "Disable this constraint without deleting it",
+        (false, false) => "Enable this constraint again",
+    };
+    let (row, (mut toggled, mut deleted)) = Sides::new().shrink_left().truncate().show(
         ui,
         |ui| widgets::link_label(ui, text),
-        |ui| widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked(),
+        |ui| {
+            let deleted =
+                widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked();
+            let toggled = widgets::icon_button(
+                ui,
+                icons::command(Command::ToggleConstraintActive),
+                toggle_hover,
+            )
+            .clicked();
+            (toggled, deleted)
+        },
     );
     let pickable = Pickable::SketchConstraint {
         feature: feature.id(),
@@ -3940,14 +3965,31 @@ fn constraint_row(
         state.chosen_in_tree = Some(pickable);
     }
 
-    let mut deleted = deleted;
-
     row.context_menu(|ui| {
+        if widgets::menu_item(
+            ui,
+            icons::command(Command::ToggleConstraintActive),
+            toggle_label,
+            None,
+        )
+        .on_hover_text(toggle_hover)
+        .clicked()
+        {
+            toggled = true;
+            ui.close();
+        }
         if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {
             deleted = true;
             ui.close();
         }
     });
+    if toggled && let Some(change) = sketch_tools::ActivityChange::of(sketch, &[constraint]) {
+        actions.push(Action::Apply(change.transaction(
+            model,
+            feature.id(),
+            sketch,
+        )));
+    }
     if deleted {
         actions.push(Action::Apply(sketch_tools::remove_items(
             model,

@@ -105,6 +105,9 @@ fn taken(
             let change = ActivityChange {
                 constraints: vec![constraint],
                 active: false,
+                dimensions_only: sketch
+                    .constraint(constraint)
+                    .is_some_and(|item| item.dimension().is_some()),
             };
             vec![Action::Apply(change.transaction(model, feature, sketch))]
         }

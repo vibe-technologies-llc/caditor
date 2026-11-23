@@ -111,12 +111,12 @@ pub fn focused_value_field(ui: &Ui) -> Option<Id> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Step {
-    direction: Direction,
-    big: bool,
+pub(crate) struct Step {
+    pub(crate) direction: Direction,
+    pub(crate) big: bool,
 }
 
-fn take_step(ui: &Ui) -> Option<Step> {
+pub(crate) fn take_step(ui: &Ui) -> Option<Step> {
     ui.input_mut(|input| {
         let mut taken = None;
 
@@ -752,6 +752,91 @@ fn caption_drag(ui: &Ui, id: Id, text: &str) -> Dragged {
     }
     ui.data_mut(|data| data.insert_temp(key, CaptionDrag::Moving(moving)));
     Dragged::Moved(next)
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Assist {
+    suggesting: Suggesting,
+    completed: Completed,
+    pub(crate) popup_open: bool,
+    pub(crate) changed: bool,
+}
+
+impl Assist {
+    pub(crate) fn begin(ui: &Ui, id: Id, text: &mut String, allow_step: bool) -> Self {
+        let editing = ui.memory(|memory| memory.has_focus(id));
+        let suggesting_key = id.with(SUGGESTING);
+
+        let mut suggesting = if editing {
+            ui.data(|data| data.get_temp::<Suggesting>(suggesting_key))
+                .unwrap_or_default()
+        } else {
+            Suggesting::default()
+        };
+
+        let popup_open = !suggesting.names.is_empty();
+        let mut completed = Completed::default();
+
+        if editing {
+            completed = complete(ui, id, text, &mut suggesting);
+            completed.held |= pointer_holds(ui, id, completed.held);
+        }
+
+        let mut changed = completed.replaced;
+
+        if allow_step
+            && editing
+            && !popup_open
+            && let Some(requested) = take_step(ui)
+        {
+            let (prefix, body) = match text.strip_prefix('=') {
+                Some(rest) => ("=", rest),
+                None => ("", text.as_str()),
+            };
+            if let Ok(next) = stepping::step(body, requested.direction, requested.big) {
+                let full = format!("{prefix}{next}");
+
+                select_all(ui.ctx(), id, &full);
+                *text = full;
+                changed = true;
+            }
+        }
+        Self {
+            suggesting,
+            completed,
+            popup_open,
+            changed,
+        }
+    }
+
+    pub(crate) fn finish(mut self, ui: &Ui, response: &Response, text: &str) -> bool {
+        let suggesting_key = response.id.with(SUGGESTING);
+
+        if self.completed.held {
+            response.request_focus();
+        }
+
+        let focused = response.has_focus() || self.completed.held;
+
+        if focused {
+            suggest(
+                ui,
+                response,
+                text,
+                self.completed.caret,
+                None,
+                &mut self.suggesting,
+            );
+            ui.data_mut(|data| {
+                data.insert_temp(suggesting_key, self.suggesting);
+            });
+        } else {
+            ui.data_mut(|data| {
+                data.remove::<Suggesting>(suggesting_key);
+            });
+        }
+        self.completed.held
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

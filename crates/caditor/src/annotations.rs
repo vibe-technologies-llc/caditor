@@ -13,9 +13,12 @@ use egui::{
 
 use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
-    appearance, canvas, completion, constraint_trial,
+    appearance, canvas,
+    commands::Command,
+    completion, constraint_trial,
     feature_tree::count,
     field::{self, DimensionEditError, DimensionTarget, Reference},
+    icons,
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_status, sketch_tools,
@@ -1267,6 +1270,20 @@ fn centre_of(sketch: &Sketch) -> Option<Point2> {
     Some((low + high) / 2.0)
 }
 
+fn preview_label_text(model: &Model, constraint: &Constraint, expression: &Expression) -> String {
+    let text = model.document().expression_text(expression);
+    match constraint {
+        Constraint::Radius { .. }
+        | Constraint::MajorRadius { .. }
+        | Constraint::MinorRadius { .. } => format!("{RADIUS_PREFIX}{text}"),
+        Constraint::Rho { .. } => format!("{RHO_PREFIX}{text}"),
+        Constraint::Diameter { .. } | Constraint::AxisDiameter { .. } => {
+            format!("{DIAMETER_PREFIX}{text}")
+        }
+        _ => text,
+    }
+}
+
 fn label_text(
     model: &Model,
     shown: &Sketch,
@@ -1335,9 +1352,18 @@ struct FieldRequest {
     frames_left: u8,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct BeyondMenu {
+    feature: FeatureId,
+    pos: Pos2,
+    constraints: Vec<ConstraintId>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Annotations {
     hovered: Option<Pickable>,
+    secondary_clicked: Option<(Pos2, Pickable)>,
+    beyond_menu: Option<BeyondMenu>,
     field: Option<OpenField>,
     request: Option<FieldRequest>,
     texts: LabelTexts,
@@ -1416,6 +1442,39 @@ impl PointerReach {
 impl Annotations {
     pub fn hovered(&self) -> Option<Pickable> {
         self.hovered
+    }
+
+    pub fn take_secondary_click(&mut self) -> Option<(Pos2, Pickable)> {
+        self.secondary_clicked.take()
+    }
+
+    pub fn paint_preview(
+        ui: &Ui,
+        model: &Model,
+        surface: &Surface<'_>,
+        shown: &Sketch,
+        constraint: &Constraint,
+        label_at: Option<Point2>,
+    ) {
+        let Some(measured) = annotation::measured(shown, constraint) else {
+            return;
+        };
+        let Some(layout) =
+            annotation_layout::layout(&measured, surface.screen, centre_of(shown), 0, label_at)
+        else {
+            return;
+        };
+        let Some(expression) = constraint.dimension() else {
+            return;
+        };
+        let text = preview_label_text(model, constraint, expression);
+        let painter = ui.painter_at(surface.rect);
+
+        let galley = painter.layout_no_wrap(text, canvas::body(), Color32::PLACEHOLDER);
+        let rect = label_rect(surface.rect, &layout, galley.size());
+        let color = canvas::chrome(ui.ctx()).prompt;
+
+        paint_dimension(&painter, surface.rect, &layout, Some((galley, rect)), color);
     }
 
     pub fn auto_hidden(&self) -> AutoHidden {
@@ -1654,6 +1713,10 @@ impl Annotations {
         actions: &mut Vec<Action>,
     ) {
         self.hovered = None;
+        self.secondary_clicked = None;
+        self.beyond_menu = self.beyond_menu.take().filter(|menu| {
+            menu.feature == surface.feature && surface.interactive && !surface.outside
+        });
         self.dragging = self
             .dragging
             .filter(|drag| drag.feature == surface.feature && surface.interactive);
@@ -1847,8 +1910,147 @@ impl Annotations {
             painter.circle_stroke(center, OPEN_END_RADIUS, ring);
             painter.circle_stroke(center, CLUSTER_RADIUS, ring);
         }
+        self.show_beyond_menu(ui, model, surface, selection, actions);
         self.show_field(ui, model, surface, &marks, actions);
         self.marks = Some(marks);
+    }
+
+    fn show_beyond_menu(
+        &mut self,
+        ui: &Ui,
+        model: &Model,
+        surface: &Surface<'_>,
+        selection: &mut Selection,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(menu) = self.beyond_menu.clone() else {
+            return;
+        };
+        let Some(sketch) = model
+            .document()
+            .feature(menu.feature)
+            .and_then(|owner| owner.kind.sketch())
+        else {
+            self.beyond_menu = None;
+            return;
+        };
+
+        let existing: Vec<ConstraintId> = menu
+            .constraints
+            .iter()
+            .copied()
+            .filter(|id| sketch.constraint(*id).is_some())
+            .collect();
+
+        if existing.is_empty()
+            || ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape))
+        {
+            self.beyond_menu = None;
+            return;
+        }
+
+        let mut close = false;
+
+        let area = egui::Area::new(Id::unique(("beyond-constraints", menu.feature)))
+            .order(Order::Foreground)
+            .fixed_pos(menu.pos)
+            .constrain_to(surface.rect)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.label(widgets::muted("More constraints", ui));
+                    for id in existing {
+                        let pickable = Pickable::SketchConstraint {
+                            feature: menu.feature,
+                            constraint: id,
+                        };
+                        let active = sketch.is_active(id);
+                        let description = sketch.describe_constraint(id);
+
+                        let label = if active {
+                            description.clone()
+                        } else {
+                            format!("{description} (disabled)")
+                        };
+
+                        ui.horizontal(|ui| {
+                            let chosen = widgets::menu_item(ui, icons::SELECT, &label, None);
+
+                            if chosen.hovered() {
+                                self.hovered = Some(pickable);
+                            }
+                            if chosen.clicked() {
+                                let toggle = ui.input(|input| {
+                                    input.modifiers.shift || input.modifiers.command
+                                });
+
+                                if toggle {
+                                    selection.toggle(pickable);
+                                } else {
+                                    selection.replace_with(pickable);
+                                }
+                                close = true;
+                            }
+
+                            let toggle_hover = if active {
+                                format!("Disable {description}")
+                            } else {
+                                format!("Enable {description}")
+                            };
+                            let toggled = widgets::icon_button(
+                                ui,
+                                icons::command(Command::ToggleConstraintActive),
+                                &toggle_hover,
+                            );
+
+                            if toggled.hovered() {
+                                self.hovered = Some(pickable);
+                            }
+                            if toggled.clicked()
+                                && let Some(change) =
+                                    sketch_tools::ActivityChange::of(sketch, &[id])
+                            {
+                                actions.push(Action::Apply(change.transaction(
+                                    model,
+                                    menu.feature,
+                                    sketch,
+                                )));
+                                close = true;
+                            }
+
+                            let deleted = widgets::icon_button(
+                                ui,
+                                icons::DELETE,
+                                &format!("Delete {description}"),
+                            );
+
+                            if deleted.hovered() {
+                                self.hovered = Some(pickable);
+                            }
+                            if deleted.clicked() {
+                                actions.push(Action::Apply(sketch_tools::remove_items(
+                                    model,
+                                    menu.feature,
+                                    format!("Delete {description}"),
+                                    Vec::new(),
+                                    vec![id],
+                                )));
+                                close = true;
+                            }
+                        });
+                    }
+                });
+            });
+        let clicked_outside = ui.input(|input| {
+            input.pointer.any_pressed()
+                && input
+                    .pointer
+                    .interact_pos()
+                    .is_some_and(|pos| !area.response.rect.contains(pos))
+        });
+
+        if close || clicked_outside {
+            self.beyond_menu = None;
+        }
     }
 
     fn open_requested(&mut self, model: &Model, marks: &Marks) {
@@ -1940,12 +2142,31 @@ impl Annotations {
             self.drag_label(surface, response, constraint, label, frame);
         }
         if response.clicked() && !surface.outside && !completion::take_click(ui.ctx()) {
+            if let Hover::Beyond(hidden) = &target.hover {
+                self.beyond_menu = Some(BeyondMenu {
+                    feature: surface.feature,
+                    pos: response.rect.center_bottom(),
+                    constraints: hidden.clone(),
+                });
+            }
+
             let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
             if toggle {
                 selection.toggle(pickable);
             } else {
                 selection.replace_with(pickable);
             }
+        }
+        if response.secondary_clicked() && !surface.outside {
+            if !selection.contains(pickable) {
+                selection.replace_with(pickable);
+            }
+
+            let pos = response
+                .interact_pointer_pos()
+                .unwrap_or_else(|| response.rect.center());
+
+            self.secondary_clicked = Some((pos, pickable));
         }
         if matches!(target.hover, Hover::Dimension(_) | Hover::Collapsed(_))
             && response.double_clicked()

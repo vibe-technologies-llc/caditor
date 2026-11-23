@@ -391,3 +391,124 @@ fn escape_or_another_tool_clears_a_waiting_field() {
     assert!(drawing);
     assert!(!harness.shows(typed_point::FIELD_LABEL));
 }
+
+#[test]
+fn typing_a_length_along_a_horizontal_guide_keeps_the_horizontal_constraint() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    harness.point_at(Point2::new(40.0, 0.2));
+    harness.frame();
+    type_point(&mut harness, "25");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let has_horizontal = sketch
+        .constraints()
+        .any(|(_, constraint)| matches!(constraint, caditor_sketch::Constraint::Horizontal(_)));
+    let has_distance = sketch
+        .constraints()
+        .any(|(_, constraint)| matches!(constraint, caditor_sketch::Constraint::Distance { .. }));
+
+    assert!(has_horizontal, "expected horizontal constraint to be kept");
+    assert!(has_distance, "expected typed length dimension to be kept");
+}
+
+#[test]
+fn typing_a_circle_radius_and_slot_width_keeps_their_dimensions() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::C);
+    type_point(&mut harness, "0, 0");
+    harness.point_at(Point2::new(20.0, 0.0));
+    harness.frame();
+    type_point(&mut harness, "12");
+    harness.settle();
+
+    let has_radius = harness
+        .sketch(feature)
+        .constraints()
+        .any(|(_, constraint)| {
+            matches!(
+                constraint,
+                caditor_sketch::Constraint::Radius { value, .. }
+                    if *value == Expression::Number(12.0)
+            )
+        });
+
+    assert!(has_radius, "expected typed circle radius dimension");
+
+    harness.use_tool(Key::U);
+    type_point(&mut harness, "40, 0");
+    type_point(&mut harness, "80, 0");
+    harness.point_at(Point2::new(60.0, 15.0));
+    harness.frame();
+    type_point(&mut harness, "10");
+    harness.settle();
+
+    let has_diameter = harness
+        .sketch(feature)
+        .constraints()
+        .any(|(_, constraint)| {
+            matches!(
+                constraint,
+                caditor_sketch::Constraint::Diameter { value, .. }
+                    if *value == Expression::Number(10.0)
+            )
+        });
+
+    assert!(has_diameter, "expected typed slot width diameter dimension");
+}
+
+#[test]
+fn typed_point_completes_parameters_and_steps_with_arrows() {
+    let mut harness = Harness::new();
+
+    add_parameter(&mut harness, "span_width", 32.0);
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    harness.point_at(Point2::new(40.0, 0.0));
+    harness.frame();
+    harness.type_text("=span");
+    harness.frame();
+
+    assert!(harness.shows("span_width"));
+
+    harness.key(Key::Tab, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let ends = line_ends(harness.sketch(feature));
+
+    assert_eq!(ends.len(), 1);
+    assert!(near(ends[0].1, Point2::new(32.0, 0.0)), "{:?}", ends[0]);
+
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 10");
+    harness.point_at(Point2::new(40.0, 10.0));
+    harness.frame();
+    harness.type_text("10");
+    harness.key(Key::ArrowUp, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let ends = line_ends(harness.sketch(feature));
+
+    assert_eq!(ends.len(), 2);
+    assert!(near(ends[1].1, Point2::new(11.0, 10.0)), "{:?}", ends[1]);
+}

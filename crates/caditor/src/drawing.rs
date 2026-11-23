@@ -18,6 +18,7 @@ use crate::{
     canvas::{HintList, KeyHint, Rank},
     commands::Reason,
     editing::{self, ActiveSketch, Tool},
+    feature_tree::count,
     inference::{Inference, Inferences},
     model::Model,
     projecting,
@@ -29,7 +30,7 @@ use crate::{
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
     symmetric_drawing,
     tracking::{self, Acquired, ShownOutlines, Tracked, Tracks},
-    typed_point::{Measured, Placed, TypedDimension},
+    typed_point::{Measured, Placed, TypedDimension, WidthTarget},
     units::Units,
 };
 
@@ -620,6 +621,16 @@ impl Direction {
         }
     }
 
+    fn along(self, sketch: &Sketch) -> Option<Vector2> {
+        match self {
+            Self::Horizontal => Some(Vector2::X),
+            Self::Vertical => Some(Vector2::Y),
+            Self::Parallel(line) => sketch.line_direction(line),
+            Self::Perpendicular(line) => sketch.line_direction(line).map(Vector2::perp),
+            Self::Tangent(_) => None,
+        }
+    }
+
     fn constraint(self, line: EntityId) -> Constraint {
         match self {
             Self::Horizontal => Constraint::Horizontal(line),
@@ -628,6 +639,25 @@ impl Direction {
             Self::Perpendicular(reference) => Constraint::Perpendicular(line, reference),
             Self::Tangent(curve) => Constraint::Tangent(line, curve),
         }
+    }
+}
+
+fn aligned_direction(prior: Placement, last: Point2, at: Point2) -> Option<Direction> {
+    if let Some(direction) = prior.snap.direction() {
+        return Some(direction);
+    }
+    match prior.snap.target()? {
+        Target::Curve(id)
+            if id == EntityId::HORIZONTAL_AXIS && (at.y - last.y).abs() <= TYPED_TOLERANCE =>
+        {
+            Some(Direction::Horizontal)
+        }
+        Target::Curve(id)
+            if id == EntityId::VERTICAL_AXIS && (at.x - last.x).abs() <= TYPED_TOLERANCE =>
+        {
+            Some(Direction::Vertical)
+        }
+        _ => None,
     }
 }
 
@@ -1475,13 +1505,26 @@ impl Drawing {
         };
         let sides = self.sides.0;
 
-        if let (Shape::Spline(_), [.., last]) = (shape, self.placed.as_slice()) {
-            return Some(leg(last.position));
+        if let (Shape::Spline(mode), [.., last]) = (shape, self.placed.as_slice()) {
+            let points = count(self.placed.len() + 1, "point", "points");
+            let segment = leg(last.position);
+
+            return Some(
+                if mode == SplineMode::Control || self.degree.0 != CUBIC_DEGREE {
+                    format!("{segment}   degree {}   {points}", self.degree.0)
+                } else {
+                    format!("{segment}   {points}")
+                },
+            );
         }
 
         let [first] = self.placed.as_slice() else {
             return match (shape, self.placed.as_slice()) {
-                (Shape::Conic, [_, _]) => Some(format!("rho {:.2}", self.rho.value)),
+                (Shape::Conic, [start, end]) => Some(format!(
+                    "{}   rho {:.2}",
+                    length(start.position.distance(end.position)),
+                    self.rho.value
+                )),
                 (Shape::Slot(SlotMode::Arc), [center, start, end]) => {
                     let (first, last) = arc_ends(self.counter_clockwise(), *start, *end);
 
@@ -1607,6 +1650,50 @@ impl Drawing {
 
     pub fn last_placed(&self) -> Option<Point2> {
         self.placed.last().map(|placement| placement.position)
+    }
+
+    pub fn width_target(&self) -> Option<WidthTarget> {
+        let (_, shape) = self.current()?;
+        match (shape, self.placed.as_slice()) {
+            (Shape::Rectangle(RectangleMode::ThreePoints), [first, second]) => {
+                let across = (second.position - first.position).try_normalize()?.perp();
+                Some(WidthTarget::Perpendicular {
+                    origin: second.position,
+                    across,
+                    scale: 1.0,
+                })
+            }
+            (Shape::Slot(SlotMode::Ends), [first, second]) => {
+                let across = (second.position - first.position).try_normalize()?.perp();
+                Some(WidthTarget::Perpendicular {
+                    origin: second.position,
+                    across,
+                    scale: 0.5,
+                })
+            }
+            (Shape::Slot(SlotMode::Center), [center, end]) => {
+                let across = (end.position - center.position).try_normalize()?.perp();
+                Some(WidthTarget::Perpendicular {
+                    origin: end.position,
+                    across,
+                    scale: 0.5,
+                })
+            }
+            (Shape::Slot(SlotMode::Arc), [center, start, _]) => Some(WidthTarget::Radial {
+                center: center.position,
+                radius: center.position.distance(start.position),
+                scale: 0.5,
+            }),
+            (Shape::Ellipse | Shape::EllipticalArc, [center, axis]) => {
+                let across = (axis.position - center.position).try_normalize()?.perp();
+                Some(WidthTarget::Perpendicular {
+                    origin: center.position,
+                    across,
+                    scale: 1.0,
+                })
+            }
+            _ => None,
+        }
     }
 
     pub fn pointer_position(&self) -> Option<Point2> {
@@ -1760,6 +1847,10 @@ impl Drawing {
     }
 
     pub fn type_dimensioned(&mut self, sketch: &Sketch, placed: Placed) {
+        let prior = self
+            .pointed
+            .as_ref()
+            .map_or(self.hover, |pointed| pointed.hover);
         let along_heading = self
             .active_heading()
             .filter(|heading| {
@@ -1769,13 +1860,31 @@ impl Drawing {
             .unwrap_or_default();
         let mut dimensions = placed.dimensions;
 
-        if !dimensions.is_empty() {
-            dimensions.extend(along_heading);
-        }
+        dimensions.extend(along_heading);
         self.type_point(sketch, placed.position);
+
+        let last = self.last_placed();
+
+        if let Some(hover) = &mut self.hover
+            && hover.snap == Snap::Free
+            && let Some(last) = last
+            && let Some(direction) =
+                prior.and_then(|prior| aligned_direction(prior, last, hover.position))
+            && let Some(along) = direction.along(sketch)
+        {
+            let drawn = hover.position - last;
+            let length = drawn.length();
+
+            if length >= DEGENERATE_LENGTH && along.perp_dot(drawn).abs() <= HELD_TOLERANCE * length
+            {
+                hover.snap = Snap::Aligned(direction);
+            }
+        }
         self.typed_hover = self
             .hover
-            .filter(|hover| hover.snap == Snap::Free && !dimensions.is_empty())
+            .filter(|hover| {
+                matches!(hover.snap, Snap::Free | Snap::Aligned(_)) && !dimensions.is_empty()
+            })
             .map(|hover| TypedMark {
                 position: hover.position,
                 dimensions,
@@ -2267,7 +2376,7 @@ impl Drawing {
                     shapes::rectangle_on_side(first.position, second.position, placement.position)
                         .ok_or(Refusal::RectangleWidth)?;
                 draft(shape.name()).map(|mut draft| {
-                    draft.rectangle_on_side(first, second, corners);
+                    draft.rectangle_on_side(first, second, corners, placement.position);
                     draft
                 })
             }
@@ -2388,7 +2497,7 @@ impl Drawing {
                 let slot = Slot::new(first.position, second.position, placement.position)
                     .ok_or(Refusal::SlotWidth)?;
                 draft(shape.name()).map(|mut draft| {
-                    draft.slot(first, second, &slot);
+                    draft.slot(first, second, &slot, placement.position);
                     draft
                 })
             }
@@ -2402,7 +2511,7 @@ impl Drawing {
                 let slot = Slot::new(mirrored, end.position, placement.position)
                     .ok_or(Refusal::SlotWidth)?;
                 draft(shape.name()).map(|mut draft| {
-                    draft.centered_slot(center, end, &slot);
+                    draft.centered_slot(center, end, &slot, placement.position);
                     draft
                 })
             }
@@ -2428,7 +2537,7 @@ impl Drawing {
                 )
                 .ok_or(Refusal::ArcSlotWidth)?;
                 draft(shape.name()).map(|mut draft| {
-                    draft.arc_slot(center, [first, last], &slot);
+                    draft.arc_slot(center, [first, last], &slot, placement.position);
                     draft
                 })
             }
@@ -2442,7 +2551,7 @@ impl Drawing {
                     shapes::ellipse_through(center.position, axis.position, placement.position)
                         .ok_or(Refusal::EllipseWidth)?;
                 draft(shape.name()).map(|mut draft| {
-                    draft.ellipse(center, axis, ellipse.minor_radius);
+                    draft.ellipse(center, axis, ellipse.minor_radius, placement.position);
                     draft
                 })
             }
@@ -2471,7 +2580,13 @@ impl Drawing {
                 draft(shape.name()).map(|mut draft| {
                     let (first, last) = arc_ends(counter_clockwise, start, end);
 
-                    draft.elliptical_arc(center, axis, ellipse.minor_radius, [first, last]);
+                    draft.elliptical_arc(
+                        center,
+                        axis,
+                        ellipse.minor_radius,
+                        width.position,
+                        [first, last],
+                    );
                     draft
                 })
             }
@@ -2527,11 +2642,11 @@ impl Drawing {
             }
         };
 
+        let typed = std::mem::take(&mut self.typed);
+
         if shape != Shape::Point {
             self.cancel();
         }
-
-        let typed = std::mem::take(&mut self.typed);
         Ok(finished.map(|draft| draft.finish(&typed)))
     }
 
@@ -3708,6 +3823,46 @@ fn placed_first(corners: &[Point2], placed: &[Placement]) -> Vec<Placement> {
         .collect()
 }
 
+enum SizedTarget {
+    Radius {
+        at: Point2,
+        entity: EntityId,
+    },
+    Diameter {
+        at: Point2,
+        entity: EntityId,
+    },
+    MinorRadius {
+        at: Point2,
+        ellipse: EntityId,
+    },
+    Distance {
+        at: Point2,
+        from: EntityId,
+        to: EntityId,
+    },
+}
+
+impl SizedTarget {
+    fn at(&self) -> Point2 {
+        match *self {
+            Self::Radius { at, .. }
+            | Self::Diameter { at, .. }
+            | Self::MinorRadius { at, .. }
+            | Self::Distance { at, .. } => at,
+        }
+    }
+
+    fn constraint(&self, value: Expression) -> Constraint {
+        match *self {
+            Self::Radius { entity, .. } => Constraint::Radius { entity, value },
+            Self::Diameter { entity, .. } => Constraint::Diameter { entity, value },
+            Self::MinorRadius { ellipse, .. } => Constraint::MinorRadius { ellipse, value },
+            Self::Distance { from, to, .. } => Constraint::Distance { from, to, value },
+        }
+    }
+}
+
 struct Draft<'a> {
     model: &'a Model,
     feature: FeatureId,
@@ -3716,6 +3871,7 @@ struct Draft<'a> {
     construction: bool,
     bodies: Arc<BodySnaps>,
     projected: Vec<(usize, EntityId)>,
+    sized: Vec<SizedTarget>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3752,6 +3908,7 @@ impl<'a> Draft<'a> {
             construction,
             bodies,
             projected: Vec::new(),
+            sized: Vec::new(),
         })
     }
 
@@ -3763,6 +3920,25 @@ impl<'a> Draft<'a> {
     }
 
     fn dimension(&mut self, mark: &TypedMark) {
+        let sized: Vec<Constraint> = self
+            .sized
+            .iter()
+            .filter(|target| target.at().distance(mark.position) <= TYPED_TOLERANCE)
+            .flat_map(|target| {
+                mark.dimensions
+                    .iter()
+                    .filter(|dimension| dimension.measured == Measured::Length)
+                    .map(|dimension| target.constraint(dimension.value.clone()))
+            })
+            .collect();
+
+        if !sized.is_empty() {
+            for constraint in sized {
+                self.constrain(constraint);
+            }
+            return;
+        }
+
         let Some(point) = self.newest_point_at(mark.position) else {
             return;
         };
@@ -4063,7 +4239,13 @@ impl<'a> Draft<'a> {
         }
     }
 
-    fn rectangle_on_side(&mut self, first: Placement, second: Placement, corners: [Point2; 4]) {
+    fn rectangle_on_side(
+        &mut self,
+        first: Placement,
+        second: Placement,
+        corners: [Point2; 4],
+        width_at: Point2,
+    ) {
         let [_, _, third, fourth] = corners;
 
         let sides = self.joined_outline(&[
@@ -4084,6 +4266,11 @@ impl<'a> Draft<'a> {
         if let Some(direction) = second.snap.direction() {
             self.constrain(direction.constraint(base.curve));
         }
+        self.sized.push(SizedTarget::Distance {
+            at: width_at,
+            from: next.start,
+            to: next.end,
+        });
     }
 
     fn circle(&mut self, center: Placement, rim: Placement) {
@@ -4091,12 +4278,17 @@ impl<'a> Draft<'a> {
         let center = self.point(center);
 
         let circle = self.entity(Entity::Circle { center, radius });
+
         if let Some(point) = self.point_of(rim.snap) {
             self.constrain(Constraint::Coincident(point, circle));
         }
+        self.sized.push(SizedTarget::Radius {
+            at: rim.position,
+            entity: circle,
+        });
     }
 
-    fn circle_through(&mut self, circle: ArcGeometry, on: &[Placement]) -> EntityId {
+    fn circle_through(&mut self, circle: ArcGeometry, on: &[Placement]) -> (EntityId, EntityId) {
         let center = self.entity(Entity::Point(circle.center));
         let id = self.entity(Entity::Circle {
             center,
@@ -4110,24 +4302,28 @@ impl<'a> Draft<'a> {
         for point in points {
             self.constrain(Constraint::Coincident(point, id));
         }
-        center
+        (center, id)
     }
 
     fn circle_on_diameter(&mut self, first: Placement, second: Placement, circle: ArcGeometry) {
-        match (self.point_of(first.snap), self.point_of(second.snap)) {
+        let circle = match (self.point_of(first.snap), self.point_of(second.snap)) {
             (Some(one_end), Some(other_end)) => {
-                let center = self.circle_through(circle, &[first]);
+                let (center, id) = self.circle_through(circle, &[first]);
 
                 self.constrain(Constraint::Symmetric {
                     first: one_end,
                     second: other_end,
                     about: center,
                 });
+                id
             }
-            _ => {
-                self.circle_through(circle, &[first, second]);
-            }
-        }
+            _ => self.circle_through(circle, &[first, second]).1,
+        };
+
+        self.sized.push(SizedTarget::Diameter {
+            at: second.position,
+            entity: circle,
+        });
     }
 
     fn arc(
@@ -4163,15 +4359,21 @@ impl<'a> Draft<'a> {
         }
     }
 
-    fn ellipse(&mut self, center: Placement, axis: Placement, minor_radius: f64) {
+    fn ellipse(&mut self, center: Placement, axis: Placement, minor_radius: f64, width_at: Point2) {
         let center_point = self.point(center);
         let major = self.point(axis);
 
         self.level(center_point, major, axis);
-        self.entity(Entity::Ellipse {
+
+        let ellipse = self.entity(Entity::Ellipse {
             center: center_point,
             major,
             minor_radius,
+        });
+
+        self.sized.push(SizedTarget::MinorRadius {
+            at: width_at,
+            ellipse,
         });
     }
 
@@ -4180,6 +4382,7 @@ impl<'a> Draft<'a> {
         center: Placement,
         axis: Placement,
         minor_radius: f64,
+        width_at: Point2,
         [start, end]: [Point2; 2],
     ) {
         let center_point = self.point(center);
@@ -4190,12 +4393,17 @@ impl<'a> Draft<'a> {
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
 
-        self.entity(Entity::EllipticalArc {
+        let ellipse = self.entity(Entity::EllipticalArc {
             center: center_point,
             major,
             minor_radius,
             start,
             end,
+        });
+
+        self.sized.push(SizedTarget::MinorRadius {
+            at: width_at,
+            ellipse,
         });
     }
 
@@ -4270,7 +4478,13 @@ impl<'a> Draft<'a> {
         }
     }
 
-    fn slot(&mut self, first: Placement, second: Placement, slot: &Slot) -> [EntityId; 2] {
+    fn slot(
+        &mut self,
+        first: Placement,
+        second: Placement,
+        slot: &Slot,
+        width_at: Point2,
+    ) -> [EntityId; 2] {
         let first_center = self.point(first);
         let second_center = self.point(second);
         let [a, b, c, d] = slot.corners();
@@ -4298,12 +4512,16 @@ impl<'a> Draft<'a> {
         if let Some(direction) = second.snap.direction() {
             self.constrain(direction.constraint(top.curve));
         }
+        self.sized.push(SizedTarget::Diameter {
+            at: width_at,
+            entity: first_end.curve,
+        });
         [first_center, second_center]
     }
 
-    fn centered_slot(&mut self, center: Placement, end: Placement, slot: &Slot) {
+    fn centered_slot(&mut self, center: Placement, end: Placement, slot: &Slot, width_at: Point2) {
         let [mirrored, _] = slot.centers;
-        let [first, second] = self.slot(Placement::free(mirrored), end, slot);
+        let [first, second] = self.slot(Placement::free(mirrored), end, slot, width_at);
         let about = self.point(center);
 
         self.constrain(Constraint::Symmetric {
@@ -4313,7 +4531,13 @@ impl<'a> Draft<'a> {
         });
     }
 
-    fn arc_slot(&mut self, center: Placement, ends: [Placement; 2], slot: &ArcSlot) {
+    fn arc_slot(
+        &mut self,
+        center: Placement,
+        ends: [Placement; 2],
+        slot: &ArcSlot,
+        width_at: Point2,
+    ) {
         let center = self.point(center);
         let [first, last] = ends;
         let [first_position, last_position] = slot.ends;
@@ -4351,6 +4575,10 @@ impl<'a> Draft<'a> {
                 (last_end.curve, inner.curve),
             ],
         );
+        self.sized.push(SizedTarget::Diameter {
+            at: width_at,
+            entity: first_end.curve,
+        });
     }
 
     fn regular_polygon(&mut self, center: Placement, corners: &[Placement]) -> Option<Polygon> {
@@ -4403,6 +4631,10 @@ impl<'a> Draft<'a> {
                 curve: polygon.first.curve,
             });
         }
+        self.sized.push(SizedTarget::Radius {
+            at: middle.position,
+            entity: inscribed,
+        });
     }
 
     fn polygon_on_side(

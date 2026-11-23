@@ -853,16 +853,21 @@ impl Sketch {
         }
     }
 
-    fn cutters(&self, excluding: EntityId) -> impl Iterator<Item = (EntityId, Cutter)> + '_ {
-        let shapes = self
-            .entities()
+    fn shape_cutters(&self, excluding: EntityId) -> impl Iterator<Item = (EntityId, Cutter)> + '_ {
+        self.entities()
             .filter(move |(id, _)| *id != excluding)
-            .filter_map(|(id, _)| Some((id, Cutter::Shape(self.shape_of(id)?))));
-        let axes = [
+            .filter_map(|(id, _)| Some((id, Cutter::Shape(self.shape_of(id)?))))
+    }
+
+    fn axis_cutters() -> [(EntityId, Cutter); 2] {
+        [
             (EntityId::HORIZONTAL_AXIS, Cutter::Axis(Vector2::X)),
             (EntityId::VERTICAL_AXIS, Cutter::Axis(Vector2::Y)),
-        ];
-        shapes.chain(axes)
+        ]
+    }
+
+    fn cutters(&self, excluding: EntityId) -> impl Iterator<Item = (EntityId, Cutter)> + '_ {
+        self.shape_cutters(excluding).chain(Self::axis_cutters())
     }
 
     fn trim_course(&self, curve: EntityId) -> Result<Course, TrimError> {
@@ -919,11 +924,15 @@ impl Sketch {
         Ok(course)
     }
 
-    fn cuts(&self, curve: EntityId, course: &Course) -> Vec<Cut> {
+    fn collect_cuts(
+        &self,
+        course: &Course,
+        cutters: impl Iterator<Item = (EntityId, Cutter)>,
+    ) -> Vec<Cut> {
         let span = course.span();
         let mut cuts: Vec<Cut> = Vec::new();
 
-        for (cutter, shape) in self.cutters(curve) {
+        for (cutter, shape) in cutters {
             let tolerance = TOLERANCE * course.extent().max(shape.extent());
             let slack = course.slack(tolerance);
             for position in shape.cut_positions(course, tolerance) {
@@ -939,6 +948,15 @@ impl Sketch {
                     });
                 }
             }
+        }
+        cuts
+    }
+
+    fn cuts(&self, curve: EntityId, course: &Course) -> Vec<Cut> {
+        let mut cuts = self.collect_cuts(course, self.shape_cutters(curve));
+
+        if cuts.is_empty() {
+            cuts = self.collect_cuts(course, Self::axis_cutters().into_iter());
         }
         cuts.sort_by(|a, b| a.parameter.total_cmp(&b.parameter));
 

@@ -751,6 +751,7 @@ fn a_slot_has_round_ends_of_one_radius_tangent_to_its_sides() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     harness.use_tool(Key::U);
 
     assert!(harness.shows("Click the centre of the slot's first end"));
@@ -854,6 +855,7 @@ fn a_polygon_is_regular_with_as_many_sides_as_chosen() {
 
     assert!(harness.shows("Click the square's centre"));
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     type_point(&mut harness, "5, 5");
 
     assert!(harness.shows("Click a corner of the square"));
@@ -1100,6 +1102,7 @@ fn a_rectangle_from_its_centre_stays_centred_on_it() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     harness.use_tool(Key::R);
     harness.use_tool(Key::R);
 
@@ -1133,6 +1136,7 @@ fn a_rectangle_from_three_points_turns_with_its_first_side_and_stays_square() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     harness.use_tool(Key::R);
     harness.use_tool(Key::R);
     harness.use_tool(Key::R);
@@ -1316,6 +1320,7 @@ fn a_polygon_drawn_from_one_side_lies_to_its_left() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     for _ in 0..3 {
         harness.use_tool(Key::G);
     }
@@ -1363,6 +1368,7 @@ fn a_slot_from_its_centre_stays_symmetric_about_it() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     harness.use_tool(Key::U);
     harness.use_tool(Key::U);
 
@@ -1415,6 +1421,7 @@ fn an_arc_slot_follows_its_arc_with_round_ends_tangent_to_both_sides() {
 
     let feature = harness.draw_on_new_sketch();
 
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
     for _ in 0..3 {
         harness.use_tool(Key::U);
     }

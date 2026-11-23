@@ -70,13 +70,6 @@ decision recorded in `docs/` before work starts.
   decimal-comma hint (`parse.rs`, `decimal_comma`) and `max(0,5)` is tested to parse. Decide
   whether typed text with a comma between digits and no space inside parentheses is refused as
   `DecimalComma`; stored text always writes `, `, so files are unaffected.
-- [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
-  centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
-  the quarter between a tangent line's touching point and the axis when its inside is picked: the
-  first click leaves an arc ending on the axis, held there by a `Coincident` with it, and a second
-  click takes the rest. The same slot drawn off the axis trims in one click per end with every end
-  joined to its line. Open decision for `trim.rs`: whether an axis should cut only a curve that no
-  other curve cuts, or never.
 - [low · medium] Open decision on kept measurements: a failed or suppressed measurement fails the
   features using its value, as a failing feature's dependents do; whether they should instead keep
   its last reading (the measured parameter's stored value already holds it) is undecided.

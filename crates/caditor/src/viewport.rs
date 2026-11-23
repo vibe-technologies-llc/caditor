@@ -1707,6 +1707,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
+            self.annotation_context_click(model, editing);
             self.decorate(ui, rect, model, editing, &key_hints);
         });
         if self.start_card.take_stop_asked() {
@@ -3766,13 +3767,13 @@ impl ViewportState {
         let letting_go = pickable.is_some_and(|pickable| self.selection.contains(pickable));
 
         if dimensioning::awaits_placement(&staged.shown, &staged.picks) && !letting_go {
-            self.place_dimension(model, feature, &staged, actions);
+            self.place_dimension(model, feature, &staged, true, actions);
             return;
         }
 
         let Some(pickable) = pickable else {
             if !staged.picks.is_empty() {
-                self.place_dimension(model, feature, &staged, actions);
+                self.place_dimension(model, feature, &staged, true, actions);
             }
             return;
         };
@@ -3797,7 +3798,7 @@ impl ViewportState {
                 if staged.picks.len() > 1
                     && !dimensioning::awaits_placement(&staged.shown, &staged.picks) =>
             {
-                self.place_dimension(model, feature, &staged, actions);
+                self.place_dimension(model, feature, &staged, false, actions);
             }
             dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {
                 self.selection.toggle(pickable);
@@ -3819,7 +3820,7 @@ impl ViewportState {
                 if staged.picks.len() > 1
                     && !dimensioning::awaits_placement(&staged.shown, &staged.picks) =>
             {
-                self.place_dimension(model, feature, &staged, actions);
+                self.place_dimension(model, feature, &staged, false, actions);
             }
             dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {}
         }
@@ -3851,9 +3852,10 @@ impl ViewportState {
         model: &Model,
         feature: FeatureId,
         staged: &Staged,
+        place_label: bool,
         actions: &mut Vec<Action>,
     ) {
-        match dimensioning::dimension(model, feature, staged, self.sketch_cursor) {
+        match dimensioning::dimension(model, feature, staged, self.sketch_cursor, place_label) {
             Ok(added) => self.dimension_added(feature, added, actions),
             Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
         }
@@ -5174,12 +5176,16 @@ impl ViewportState {
         let from = typed_point::From {
             last: self.drawing.last_placed(),
             toward: self.drawing.pointer_position(),
+            width: self.drawing.width_target(),
         };
 
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             typed_point::FIELD_LABEL,
             &hint,
             typed_point::POINT_PLACEHOLDER,
@@ -5373,8 +5379,11 @@ impl ViewportState {
 
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             &typing.label,
             &hint,
             typing.placeholder(),
@@ -5450,8 +5459,11 @@ impl ViewportState {
 
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             field.label,
             &hint,
             &placeholder,
@@ -5487,8 +5499,11 @@ impl ViewportState {
 
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             typed_point::MOVE_LABEL,
             &hint,
             typed_point::POINT_PLACEHOLDER,
@@ -5507,6 +5522,7 @@ impl ViewportState {
             let from = typed_point::From {
                 last: Some(fresh.anchor),
                 toward: None,
+                width: None,
             };
             let target = typed_point::parse(model, &typed.text, from)?;
             Ok(fresh.to(target))
@@ -5541,8 +5557,11 @@ impl ViewportState {
 
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             typed_point::MOVE_LABEL,
             &hint,
             typed_point::POINT_PLACEHOLDER,
@@ -5559,6 +5578,7 @@ impl ViewportState {
         let from = typed_point::From {
             last: Some(moving.place.at),
             toward: None,
+            width: None,
         };
         match typed_point::parse(model, &typed.text, from) {
             Ok(target) => actions.push(Action::Apply(moving.transaction(model, target))),
@@ -5588,8 +5608,11 @@ impl ViewportState {
 
         let typed = self.typed_point.show(
             ui.ctx(),
-            top_band(rect, self.cube_area(rect), self.display_area),
-            anchor,
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
             field.label,
             field.hint,
             field.placeholder,
@@ -5661,7 +5684,7 @@ impl ViewportState {
             } else if let Some(ended) = self.drawing.finish(model) {
                 actions.extend(ended_action(ended));
             } else if let Some((feature, staged)) = self.picked_dimension(model) {
-                match dimensioning::dimension(model, feature, &staged, None) {
+                match dimensioning::dimension(model, feature, &staged, None, false) {
                     Ok(added) => self.dimension_added(feature, added, actions),
                     Err(reason) => {
                         actions.push(Action::Inform(Notice::warning(reason.to_string())))
@@ -5730,6 +5753,18 @@ impl ViewportState {
         }
         if commands.invoke(Command::CancelShape, &started) {
             self.drawing.cancel();
+        }
+    }
+
+    fn annotation_context_click(&mut self, model: &Model, editing: &SketchEditing) {
+        if let Some((pos, pickable)) = self.annotations.take_secondary_click()
+            && let Some(rect) = self.rect
+        {
+            let offset = (pos - rect.min) * self.pixels_per_point;
+            let cursor = Vector2::new(f64::from(offset.x), f64::from(offset.y));
+
+            self.menu_waits_for_pick = None;
+            self.open_menu(cursor, Some(pickable), true, model, editing);
         }
     }
 
@@ -6097,6 +6132,47 @@ impl ViewportState {
 
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);
+        if self.dimensioning == Some(feature) {
+            self.paint_dimension_preview(ui, model, &surface, feature);
+        }
+    }
+
+    fn paint_dimension_preview(
+        &self,
+        ui: &egui::Ui,
+        model: &Model,
+        surface: &Surface<'_>,
+        feature: FeatureId,
+    ) {
+        let Ok(staged) = self.staged_picks(model, feature, None) else {
+            return;
+        };
+        let hovered = self.hovered.filter(|hovered| match hovered {
+            Pickable::SketchEntity { feature: owner, .. } => *owner == feature,
+            Pickable::BodyItem { sketch, .. } => *sketch == feature,
+            _ => false,
+        });
+
+        let placing = dimensioning::awaits_placement(&staged.shown, &staged.picks)
+            || hovered.is_none_or(|pick| self.selection.contains(pick));
+
+        let (candidate, label_at) = if placing {
+            let constraint = dimensioning::preview_constraint(model, &staged, self.sketch_cursor);
+            (constraint.map(|c| (staged.shown, c)), self.sketch_cursor)
+        } else if let Some(pick) = hovered
+            && let Ok(paired) = self.staged_picks(model, feature, Some(pick))
+        {
+            let constraint = dimensioning::preview_constraint(model, &paired, self.sketch_cursor);
+            let label = dimensioning::awaits_placement(&paired.shown, &paired.picks)
+                .then_some(self.sketch_cursor)
+                .flatten();
+            (constraint.map(|c| (paired.shown, c)), label)
+        } else {
+            (None, None)
+        };
+        if let Some((shown, constraint)) = candidate {
+            Annotations::paint_preview(ui, model, surface, &shown, &constraint, label_at);
+        }
     }
 
     fn dimension_subjects(&self, model: &Model, editing: &SketchEditing) -> Vec<FeatureId> {

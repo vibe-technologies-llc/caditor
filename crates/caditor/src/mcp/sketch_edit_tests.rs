@@ -290,7 +290,7 @@ fn trimming_cuts_pieces_back_to_their_crossings_in_one_undo_step() {
     assert!(
         spans
             .iter()
-            .any(|(from, to)| near(*from, [3.0, 0.0]) && near(*to, [3.0, 10.0])),
+            .any(|(from, to)| near(*from, [3.0, 5.0]) && near(*to, [3.0, 10.0])),
         "{spans:?}"
     );
 

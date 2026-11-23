@@ -131,7 +131,7 @@ fn a_rho_typed_from_a_parameter_keeps_the_conic_driven_by_it() {
     harness.click_at(Point2::new(50.0, 10.0));
     type_point(&mut harness, "(bulge) rho");
 
-    assert!(harness.shows("rho 0.40"));
+    assert!(harness.shows_containing("rho 0.40"));
 
     harness.click_at(Point2::new(30.0, 40.0));
 

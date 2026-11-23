@@ -526,6 +526,13 @@ fn model_space(ui: &mut Ui, entries: &mut MenuEntries<'_>, selected: bool) {
 fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
     if on_item {
         constraints(ui, entries);
+
+        let toggle_title = entries
+            .detail(Command::ToggleConstraintActive)
+            .map(str::to_owned)
+            .unwrap_or_else(|| Command::ToggleConstraintActive.title());
+
+        entries.offered(ui, Command::ToggleConstraintActive, &toggle_title);
         entries.titled_item(ui, Command::Construction, CONSTRUCTION);
         entries.offered(ui, Command::SplitCurve, "Split the curve here");
         entries.offered(

@@ -1571,3 +1571,31 @@ fn extending_a_line_keeps_its_midpoint_as_a_point_on_it() {
 
     assert_solves_in_place(&sketch);
 }
+
+#[test]
+fn a_circle_centred_on_an_axis_and_crossed_by_tangent_lines_trims_in_one_piece() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let circle = sketch.add_circle(Point2::ZERO, 10.0);
+    let top = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(30.0, 10.0));
+    let bottom = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(30.0, -10.0));
+
+    let pieces = sketch.trim_pieces(circle).unwrap();
+
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(
+        sketch.trim(circle, Point2::new(10.0, 0.0)),
+        Ok(Trimmed::Opened)
+    );
+
+    let arc = sketch.arc(circle).unwrap();
+
+    assert!((arc.sweep - std::f64::consts::PI).abs() < 1e-6);
+    assert!(
+        pieces
+            .iter()
+            .all(|piece| piece.cutters().contains(&top) || piece.cutters().contains(&bottom))
+    );
+
+    assert_solves_in_place(&sketch);
+}

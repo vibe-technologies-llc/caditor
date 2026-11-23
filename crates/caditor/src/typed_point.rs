@@ -12,8 +12,8 @@ use egui::{
 
 use crate::{
     appearance::{self, SPACE_M, SPACE_SM},
-    canvas,
-    field::{self, Expected, ExpressionError},
+    canvas, completion,
+    field::{self, Assist, Expected, ExpressionError},
     icons,
     model::Model,
     sketch_drag::Transform,
@@ -58,10 +58,68 @@ const LENGTH_LOCK_ABOVE_ZERO: &str = "A held length must be above zero";
 const HEADING_NEEDS_A_POINT: &str = "An angle alone sets the direction from the last placed point: place a point first, or type \
      length < angle";
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WidthTarget {
+    Perpendicular {
+        origin: Point2,
+        across: Vector2,
+        scale: f64,
+    },
+    Radial {
+        center: Point2,
+        radius: f64,
+        scale: f64,
+    },
+}
+
+impl WidthTarget {
+    fn origin(self) -> Point2 {
+        match self {
+            Self::Perpendicular { origin, .. } => origin,
+            Self::Radial { center, .. } => center,
+        }
+    }
+
+    fn place(self, toward: Option<Point2>, length: f64) -> Result<Point2, TypedPointError> {
+        let toward = toward.ok_or(TypedPointError::NoDirection)?;
+        match self {
+            Self::Perpendicular {
+                origin,
+                across,
+                scale,
+            } => {
+                let side = if across.dot(toward - origin) < 0.0 {
+                    -1.0
+                } else {
+                    1.0
+                };
+                Ok(origin + across * (side * length * scale))
+            }
+            Self::Radial {
+                center,
+                radius,
+                scale,
+            } => {
+                let direction = (toward - center)
+                    .try_normalize()
+                    .ok_or(TypedPointError::NoDirection)?;
+                let sign = if toward.distance(center) < radius {
+                    -1.0
+                } else {
+                    1.0
+                };
+                let reach = (radius + sign * length * scale).max(0.0);
+                Ok(center + direction * reach)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct From {
     pub last: Option<Point2>,
     pub toward: Option<Point2>,
+    pub width: Option<WidthTarget>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -332,8 +390,8 @@ impl TypedPoint {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
-        bounds: Rect,
-        anchor: Pos2,
+        model: &Model,
+        (bounds, anchor): (Rect, Pos2),
         label: &str,
         hint: &str,
         placeholder: &str,
@@ -356,6 +414,8 @@ impl TypedPoint {
             false => (canvas::chrome(ctx).text, hint),
         };
         let inner_width = (bounds.width() - FRAME_MARGIN.sum().x).max(FIELD_WIDTH);
+        let mut held = false;
+        let mut assisted = false;
 
         let response = Area::new(id.with("area"))
             .order(Order::Foreground)
@@ -366,22 +426,36 @@ impl TypedPoint {
                 canvas_frame(ctx).show(ui, |ui| {
                     ui.set_max_width(inner_width);
 
+                    let assist = Assist::begin(ui, id, text, !waiting);
+                    let popup_open = assist.popup_open;
+
+                    assisted = assist.changed;
+
+                    let preview = (!waiting).then(|| live_preview(model, text)).flatten();
                     let field = ui
                         .horizontal(|ui| {
                             canvas_text(ui, label, label_color);
-                            widgets::text_field(ui, |ui| {
+
+                            let field = widgets::text_field(ui, |ui| {
                                 let field = TextEdit::singleline(text)
                                     .id(id)
                                     .desired_width(FIELD_WIDTH)
-                                    .hint_text(placeholder);
+                                    .hint_text(placeholder)
+                                    .event_filter(completion::filter(popup_open));
                                 ui.add(match waiting {
                                     true => field.text_color(appearance::tokens(ui).text_muted),
                                     false => field,
                                 })
-                            })
+                            });
+
+                            if let Some(preview) = &preview {
+                                canvas_text(ui, preview, canvas::chrome(ui.ctx()).muted);
+                            }
+                            field
                         })
                         .inner;
 
+                    held = assist.finish(ui, &field, text);
                     ui.add_space(HINT_GAP);
 
                     let hints = canvas::Hints::bare(
@@ -422,13 +496,13 @@ impl TypedPoint {
             field.request_focus();
             self.focus_pending = false;
         }
-        if field.changed() {
+        if field.changed() || assisted {
             self.error = None;
         }
-        if field.has_focus() {
+        if field.has_focus() || held {
             self.waiting = false;
         }
-        if !field.lost_focus() {
+        if held || !field.lost_focus() {
             return None;
         }
 
@@ -452,6 +526,33 @@ impl TypedPoint {
         self.waiting = true;
         None
     }
+}
+
+fn has_formula(text: &str) -> bool {
+    let trimmed = text.trim();
+    let without_sign = trimmed.strip_prefix('-').unwrap_or(trimmed);
+    without_sign.chars().any(|character| {
+        character.is_alphabetic() || matches!(character, '_' | '+' | '-' | '*' | '/' | '(')
+    })
+}
+
+fn live_preview(model: &Model, raw: &str) -> Option<String> {
+    let text = value_text(raw);
+    let body = text.strip_prefix(RELATIVE_MARK).unwrap_or(text).trim();
+
+    if body.is_empty() || !has_formula(body) {
+        return None;
+    }
+    if coordinates(body).len() > 1 || polar(body).len() > 1 {
+        return None;
+    }
+    if sides(body).is_some() || degree(body).is_some() || rho(model, body).is_some() {
+        return None;
+    }
+
+    let parsed = model.document().parse(body).ok()?;
+    let evaluated = model.parameters().evaluate_expression(&parsed).ok()?;
+    Some(format!("= {}", model.units().show(evaluated)))
 }
 
 fn canvas_frame(ctx: &egui::Context) -> Frame {
@@ -716,10 +817,23 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Typ
         None => (false, text),
     };
     let alone = coordinates(text).len() == 1 && polar(text).len() == 1;
-    let (offset, typed) = offset(model, text, from)?;
 
-    let measured_from = if relative || alone { from.last } else { None };
-    let point = measured_from.unwrap_or(Point2::ZERO) + offset;
+    let (point, measured_from, typed) = if alone
+        && !relative
+        && let Some(width) = from.width
+    {
+        let length = typed_value(model, text, DISTANCE, Measured::Length)?;
+        let point = width.place(from.toward, length.value)?;
+        (point, Some(width.origin()), vec![length])
+    } else {
+        let (offset, typed) = offset(model, text, from)?;
+        let measured_from = if relative || alone { from.last } else { None };
+        (
+            measured_from.unwrap_or(Point2::ZERO) + offset,
+            measured_from,
+            typed,
+        )
+    };
 
     if point.abs().max_element() > MAX_LENGTH {
         return Err(TypedPointError::PointTooFar { limit: MAX_LENGTH });
@@ -790,6 +904,7 @@ mod tests {
         let from = From {
             last: Some(last),
             toward: None,
+            width: None,
         };
 
         let absolute = heading(&model, "<30", from).and_then(Result::ok);
@@ -817,6 +932,7 @@ mod tests {
         let from = From {
             last: Some(last),
             toward: None,
+            width: None,
         };
 
         let held = length_lock(&model, "12 <", from).and_then(Result::ok);
