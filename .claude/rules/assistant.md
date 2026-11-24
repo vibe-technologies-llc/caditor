@@ -57,7 +57,12 @@ Pure-Rust streaming LLM client crate with no UI or CAD dependency, built on the 
   `widgets::well`s; the provider and model combos are named (`PROVIDER`, `MODEL`); the busy
   transcript shows progress without its own Cancel, the composer's Stop being the one control;
   Enter in the composer is always taken (sending only when it can) and the hint wraps beside Send
-  at any size; disabled controls say why on hover. It is a `guide::SidePanel`, so F1 opens the
-  Assistants page while it is open.
+  at any size; disabled controls say why on hover. Each message ends in Copy this message
+  (`COPY_MESSAGE`, a success notice once copied), at its end rather than its header so the newest
+  reply's stays in view while the transcript follows the end; a reply's lines lay out `**strong**`
+  in semibold and `` `code` `` in monospace on `sunken` (`inline_spans`, an unclosed marker
+  staying text); the transcript scrolls with `widgets::panel_scroll_following_the_end`, so it
+  follows new text while the reader is at its end and stays put once they scroll up. It is a
+  `guide::SidePanel`, so F1 opens the Assistants page while it is open.
 - `preferences/assistant.rs` holds non-secret assistant settings under `Section::Assistant` in
   Preferences › General.

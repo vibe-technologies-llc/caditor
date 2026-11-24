@@ -1532,7 +1532,10 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
   its name switches to it, a double-click renames it), a column per
   configured value still in the model (named by `value_name`: the parameter, "<feature> suppressed",
   "<body> colour"). A parameter's cell is a `commit_field` taking an expression; a suppression a
-  checkbox; a colour a combo of the body colour swatches. Editing a cell of the active row edits the
+  checkbox; a colour a combo of the default colour, Custom colour… and the body colour swatches.
+  Custom colour… opens `colour_selector.rs` (`configurations::colour_selector_id`) in a card under
+  the table for that row and value (`ConfigurationsDraft::custom_colour`), each settled colour one
+  change, until Done. Editing a cell of the active row edits the
   model itself. Add configuration copies the live values (the first becomes active); Configure a value
   is disabled with `NOTHING_TO_CONFIGURE` on hover when every value is configured. Every change is
   one undoable transaction checked first; a refusal stays in the dialog as an error callout.

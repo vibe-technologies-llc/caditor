@@ -2,11 +2,12 @@ use caditor_document::{
     Configuration, ConfigurationId, ConfiguredValue, Document, EditError,
     MAX_CONFIGURATION_NAME_CHARS, Rgb, Setting, Transaction,
 };
-use egui::{Grid, Id, Key, Label, RichText, ScrollArea, Sense, TextEdit, Ui};
+use egui::{Grid, Id, Key, Label, RichText, ScrollArea, Sense, Sides, TextEdit, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    body_appearance::{DEFAULT_COLOUR_NAME, SWATCHES},
+    body_appearance::{CUSTOM_COLOUR_NAME, DEFAULT_COLOUR, DEFAULT_COLOUR_NAME, SWATCHES},
+    colour_selector,
     commands::Command,
     completion,
     field::{self, ExpressionError},
@@ -52,6 +53,63 @@ struct Renaming {
 pub struct ConfigurationsDraft {
     renaming: Option<Renaming>,
     problem: Option<String>,
+    custom_colour: Option<(ConfigurationId, ConfiguredValue)>,
+}
+
+pub fn colour_selector_id() -> Id {
+    Id::unique((DIALOG_ID, "custom colour"))
+}
+
+pub const CUSTOM_COLOUR_DONE: &str = "Done";
+
+fn custom_colour(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<Outcome> {
+    let (row, value) = draft.custom_colour?;
+    let document = model.document();
+
+    let Some(configuration) = document.configurations().row(row) else {
+        draft.custom_colour = None;
+        return None;
+    };
+    let selector = colour_selector_id();
+    let current = match document.configuration_setting(row, value) {
+        Some(Setting::Colour(Some(colour))) => colour,
+        _ => DEFAULT_COLOUR,
+    };
+    let title = format!("{} in {}", value_name(document, value), configuration.name);
+    let mut outcome = None;
+
+    ui.add_space(SPACE_M);
+    widgets::card(ui, |ui| {
+        Sides::new().show(
+            ui,
+            |ui| ui.label(widgets::section_title(&title)),
+            |ui| {
+                if ui.add(widgets::button(CUSTOM_COLOUR_DONE)).clicked() {
+                    draft.custom_colour = None;
+                }
+            },
+        );
+        if !colour_selector::is_open(ui, selector) {
+            colour_selector::toggle(ui, selector, current);
+        }
+        if let Some(colour) = colour_selector::show(ui, selector, current)
+            && colour != current
+        {
+            outcome = applying(
+                draft,
+                setting_change(
+                    document,
+                    configuration,
+                    value,
+                    Setting::Colour(Some(colour)),
+                ),
+            );
+        }
+    });
+    if draft.custom_colour.is_none() && colour_selector::is_open(ui, selector) {
+        colour_selector::toggle(ui, selector, current);
+    }
+    outcome
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -249,6 +307,9 @@ fn body(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<O
                 }
                 widgets::follow_keyboard_focus(ui);
             });
+    }
+    if let Some(chosen) = custom_colour(ui, model, draft) {
+        outcome = Some(chosen);
     }
     ui.add_space(SPACE_M);
     if let Some(added) = adding(ui, document, draft) {
@@ -478,6 +539,15 @@ fn cell(
                 .show(ui, |ui| {
                     if widgets::menu_option(ui, current.is_none(), DEFAULT_COLOUR_NAME).clicked() {
                         chosen = Some(None);
+                    }
+
+                    let custom = current.is_some_and(|colour| {
+                        SWATCHES.iter().all(|swatch| swatch.colour != colour)
+                    });
+                    let label = format!("{CUSTOM_COLOUR_NAME}…");
+
+                    if widgets::menu_option(ui, custom, &label).clicked() {
+                        draft.custom_colour = Some((row.id, value));
                     }
                     for swatch in &SWATCHES {
                         let picked = current == Some(swatch.colour);

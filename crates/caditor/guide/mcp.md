@@ -3,14 +3,14 @@
 caditor lets an AI assistant read, inspect and build parametric models through the Model Context
 Protocol (MCP) in two ways:
 
-1. **Inside the editor** through the built-in **AI assistant** chat panel (**Model › AI assistant**
-   or the command palette).
+1. **Inside the editor** through the built-in **AI assistant** chat panel (**View › Window and
+   interface › AI assistant** or the command palette).
 2. **Headless** through `caditor mcp MODEL`, serving one `.caditor` file over standard input and
    output to an external MCP client.
 
 ## Using the built-in AI assistant
 
-Open **Model › AI assistant** (or run `AI assistant` from the command palette) to dock the chat
+Open **View › Window and interface › AI assistant** (or run `AI assistant` from the command palette) to dock the chat
 panel beside the 3D view. You can switch between:
 
 - **API providers**: Claude (Anthropic API), Gemini (Google API), GPT (OpenAI API) and custom
@@ -27,7 +27,8 @@ Configure models, custom endpoints, API keys, local CLI paths and extra allowed 
 Every tool call from the built-in assistant runs directly against the live open model: the 3D
 viewport updates as each step finishes, every change lands in your **Undo history** and recovery
 journal, rendered views (`render_view`) appear inline in the chat, and you can stop a running turn
-at any time. Local CLI wrappers connect to the live window through an authenticated loopback MCP
+at any time. Replies show **bold** words and `code` as such, each message ends in a Copy button, and the
+chat follows the newest message unless you scroll up to read an earlier one. Local CLI wrappers connect to the live window through an authenticated loopback MCP
 bridge (`caditor mcp --connect <port>`).
 
 ## Connecting an external headless assistant

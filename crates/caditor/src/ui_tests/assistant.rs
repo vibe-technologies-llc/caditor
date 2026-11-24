@@ -94,6 +94,26 @@ impl CliBackend for FakeCli {
     }
 }
 
+const SCROLL_FRAMES: usize = 120;
+
+fn newest_copy_button(harness: &Harness) -> Option<egui::Pos2> {
+    harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == egui::accesskit::Role::Button
+                && node.label() == Some(crate::assistant_panel::COPY_MESSAGE)
+        })
+        .filter_map(|(_, node)| node.bounds())
+        .max_by(|a, b| a.y0.total_cmp(&b.y0))
+        .map(|bounds| {
+            egui::pos2(
+                ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        })
+}
+
 fn wait_for_assistant(harness: &mut Harness) {
     let deadline = Instant::now() + Duration::from_secs(10);
 
@@ -203,6 +223,37 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
                 .iter()
                 .any(|tool| tool.tool_name == "add_primitive")
     }));
+
+    harness.context.enable_accesskit();
+    harness.frame();
+
+    let mut shown = newest_copy_button(&harness);
+
+    for _ in 0..SCROLL_FRAMES {
+        harness.frame();
+
+        let now = newest_copy_button(&harness);
+
+        if now == shown {
+            break;
+        }
+        shown = now;
+    }
+
+    let resting = shown.expect("a message can be copied");
+
+    harness.click_steadily(resting, |harness| newest_copy_button(harness));
+    harness.frame();
+
+    let copied = harness.clipboard.clone().unwrap_or_default();
+
+    assert!(copied.contains("Done — created the box."), "{copied}");
+    assert!(
+        harness
+            .model
+            .recorded_notices()
+            .any(|recorded| recorded.notice.text == crate::assistant_panel::COPIED)
+    );
 
     harness.perform(Action::Undo);
     harness.settle();

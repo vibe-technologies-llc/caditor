@@ -38,6 +38,7 @@ pub fn text_inset() -> f32 {
 
 const SUGGESTING: &str = "suggesting";
 const CAPTION_DRAG: &str = "caption-drag";
+pub const CAPTION_DRAG_HOVER: &str = "Drag sideways to change; Ctrl finer, Shift coarser";
 const TENTHS_PER_STEP: f32 = 10.0;
 const FINE_TENTHS_PER_POINT: f32 = 1.0;
 const COARSE_TENTHS_PER_POINT: f32 = 100.0;
@@ -695,6 +696,13 @@ fn caption_drag(ui: &Ui, id: Id, text: &str) -> Dragged {
         area.on_hover_text(refusal.drag_message());
         return Dragged::Still;
     }
+
+    let area = if held.is_none() {
+        area.on_hover_text(CAPTION_DRAG_HOVER)
+    } else {
+        area
+    };
+
     if area.hovered() || area.dragged() {
         ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
     }

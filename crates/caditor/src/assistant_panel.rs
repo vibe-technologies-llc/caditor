@@ -1,4 +1,7 @@
-use egui::{Align, Id, Key, Label, Layout, Modifiers, RichText, TextEdit, TextStyle, Ui, vec2};
+use egui::{
+    Align, FontSelection, Id, Key, Label, Layout, Modifiers, RichText, TextEdit, TextStyle, Ui,
+    text::LayoutJob, vec2,
+};
 
 use crate::{
     appearance::{self, LABEL_SIZE, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, WIDGET_RADIUS},
@@ -12,7 +15,7 @@ use crate::{
     icons,
     layout::RightPanel,
     mcp::tools::Tool,
-    model::Action,
+    model::{Action, Notice},
     preferences::AssistantPreferences,
     widgets::{self, PanelTitle, Tone},
 };
@@ -21,6 +24,8 @@ pub const TITLE: &str = "AI assistant";
 pub const CLOSE: &str = "Close the AI assistant";
 pub const NEW_CHAT: &str = "Start a new chat";
 pub const SETTINGS: &str = "AI assistant settings";
+pub const COPY_MESSAGE: &str = "Copy this message";
+pub const COPIED: &str = "Copied the message.";
 pub const COMPOSER_HINT: &str = "Ask the assistant to inspect, create or edit the model…";
 pub const SEND: &str = "Send";
 pub const STOP: &str = "Stop";
@@ -100,6 +105,7 @@ pub fn show(
     };
 
     let mut pending = Vec::new();
+    let mut copied = false;
 
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {
         toolbar(ui, assistant, prefs, &mut pending);
@@ -111,8 +117,8 @@ pub fn show(
             composer(ui, assistant, prefs, &mut pending);
         });
 
-        widgets::panel_scroll(ui, "assistant-transcript", |ui| {
-            transcript(ui, assistant, prefs, &mut pending);
+        widgets::panel_scroll_following_the_end(ui, "assistant-transcript", |ui| {
+            transcript(ui, assistant, prefs, &mut pending, &mut copied);
         });
     });
 
@@ -124,6 +130,9 @@ pub fn show(
     }
     for command in pending {
         actions.push(Action::Assistant(command));
+    }
+    if copied {
+        actions.push(Action::Inform(Notice::success(COPIED)));
     }
 }
 
@@ -210,6 +219,7 @@ fn transcript(
     assistant: &Assistant,
     prefs: &AssistantPreferences,
     pending: &mut Vec<AssistantCommand>,
+    copied: &mut bool,
 ) {
     let backend = prefs.backend;
 
@@ -256,7 +266,7 @@ fn transcript(
     }
 
     for entry in assistant.entries() {
-        render_entry(ui, entry, assistant.can_retry(), pending);
+        *copied |= render_entry(ui, entry, assistant.can_retry(), pending);
         ui.add_space(SPACE_M);
     }
 
@@ -314,12 +324,31 @@ fn setup_callout(
     });
 }
 
+fn copy_row(ui: &mut Ui, text: &str) -> bool {
+    if text.trim().is_empty() {
+        return false;
+    }
+
+    let copy = ui
+        .with_layout(Layout::right_to_left(Align::Center), |ui| {
+            widgets::icon_button(ui, icons::COPY, COPY_MESSAGE).clicked()
+        })
+        .inner;
+
+    if copy {
+        ui.ctx().copy_text(text.to_owned());
+    }
+    copy
+}
+
 fn render_entry(
     ui: &mut Ui,
     entry: &ChatEntry,
     can_retry: bool,
     pending: &mut Vec<AssistantCommand>,
-) {
+) -> bool {
+    let mut copied = false;
+
     match entry.kind {
         EntryKind::Notice => {
             ui.horizontal_wrapped(|ui| {
@@ -332,6 +361,7 @@ fn render_entry(
                 speaker(ui, None, "You");
                 ui.add_space(SPACE_XS);
                 ui.add(Label::new(&entry.text).wrap());
+                copied = copy_row(ui, &entry.text);
             });
         }
         EntryKind::Assistant => {
@@ -347,6 +377,7 @@ fn render_entry(
                 if !entry.text.trim().is_empty() {
                     ui.add_space(SPACE_S);
                     render_formatted_text(ui, &entry.text);
+                    copied = copy_row(ui, &entry.text);
                 }
                 if let Some(failure) = &entry.failure {
                     ui.add_space(SPACE_S);
@@ -371,6 +402,7 @@ fn render_entry(
             });
         }
     }
+    copied
 }
 
 fn speaker(ui: &mut Ui, glyph: Option<&str>, name: &str) {
@@ -492,15 +524,86 @@ fn render_formatted_text(ui: &mut Ui, text: &str) {
         {
             ui.horizontal_top(|ui| {
                 widgets::icon_label(ui, icons::BULLET, tokens.text_muted);
-                ui.add(Label::new(item).wrap());
+
+                let job = inline_job(ui, item);
+
+                ui.add(Label::new(job).wrap());
             });
             continue;
         }
-        ui.add(Label::new(line).wrap());
+
+        let job = inline_job(ui, line);
+
+        ui.add(Label::new(job).wrap());
     }
     if in_code && !code_lines.is_empty() {
         render_code_block(ui, &code_lines.join("\n"));
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Span {
+    Plain,
+    Strong,
+    Code,
+}
+
+fn inline_spans(text: &str) -> Vec<(Span, &str)> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+
+    while !rest.is_empty() {
+        let code = rest.find('`');
+        let strong = rest.find("**");
+        let next = match (code, strong) {
+            (Some(code), Some(strong)) if strong < code => Some((strong, Span::Strong)),
+            (Some(code), _) => Some((code, Span::Code)),
+            (None, Some(strong)) => Some((strong, Span::Strong)),
+            (None, None) => None,
+        };
+        let Some((at, span)) = next else {
+            spans.push((Span::Plain, rest));
+            break;
+        };
+        let marker = match span {
+            Span::Strong => "**",
+            Span::Code | Span::Plain => "`",
+        };
+
+        let opened = rest.get(at + marker.len()..).unwrap_or_default();
+        let Some(close) = opened.find(marker).filter(|close| *close > 0) else {
+            spans.push((Span::Plain, rest));
+            break;
+        };
+
+        if at > 0 {
+            spans.push((Span::Plain, rest.get(..at).unwrap_or_default()));
+        }
+        spans.push((span, opened.get(..close).unwrap_or_default()));
+        rest = opened.get(close + marker.len()..).unwrap_or_default();
+    }
+    spans
+}
+
+fn inline_job(ui: &Ui, text: &str) -> LayoutJob {
+    let tokens = appearance::tokens(ui);
+    let mut job = LayoutJob::default();
+
+    for (span, piece) in inline_spans(text) {
+        let styled = match span {
+            Span::Plain => RichText::new(piece).color(tokens.text),
+            Span::Strong => RichText::new(piece)
+                .family(fonts::semibold())
+                .color(tokens.text),
+            Span::Code => RichText::new(piece)
+                .text_style(TextStyle::Monospace)
+                .color(tokens.text)
+                .background_color(tokens.sunken),
+        };
+
+        styled.append_to(&mut job, ui.style(), FontSelection::Default, Align::Min);
+    }
+    job
 }
 
 fn render_code_block(ui: &mut Ui, code: &str) {
@@ -585,4 +688,26 @@ fn composer(
         );
     });
     ui.add_space(SPACE_L);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inline_spans_mark_strong_and_code_and_leave_unclosed_markers_as_text() {
+        assert_eq!(
+            inline_spans("Run **Extrude** with `distance = 5 mm` now"),
+            [
+                (Span::Plain, "Run "),
+                (Span::Strong, "Extrude"),
+                (Span::Plain, " with "),
+                (Span::Code, "distance = 5 mm"),
+                (Span::Plain, " now"),
+            ]
+        );
+        assert_eq!(inline_spans("a ** b"), [(Span::Plain, "a ** b")]);
+        assert_eq!(inline_spans("`x ** y`"), [(Span::Code, "x ** y")]);
+        assert_eq!(inline_spans("plain"), [(Span::Plain, "plain")]);
+    }
 }

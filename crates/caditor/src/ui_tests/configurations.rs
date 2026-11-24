@@ -303,3 +303,118 @@ fn configurations_whose_names_make_the_same_file_are_written_apart_once_replacin
 
     assert_eq!(fs::read(&dashed).unwrap(), b"changed elsewhere");
 }
+
+#[test]
+fn a_configured_colour_takes_a_custom_colour_from_the_colour_selector() {
+    use caditor_document::Rgb;
+    use egui::accesskit::Role;
+
+    use crate::{
+        body_appearance::CUSTOM_COLOUR_NAME,
+        colour_selector,
+        configurations::{CUSTOM_COLOUR_DONE, colour_selector_id},
+    };
+
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let colour = ConfiguredValue::Colour(plate);
+
+    harness.context.enable_accesskit();
+    run_from_palette(&mut harness, "configurations");
+    harness.frame();
+    harness.click_button(ADD_LABEL);
+    harness.frame();
+
+    let configure = harness.document().configuring(colour).unwrap();
+
+    harness.perform(Action::Apply(configure));
+    harness.frame();
+    harness.click_button(ADD_LABEL);
+    harness.frame();
+    harness.frame();
+
+    let second = harness.document().configurations().rows[1].id;
+    let mut combos: Vec<egui::Rect> = harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == Role::ComboBox
+                && node.value() == Some(crate::configurations::colour_name(None).as_str())
+        })
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            egui::Rect::from_min_max(
+                egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .collect();
+
+    combos.sort_by(|a, b| a.top().total_cmp(&b.top()));
+
+    let cell = combos.last().copied().expect("a colour cell is shown");
+
+    harness.click_screen(cell.center());
+    harness.show_new_windows();
+    harness.frame();
+    eprintln!(
+        "DEBUG0 {} {:?} {:?}",
+        harness.shows(&format!("{CUSTOM_COLOUR_NAME}…")),
+        harness
+            .texts
+            .iter()
+            .find(|(t, _)| t == "Oak")
+            .map(|(_, r)| *r),
+        harness
+            .texts
+            .iter()
+            .find(|(t, _)| t.starts_with("Custom"))
+            .map(|(_, r)| *r)
+    );
+    harness.click(&format!("{CUSTOM_COLOUR_NAME}…"));
+    harness.frame();
+    eprintln!(
+        "DEBUG1 {} {:?}",
+        harness.shows(crate::configurations::TITLE),
+        harness
+            .texts
+            .iter()
+            .map(|(t, _)| t.clone())
+            .filter(|t| t.contains("olour") || t.contains("Done"))
+            .collect::<Vec<_>>()
+    );
+    harness.type_into_field(colour_selector::hex_id(colour_selector_id()), "#123456");
+    harness.frame();
+
+    let set = harness.document().configuration_setting(second, colour);
+
+    let card_open = harness
+        .texts
+        .iter()
+        .any(|(text, _)| text.contains("colour in Configuration 2"));
+
+    eprintln!(
+        "DEBUG {card_open} {set:?} {:?}",
+        harness
+            .texts
+            .iter()
+            .map(|(t, _)| t.clone())
+            .filter(|t| t.contains("olour") || t.contains("Done"))
+            .collect::<Vec<_>>()
+    );
+    harness.tab_until_shown(CUSTOM_COLOUR_DONE);
+    harness.click(CUSTOM_COLOUR_DONE);
+    harness.frame();
+
+    assert_eq!(
+        set,
+        Some(Setting::Colour(Some(Rgb {
+            red: 0x12,
+            green: 0x34,
+            blue: 0x56
+        })))
+    );
+    assert!(card_open);
+    assert!(!harness.shows(CUSTOM_COLOUR_DONE));
+}

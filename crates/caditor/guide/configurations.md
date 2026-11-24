@@ -6,7 +6,8 @@ M6 and M8 screws) live in one file. {command:model.configurations} opens the tab
 - Each row is a configuration; the one marked active is the one the model shows. Click a
   configuration's name to switch to it, or double-click it to rename it.
 - **Configure a value** adds a column: a [parameter](parameters)'s expression, whether a feature is
-  suppressed, or a body's colour.
+  suppressed, or a body's colour. A colour cell offers the default colour, **Custom colour…** (a
+  colour picker under the table, with **Done** to put it away) and the body colour swatches.
 - **Add configuration**, rename, duplicate and delete manage the rows. Deleting the active
   configuration switches to the one below it, or the one above when it was the last; when that one
   cannot be switched to (below), none is left active and the model keeps its values.

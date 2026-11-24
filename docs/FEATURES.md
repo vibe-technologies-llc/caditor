@@ -221,11 +221,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Workspace, parameter, palette, inspection and assistant ergonomics:
-  - Concise hover tooltip on scrubbable captions (`field.rs`); custom `colour_selector` for
-    configured body colours (`configurations.rs`).
-  - AI Assistant (`assistant_panel.rs`) inline `**bold**` / `` `code` `` rendering, message Copy
-    buttons and sticky auto-scroll.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.

@@ -115,7 +115,8 @@ paths:
   refused value is told as typed; the release is the field's leaving, so the drag commits once,
   one undo step, a refused value staying with its error; Escape while dragging is taken by the
   field before the 3D view's and puts the stored text back (a live field's own text back), the
-  rest of the drag doing nothing. The caption shows the horizontal resize cursor; one whose field
+  rest of the drag doing nothing. The caption shows the horizontal resize cursor and, while no drag
+  is held, `CAPTION_DRAG_HOVER` as its hover text; one whose field
   holds anything `stepping::steppable` refuses (an expression, a name, `name = value`, empty)
   senses hover only, with `Refusal::drag_message` as its hover text.
 - A panel that keeps its values as text and reads them every frame (the Gear, sketch Pattern and

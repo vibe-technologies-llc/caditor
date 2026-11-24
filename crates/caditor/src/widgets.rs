@@ -1287,9 +1287,25 @@ pub fn follow_keyboard_focus(ui: &mut Ui) {
 }
 
 pub fn panel_scroll<R>(ui: &mut Ui, id_salt: impl AsIdSalt, add: impl FnOnce(&mut Ui) -> R) -> R {
-    ScrollArea::vertical()
-        .id_salt(id_salt)
-        .auto_shrink([false, true])
+    scrolled_panel(ui, ScrollArea::vertical().id_salt(id_salt), add)
+}
+
+pub fn panel_scroll_following_the_end<R>(
+    ui: &mut Ui,
+    id_salt: impl AsIdSalt,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    scrolled_panel(
+        ui,
+        ScrollArea::vertical()
+            .id_salt(id_salt)
+            .stick_to_bottom(true),
+        add,
+    )
+}
+
+fn scrolled_panel<R>(ui: &mut Ui, area: ScrollArea, add: impl FnOnce(&mut Ui) -> R) -> R {
+    area.auto_shrink([false, true])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             let shown = add(ui);
