@@ -53,6 +53,11 @@ Pure-Rust streaming LLM client crate with no UI or CAD dependency, built on the 
   `CliBackend`.
 - `assistant_panel.rs` draws the dockable right-hand chat side panel strictly through `widgets.rs`
   and `appearance::tokens`, toggled by `Command::Assistant` and cancellable by
-  `Command::CancelAssistant`.
+  `Command::CancelAssistant`. Messages are `widgets::card`s, tool activity and code
+  `widgets::well`s; the provider and model combos are named (`PROVIDER`, `MODEL`); the busy
+  transcript shows progress without its own Cancel, the composer's Stop being the one control;
+  Enter in the composer is always taken (sending only when it can) and the hint wraps beside Send
+  at any size; disabled controls say why on hover. It is a `guide::SidePanel`, so F1 opens the
+  Assistants page while it is open.
 - `preferences/assistant.rs` holds non-secret assistant settings under `Section::Assistant` in
   Preferences › General.

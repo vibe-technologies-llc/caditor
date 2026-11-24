@@ -923,6 +923,7 @@ pub fn show(
             lighting,
             section,
             tidying,
+            assistant_open: assistant.open,
         },
         guide,
         &mut commands,
@@ -1766,6 +1767,7 @@ struct GuideBasis<'a> {
     lighting: &'a LightingTool,
     section: &'a SectionTool,
     tidying: &'a Tidying,
+    assistant_open: bool,
 }
 
 fn guide_commands(
@@ -1794,6 +1796,7 @@ fn guide_commands(
         (basis.interference.open, SidePanel::Interference),
         (basis.drawings.open, SidePanel::Drawings),
         (basis.measure.open, SidePanel::Measure),
+        (basis.assistant_open, SidePanel::Assistant),
     ]
     .into_iter()
     .filter_map(|(open, panel)| open.then_some(panel))

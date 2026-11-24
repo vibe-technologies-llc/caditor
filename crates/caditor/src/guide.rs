@@ -619,6 +619,7 @@ impl Page {
             SidePanel::Drawings => Self::Drawings,
             SidePanel::Tidying => Self::AutomaticConstraints,
             SidePanel::Lighting => Self::RenderedView,
+            SidePanel::Assistant => Self::Assistants,
         }
     }
 
@@ -642,6 +643,7 @@ pub enum SidePanel {
     Tidying,
     Lighting,
     Drawings,
+    Assistant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1128,6 +1130,7 @@ mod tests {
             Page::of_panel(SidePanel::Tidying),
             Page::AutomaticConstraints
         );
+        assert_eq!(Page::of_panel(SidePanel::Assistant), Page::Assistants);
 
         let listed: usize = Chapter::ALL
             .into_iter()

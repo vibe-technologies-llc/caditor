@@ -42,6 +42,7 @@ pub const FIELD_WIDTH: f32 = 120.0;
 const PROPERTY_SPACING: [f32; 2] = [SPACE_L, SPACE_M];
 const CAPTION_WIDTH: f32 = 84.0;
 const CARD_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_M);
+const WELL_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_S);
 const CALLOUT_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_M);
 const PILL_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_XS);
 const PILL_RADIUS: u8 = 10;
@@ -1605,6 +1606,20 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .stroke(surface_edge(ui, &tokens))
         .corner_radius(CornerRadius::same(CARD_RADIUS))
         .inner_margin(CARD_MARGIN)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+}
+
+pub fn well<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let tokens = appearance::tokens(ui);
+    Frame::new()
+        .fill(tokens.sunken)
+        .stroke(surface_edge(ui, &tokens))
+        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
+        .inner_margin(WELL_MARGIN)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)

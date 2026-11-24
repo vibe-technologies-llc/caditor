@@ -1,13 +1,7 @@
-use egui::{
-    Align, CornerRadius, Frame, Id, Key, Label, Layout, RichText, Stroke, TextEdit, TextStyle, Ui,
-    vec2,
-};
+use egui::{Align, Id, Key, Label, Layout, Modifiers, RichText, TextEdit, TextStyle, Ui, vec2};
 
 use crate::{
-    appearance::{
-        self, BORDER_WIDTH, CARD_RADIUS, LABEL_SIZE, SPACE_L, SPACE_M, SPACE_S, SPACE_SM, SPACE_XS,
-        WIDGET_RADIUS,
-    },
+    appearance::{self, LABEL_SIZE, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, WIDGET_RADIUS},
     assistant::{
         Assistant, AssistantCommand, Backend, ChatEntry, CliState, EntryKind, ToolActivity,
         ToolStatus,
@@ -33,6 +27,13 @@ pub const STOP: &str = "Stop";
 pub const RETRY: &str = "Try again";
 pub const OPEN_SETTINGS: &str = "Open AI settings";
 pub const NOT_WORKING: &str = "The AI assistant is not running right now";
+pub const PROVIDER: &str = "AI provider";
+pub const MODEL: &str = "AI model";
+pub const NOTHING_TO_CLEAR: &str = "The chat is already empty";
+pub const NOTHING_TO_SEND: &str = "Type a message to send";
+pub const BUSY: &str = "Wait for the assistant to finish, or stop it";
+pub const NOT_READY: &str = "Set the AI assistant up first: open AI settings";
+const SEND_HINT: &str = "Enter to send, Shift+Enter for newline";
 const PANEL: RightPanel = RightPanel { id: "assistant" };
 const HEADER: PanelTitle<'static> = PanelTitle {
     glyph: icons::ASSISTANT,
@@ -57,6 +58,8 @@ const STARTER_PROMPTS: [(&str, &str); 3] = [
     ),
 ];
 const PREVIEW_MAX_HEIGHT: f32 = 180.0;
+const PREVIEW_MIN_WIDTH: f32 = 64.0;
+const PREVIEW_MIN_SIDE: f32 = 32.0;
 
 pub fn show(
     ui: &mut Ui,
@@ -87,7 +90,8 @@ pub fn show(
             .add_enabled_ui(has_entries || busy, |ui| {
                 widgets::icon_button(ui, icons::NEW_CHAT, NEW_CHAT)
             })
-            .inner;
+            .inner
+            .on_disabled_hover_text(NOTHING_TO_CLEAR);
 
         if clear.clicked() {
             chosen = Some(AssistantCommand::ClearChat);
@@ -136,8 +140,7 @@ fn toolbar(
         ui.add_enabled_ui(!busy, |ui| {
             let mut picked = None;
 
-            widgets::combo("assistant-backend", backend.short_label())
-                .width(150.0)
+            let shown = widgets::combo("assistant-backend", backend.short_label())
                 .hover("Choose the AI model provider or local CLI wrapper")
                 .show(ui, |ui| {
                     for option in Backend::ALL {
@@ -147,6 +150,8 @@ fn toolbar(
                         }
                     }
                 });
+
+            widgets::spoken_as(shown.response, PROVIDER);
             if let Some(chosen) = picked {
                 pending.push(AssistantCommand::SelectBackend(chosen));
             }
@@ -158,8 +163,7 @@ fn toolbar(
             ui.add_enabled_ui(!busy, |ui| {
                 let mut picked_model = None;
 
-                widgets::combo("assistant-model", current_model)
-                    .width(150.0)
+                let shown = widgets::combo("assistant-model", current_model)
                     .hover("Choose the model preset or edit the model name in Preferences")
                     .show(ui, |ui| {
                         for preset in provider.preset_models() {
@@ -169,6 +173,8 @@ fn toolbar(
                             }
                         }
                     });
+
+                widgets::spoken_as(shown.response, MODEL);
                 if let Some(model) = picked_model {
                     pending.push(AssistantCommand::SetModel(provider, model));
                 }
@@ -184,15 +190,17 @@ fn toolbar(
         } else if assistant.backend_ready(backend) {
             widgets::status_pill(ui, Tone::Success, format!("MCP: {tool_count} tools"));
         } else {
-            let label = match backend {
-                Backend::Api(_) => "API key needed",
+            let (tone, label) = match backend {
+                Backend::Api(_) => (Tone::Warning, "API key needed"),
                 Backend::Cli(tool) => match assistant.cli_state(tool) {
-                    CliState::Checking => "Checking CLI…",
-                    _ => "CLI not found",
+                    CliState::Checking => (Tone::Info, "Checking CLI…"),
+                    CliState::Missing { .. } | CliState::Found(_) => {
+                        (Tone::Warning, "CLI not found")
+                    }
                 },
             };
 
-            widgets::status_pill(ui, Tone::Warning, label);
+            widgets::status_pill(ui, tone, label);
         }
     });
 }
@@ -219,15 +227,22 @@ fn transcript(
             |ui| {
                 ui.vertical_centered_justified(|ui| {
                     for (label, prompt) in STARTER_PROMPTS {
-                        let enabled = !assistant.is_busy() && assistant.backend_ready(backend);
+                        let refusal = if assistant.is_busy() {
+                            Some(BUSY)
+                        } else if !assistant.backend_ready(backend) {
+                            Some(NOT_READY)
+                        } else {
+                            None
+                        };
                         let response = ui
-                            .add_enabled_ui(enabled, |ui| {
+                            .add_enabled_ui(refusal.is_none(), |ui| {
                                 let button =
                                     widgets::small_button(ui, icons::AUTOMATIC_CONSTRAINTS, label);
                                 ui.add(button)
                             })
                             .inner
-                            .on_hover_text(prompt);
+                            .on_hover_text(prompt)
+                            .on_disabled_hover_text(refusal.unwrap_or(prompt));
 
                         if response.clicked() {
                             pending.push(AssistantCommand::SendPrompt(prompt.to_owned()));
@@ -246,13 +261,9 @@ fn transcript(
     }
 
     if assistant.is_busy() {
-        let cancelled = widgets::progress(assistant.status().label())
+        widgets::progress(assistant.status().label())
             .wrapping()
-            .cancel("Stop the AI assistant")
             .show(ui);
-        if cancelled {
-            pending.push(AssistantCommand::Cancel);
-        }
     }
 }
 
@@ -317,46 +328,15 @@ fn render_entry(
             });
         }
         EntryKind::User => {
-            let tokens = appearance::tokens(ui);
-
-            Frame::new()
-                .fill(tokens.accent_surface)
-                .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
-                .corner_radius(CornerRadius::same(CARD_RADIUS))
-                .inner_margin(appearance::margin(SPACE_M, SPACE_SM))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.add(
-                        Label::new(
-                            RichText::new("You")
-                                .family(fonts::semibold())
-                                .size(LABEL_SIZE)
-                                .color(tokens.text_muted),
-                        )
-                        .selectable(false),
-                    );
-                    ui.add_space(SPACE_XS);
-                    ui.add(Label::new(&entry.text).wrap());
-                });
+            widgets::card(ui, |ui| {
+                speaker(ui, None, "You");
+                ui.add_space(SPACE_XS);
+                ui.add(Label::new(&entry.text).wrap());
+            });
         }
         EntryKind::Assistant => {
             widgets::card(ui, |ui| {
-                ui.set_width(ui.available_width());
-
-                let tokens = appearance::tokens(ui);
-
-                ui.horizontal(|ui| {
-                    widgets::icon_label(ui, icons::ASSISTANT, tokens.accent);
-                    ui.add(
-                        Label::new(
-                            RichText::new("Assistant")
-                                .family(fonts::semibold())
-                                .size(LABEL_SIZE)
-                                .color(tokens.text_muted),
-                        )
-                        .selectable(false),
-                    );
-                });
+                speaker(ui, Some(icons::ASSISTANT), "Assistant");
                 if !entry.tools.is_empty() {
                     ui.add_space(SPACE_S);
                     for tool in &entry.tools {
@@ -393,6 +373,25 @@ fn render_entry(
     }
 }
 
+fn speaker(ui: &mut Ui, glyph: Option<&str>, name: &str) {
+    let tokens = appearance::tokens(ui);
+
+    ui.horizontal(|ui| {
+        if let Some(glyph) = glyph {
+            widgets::icon_label(ui, glyph, tokens.accent);
+        }
+        ui.add(
+            Label::new(
+                RichText::new(name)
+                    .family(fonts::semibold())
+                    .size(LABEL_SIZE)
+                    .color(tokens.text_muted),
+            )
+            .selectable(false),
+        );
+    });
+}
+
 fn render_tool_activity(ui: &mut Ui, entry_id: u64, tool: &ToolActivity) {
     let tokens = appearance::tokens(ui);
     let tone = match tool.status {
@@ -401,60 +400,55 @@ fn render_tool_activity(ui: &mut Ui, entry_id: u64, tool: &ToolActivity) {
         ToolStatus::Failed => Tone::Error,
     };
 
-    Frame::new()
-        .fill(tokens.sunken)
-        .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
-        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
-        .inner_margin(appearance::margin(SPACE_M, SPACE_S))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal_wrapped(|ui| {
-                match tool.status {
-                    ToolStatus::Running => {
-                        widgets::spinner(ui);
-                    }
-                    ToolStatus::Succeeded | ToolStatus::Failed => {
-                        widgets::icon_label(ui, tone.icon(), tone.color(&tokens));
-                    }
+    widgets::well(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            match tool.status {
+                ToolStatus::Running => {
+                    widgets::spinner(ui);
                 }
-                ui.add(Label::new(widgets::strong(&tool.title)).wrap())
-                    .on_hover_text(format!("MCP tool: {}", tool.tool_name));
-                if !tool.summary.is_empty() {
-                    ui.add(Label::new(widgets::muted(&tool.summary, ui)).wrap());
-                } else if let Some(progress) = &tool.progress {
-                    ui.add(Label::new(widgets::muted(progress, ui)).wrap());
+                ToolStatus::Succeeded | ToolStatus::Failed => {
+                    widgets::icon_label(ui, tone.icon(), tone.color(&tokens));
                 }
-            });
-            if !tool.arguments_preview.is_empty() {
-                ui.add_space(SPACE_XS);
-                ui.add(
-                    Label::new(
-                        RichText::new(&tool.arguments_preview)
-                            .text_style(TextStyle::Monospace)
-                            .size(LABEL_SIZE)
-                            .color(tokens.text_muted),
-                    )
-                    .wrap(),
-                );
             }
-            if let Some(preview) = &tool.preview {
-                ui.add_space(SPACE_S);
-
-                let texture_name = format!("assistant-render-{entry_id}-{}", tool.id);
-                let texture = preview.texture(ui.ctx(), &texture_name);
-                let raw = texture.size_vec2();
-                let max_width = ui.available_width().max(64.0);
-
-                let scale = (max_width / raw.x.max(1.0))
-                    .min(PREVIEW_MAX_HEIGHT / raw.y.max(1.0))
-                    .min(1.0);
-                let size = vec2((raw.x * scale).max(32.0), (raw.y * scale).max(32.0));
-
-                ui.add(
-                    egui::Image::from_texture((texture.id(), size)).corner_radius(WIDGET_RADIUS),
-                );
+            ui.add(Label::new(widgets::strong(&tool.title)).wrap())
+                .on_hover_text(format!("MCP tool: {}", tool.tool_name));
+            if !tool.summary.is_empty() {
+                ui.add(Label::new(widgets::muted(&tool.summary, ui)).wrap());
+            } else if let Some(progress) = &tool.progress {
+                ui.add(Label::new(widgets::muted(progress, ui)).wrap());
             }
         });
+        if !tool.arguments_preview.is_empty() {
+            ui.add_space(SPACE_XS);
+            ui.add(
+                Label::new(
+                    RichText::new(&tool.arguments_preview)
+                        .text_style(TextStyle::Monospace)
+                        .size(LABEL_SIZE)
+                        .color(tokens.text_muted),
+                )
+                .wrap(),
+            );
+        }
+        if let Some(preview) = &tool.preview {
+            ui.add_space(SPACE_S);
+
+            let texture_name = format!("assistant-render-{entry_id}-{}", tool.id);
+            let texture = preview.texture(ui.ctx(), &texture_name);
+            let raw = texture.size_vec2();
+            let max_width = ui.available_width().max(PREVIEW_MIN_WIDTH);
+
+            let scale = (max_width / raw.x.max(1.0))
+                .min(PREVIEW_MAX_HEIGHT / raw.y.max(1.0))
+                .min(1.0);
+            let size = vec2(
+                (raw.x * scale).max(PREVIEW_MIN_SIDE),
+                (raw.y * scale).max(PREVIEW_MIN_SIDE),
+            );
+
+            ui.add(egui::Image::from_texture((texture.id(), size)).corner_radius(WIDGET_RADIUS));
+        }
+    });
 }
 
 fn render_formatted_text(ui: &mut Ui, text: &str) {
@@ -510,24 +504,16 @@ fn render_formatted_text(ui: &mut Ui, text: &str) {
 }
 
 fn render_code_block(ui: &mut Ui, code: &str) {
-    let tokens = appearance::tokens(ui);
-
-    Frame::new()
-        .fill(tokens.sunken)
-        .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
-        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
-        .inner_margin(appearance::margin(SPACE_M, SPACE_S))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.add(
-                Label::new(
-                    RichText::new(code)
-                        .text_style(TextStyle::Monospace)
-                        .size(LABEL_SIZE),
-                )
-                .wrap(),
-            );
-        });
+    widgets::well(ui, |ui| {
+        ui.add(
+            Label::new(
+                RichText::new(code)
+                    .text_style(TextStyle::Monospace)
+                    .size(LABEL_SIZE),
+            )
+            .wrap(),
+        );
+    });
     ui.add_space(SPACE_XS);
 }
 
@@ -547,15 +533,11 @@ fn composer(
     let can_send = !busy && ready && !assistant.composer.trim().is_empty();
     let focused_before = ui.memory(|memory| memory.has_focus(composer_id()));
 
-    let submitted_by_enter = focused_before
-        && can_send
+    let entered = focused_before
         && ui.input_mut(|input| {
-            if input.modifiers.is_none() && input.key_pressed(Key::Enter) {
-                input.consume_key(egui::Modifiers::NONE, Key::Enter)
-            } else {
-                false
-            }
+            input.modifiers.is_none() && input.consume_key(Modifiers::NONE, Key::Enter)
         });
+    let submitted_by_enter = entered && can_send;
 
     let response = widgets::text_field(ui, |ui| {
         widgets::spoken_as(
@@ -574,31 +556,33 @@ fn composer(
         response.request_focus();
     }
 
+    let refusal = if !ready { NOT_READY } else { NOTHING_TO_SEND };
+
     ui.add_space(SPACE_S);
-    ui.horizontal(|ui| {
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        if busy {
+            if ui.add(widgets::danger_button(STOP)).clicked() {
+                pending.push(AssistantCommand::Cancel);
+            }
+        } else {
+            let clicked = ui
+                .add_enabled_ui(can_send, |ui| {
+                    ui.add(widgets::primary_icon_button(ui, icons::SEND, SEND))
+                })
+                .inner
+                .on_disabled_hover_text(refusal)
+                .clicked();
+            if clicked || submitted_by_enter {
+                let text = std::mem::take(&mut assistant.composer);
+
+                pending.push(AssistantCommand::SendPrompt(text));
+            }
+        }
         ui.add(
-            Label::new(widgets::muted("Enter to send, Shift+Enter for newline", ui))
+            Label::new(widgets::muted(SEND_HINT, ui))
+                .wrap()
                 .selectable(false),
         );
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if busy {
-                if ui.add(widgets::danger_button(STOP)).clicked() {
-                    pending.push(AssistantCommand::Cancel);
-                }
-            } else {
-                let clicked = ui
-                    .add_enabled_ui(can_send, |ui| {
-                        ui.add(widgets::primary_icon_button(ui, icons::SEND, SEND))
-                    })
-                    .inner
-                    .clicked();
-                if clicked || submitted_by_enter {
-                    let text = std::mem::take(&mut assistant.composer);
-
-                    pending.push(AssistantCommand::SendPrompt(text));
-                }
-            }
-        });
     });
     ui.add_space(SPACE_L);
 }

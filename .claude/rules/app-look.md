@@ -247,7 +247,7 @@ paths:
 ## Widgets
 
 - `widgets.rs` is the kit every panel and dialog is built from; read it before adding UI
-  (`ToolButton`, `section`, `properties`, `card`, `callout` and `pill` with a `Tone`, the button
+  (`ToolButton`, `section`, `properties`, `card`, `well` (a sunken inset for code and tool activity), `callout` and `pill` with a `Tone`, the button
   family, `checkbox`, `unlabelled_checkbox` and `unlabelled_radio` (no visible text, named for
   screen readers with their role), `combo`, `text_field`, `segmented`, `tabs`, `dialog`,
   `dialog_body` and `footer`, `side_panel`, menu items, `error_row`, `error_text` and

@@ -208,13 +208,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] AI Assistant panel (`assistant_panel.rs`, `app.rs`, `guide.rs`) kit and
-  accessibility gaps: `Assistant` is not registered in `GuideBasis`/`guide::SidePanel` so `F1` does
-  not open `Page::Assistants`; the panel uses raw frames, `sunken` and bare numeric widths instead
-  of `widgets::card`, `surface_edge` and theme spacing tokens; provider/model combos lack AccessKit
-  labels; the composer footer overflows at 200%; shows duplicate Stop controls while busy; `Enter` is
-  not consumed when `!can_send`; disabled buttons lack `.on_disabled_hover_text(...)`; and
-  `CliState::Checking` does not use `Tone::Info`.
 - [medium · easy] Parameters, Completion popup, Configurations and Menu bar defects:
   - Clicking `ParameterUser::Drawing(_)` in `parameter_table.rs` does nothing instead of opening the
     Drawings panel; parameter expression `value_field`s skip `.problem(ui, document, enter)` live
