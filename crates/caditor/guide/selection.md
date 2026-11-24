@@ -44,7 +44,9 @@ drag until you turn it off, from the keyboard too.
 ## Choosing what to pick
 
 View › Selection filter limits picking to whole bodies, faces, edges, vertices or sketch geometry,
-and {command:select.priority} steps through body, face and edge. The status bar names an active
+and {command:select.priority} steps through body, face and edge. Inside an edited sketch, Sketch ›
+Select geometry › Selection filter (or the right-click menu's Selection filter) limits picking and
+box selection to points, curves, construction geometry or constraints. The status bar names an active
 filter; its button clears it. Tools still pick what they need.
 
 When items lie behind each other, hold the mouse button still for half a second, or press

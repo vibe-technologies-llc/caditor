@@ -510,7 +510,12 @@ impl Moving {
         let entities: Vec<EntityId> = selected
             .iter()
             .copied()
-            .filter(|entity| !entity.is_reference() && sketch.entity(*entity).is_some())
+            .filter(|entity| {
+                !entity.is_reference()
+                    && (sketch.entity(*entity).is_some()
+                        || sketch.text(*entity).is_some()
+                        || sketch.gear(*entity).is_some())
+            })
             .collect();
         let points = points_of(sketch, &entities);
         let Some(&(_, anchor)) = points.first() else {
@@ -538,6 +543,36 @@ impl Moving {
             },
             DragCommand::Finish { join: None },
         ]
+    }
+
+    pub fn preview(
+        &self,
+        sketch: &Sketch,
+        target: Option<Point2>,
+        faceting: Faceting,
+    ) -> crate::drawing::Preview {
+        let mut preview = crate::drawing::Preview {
+            snap: Some(self.anchor),
+            ..crate::drawing::Preview::default()
+        };
+        let Some(target) = target else {
+            return preview;
+        };
+        let offset = target - self.anchor;
+
+        preview.guides.push([self.anchor, target]);
+        for entity in &self.selected {
+            if let Some(points) = sketch.faceted(*entity, faceting) {
+                if points.len() >= 2 {
+                    preview
+                        .curves
+                        .push(points.into_iter().map(|point| point + offset).collect());
+                } else if let Some(only) = points.first() {
+                    preview.points.push(*only + offset);
+                }
+            }
+        }
+        preview
     }
 }
 
@@ -598,12 +633,24 @@ impl Transforming {
         let present: Vec<EntityId> = selected
             .iter()
             .copied()
-            .filter(|entity| sketch.entity(*entity).is_some() || *entity == EntityId::ORIGIN)
+            .filter(|entity| {
+                sketch.entity(*entity).is_some()
+                    || sketch.text(*entity).is_some()
+                    || sketch.gear(*entity).is_some()
+                    || *entity == EntityId::ORIGIN
+            })
             .collect();
         let curve_points: BTreeSet<EntityId> = present
             .iter()
-            .filter_map(|entity| sketch.entity(*entity))
-            .flat_map(Entity::points)
+            .flat_map(|entity| match sketch.entity(*entity) {
+                Some(entity) => entity.points(),
+                None => sketch
+                    .text(*entity)
+                    .map(|text| text.anchor)
+                    .or_else(|| sketch.gear(*entity).map(|gear| gear.centre))
+                    .into_iter()
+                    .collect(),
+            })
             .collect();
 
         let lone_points: Vec<EntityId> = present
@@ -698,6 +745,43 @@ impl Transforming {
         self.commands(points.chain(radii).collect())
     }
 
+    pub fn preview(
+        &self,
+        sketch: &Sketch,
+        amount: Option<f64>,
+        faceting: Faceting,
+    ) -> crate::drawing::Preview {
+        let mut preview = crate::drawing::Preview {
+            snap: Some(self.pivot),
+            ..crate::drawing::Preview::default()
+        };
+        let Some(amount) = amount.filter(|amount| {
+            amount.is_finite() && (self.transform == Transform::Rotate || *amount > 0.0)
+        }) else {
+            return preview;
+        };
+        let pivot = self.pivot;
+
+        let map = |point: Point2| match self.transform {
+            Transform::Rotate => {
+                let turn = Vector2::from_angle(amount.to_radians());
+                pivot + turn.rotate(point - pivot)
+            }
+            Transform::Scale => pivot + (point - pivot) * amount,
+        };
+
+        for entity in &self.selected {
+            if let Some(points) = sketch.faceted(*entity, faceting) {
+                if points.len() >= 2 {
+                    preview.curves.push(points.into_iter().map(map).collect());
+                } else if let Some(only) = points.first() {
+                    preview.points.push(map(*only));
+                }
+            }
+        }
+        preview
+    }
+
     fn commands(&self, drags: Vec<Drag>) -> Result<Vec<DragCommand>, TransformError> {
         let beyond = drags.iter().any(|drag| match drag {
             Drag::Point { to, .. } => to.abs().max_element() > MAX_LENGTH,
@@ -774,7 +858,12 @@ fn points_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId, Point2)> 
         .flat_map(|entity| match sketch.entity(*entity) {
             Some(Entity::Point(_)) => vec![*entity],
             Some(other) => other.points(),
-            None => Vec::new(),
+            None => sketch
+                .text(*entity)
+                .map(|text| text.anchor)
+                .or_else(|| sketch.gear(*entity).map(|gear| gear.centre))
+                .into_iter()
+                .collect(),
         })
         .filter(|point| seen.insert(*point))
         .filter_map(|point| Some((point, sketch.point(point)?)))
@@ -1019,7 +1108,23 @@ pub fn within(
             }
         })
         .map(|(id, _)| id);
-    selectable(sketch, caught)
+    let point_in = |point: EntityId| {
+        sketch.point(point).is_some_and(|position| {
+            screen.is_shown(position)
+                && screen
+                    .to_screen(position)
+                    .is_some_and(|at| area.contains(at))
+        })
+    };
+    let texts = sketch
+        .texts()
+        .filter(|(_, text)| point_in(text.anchor))
+        .map(|(id, _)| id);
+    let gears = sketch
+        .gears()
+        .filter(|(_, gear)| point_in(gear.centre))
+        .map(|(id, _)| id);
+    selectable(sketch, caught.chain(texts).chain(gears))
 }
 
 pub fn select_all(sketch: &Sketch) -> Result<Vec<EntityId>, SelectionError> {
@@ -1074,7 +1179,10 @@ fn is_free(id: EntityId, projected: &BTreeSet<EntityId>, solution: &SketchSoluti
 }
 
 pub fn can_select_all(sketch: &Sketch) -> Result<(), SelectionError> {
-    if sketch.entities().any(|(id, _)| !id.is_reference()) {
+    if sketch.entities().any(|(id, _)| !id.is_reference())
+        || sketch.texts().next().is_some()
+        || sketch.gears().next().is_some()
+    {
         Ok(())
     } else {
         Err(SelectionError::NothingToSelect)
@@ -1087,7 +1195,9 @@ pub fn everything(sketch: &Sketch) -> Vec<EntityId> {
         sketch
             .entities()
             .map(|(id, _)| id)
-            .filter(|id| !id.is_reference()),
+            .filter(|id| !id.is_reference())
+            .chain(sketch.texts().map(|(id, _)| id))
+            .chain(sketch.gears().map(|(id, _)| id)),
     )
 }
 
@@ -1095,8 +1205,15 @@ fn selectable(sketch: &Sketch, caught: impl Iterator<Item = EntityId>) -> Vec<En
     let caught: Vec<EntityId> = caught.collect();
     let owned: BTreeSet<EntityId> = caught
         .iter()
-        .filter_map(|id| sketch.entity(*id))
-        .flat_map(Entity::points)
+        .flat_map(|id| match sketch.entity(*id) {
+            Some(entity) => entity.points(),
+            None => sketch
+                .text(*id)
+                .map(|text| text.anchor)
+                .or_else(|| sketch.gear(*id).map(|gear| gear.centre))
+                .into_iter()
+                .collect(),
+        })
         .collect();
     caught
         .into_iter()

@@ -244,6 +244,7 @@ enum State {
 struct LastSizes {
     round: Option<String>,
     chamfer: Option<String>,
+    offset: Option<String>,
 }
 
 impl LastSizes {
@@ -260,6 +261,10 @@ impl LastSizes {
             CornerCut::Round => self.round = last,
             CornerCut::Chamfer => self.chamfer = last,
         }
+    }
+
+    fn keep_offset(&mut self, offsetting: &Offsetting) {
+        self.offset = offsetting.last().map(str::to_owned);
     }
 }
 
@@ -330,10 +335,10 @@ impl Modifying {
 
     pub fn lets_go_of_selection(&self) -> bool {
         match &self.state {
+            State::Offset(offsetting) => offsetting.can_pull(),
             State::Mirror(mirroring) => mirroring.gathers() && mirroring.gathered(),
             State::Pattern(patterning) => patterning.gathers() && patterning.gathered(),
-            State::Offset(_)
-            | State::Fillet(_)
+            State::Fillet(_)
             | State::Tangent(_)
             | State::Blend(_)
             | State::Gear(_)
@@ -345,8 +350,8 @@ impl Modifying {
     pub fn last_value(&self) -> Option<&str> {
         match &self.state {
             State::Fillet(filleting) => filleting.last(),
-            State::Offset(_)
-            | State::Mirror(_)
+            State::Offset(offsetting) => offsetting.last(),
+            State::Mirror(_)
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
@@ -368,16 +373,19 @@ impl Modifying {
             .map(|active| (active.feature, active.tool));
 
         if context != self.context {
-            if let State::Fillet(filleting) = &self.state {
-                self.last.keep(filleting);
+            match &self.state {
+                State::Fillet(filleting) => self.last.keep(filleting),
+                State::Offset(offsetting) => self.last.keep_offset(offsetting),
+                _ => {}
             }
             self.context = context;
 
             let round = self.last.of(CornerCut::Round);
             let chamfer = self.last.of(CornerCut::Chamfer);
+            let offset = self.last.offset.clone();
 
             self.state = match (context, sketch) {
-                (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::default()),
+                (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::new(offset)),
                 (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::starting(selected)),
                 (Some((_, Tool::RectangularPattern)), _) => State::Pattern(Box::new(
                     Patterning::starting(PatternKind::Rectangular, selected),
@@ -576,10 +584,10 @@ impl Modifying {
 
     pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
         match &mut self.state {
+            State::Offset(offsetting) => offsetting.show_text(model, text),
             State::Fillet(filleting) => filleting.show_text(model, text),
             State::Tangent(tangent) => tangent.show_text(model, text),
-            State::Offset(_)
-            | State::Mirror(_)
+            State::Mirror(_)
             | State::Pattern(_)
             | State::Blend(_)
             | State::Gear(_)
@@ -596,6 +604,12 @@ impl Modifying {
 
     pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, EntryError> {
         match &mut self.state {
+            State::Offset(offsetting) => match self.context {
+                Some((feature, _)) => offsetting
+                    .enter_text(model, feature, text)
+                    .map_err(EntryError::Offsetting),
+                None => Ok(Outcome::Nothing),
+            },
             State::Fillet(filleting) => match self.context {
                 Some((feature, _)) => Ok(filleting.enter_text(model, feature, text)?),
                 None => Ok(Outcome::Nothing),
@@ -606,8 +620,7 @@ impl Modifying {
                     .map_err(EntryError::Tangent),
                 None => Ok(Outcome::Nothing),
             },
-            State::Offset(_)
-            | State::Mirror(_)
+            State::Mirror(_)
             | State::Pattern(_)
             | State::Blend(_)
             | State::Gear(_)
@@ -674,7 +687,7 @@ impl Modifying {
             return Outcome::Nothing;
         };
         match &mut self.state {
-            State::Offset(offsetting) => offsetting.click(model, feature, sketch),
+            State::Offset(offsetting) => offsetting.finish(model, feature, sketch),
             State::Mirror(mirroring) => mirroring.finish(model, feature),
             State::Pattern(patterning) => patterning.finish(model, feature),
             State::Fillet(filleting) => filleting.activate(model, feature),
@@ -688,6 +701,7 @@ impl Modifying {
 
     pub fn steps_targets(&self) -> bool {
         match &self.state {
+            State::Offset(offsetting) => offsetting.steps_targets(),
             State::Pattern(patterning) => patterning.steps_targets(),
             State::Mirror(mirroring) => !mirroring.gathers(),
             State::Fillet(_)
@@ -695,12 +709,13 @@ impl Modifying {
             | State::Blend(_)
             | State::Gear(_)
             | State::Text(_) => true,
-            State::Offset(_) | State::Idle => false,
+            State::Idle => false,
         }
     }
 
     pub fn steppable(&self, sketch: &Sketch) -> Result<(), StepError> {
         match &self.state {
+            State::Offset(offsetting) => offsetting.steppable(sketch),
             State::Mirror(mirroring) => mirroring.steppable(),
             State::Pattern(patterning) => patterning.steppable(),
             State::Fillet(filleting) => filleting.steppable(sketch),
@@ -708,12 +723,13 @@ impl Modifying {
             State::Blend(blend) => blend.steppable(sketch),
             State::Gear(gearing) => gearing.steppable(),
             State::Text(texting) => texting.steppable(),
-            State::Offset(_) | State::Idle => Ok(()),
+            State::Idle => Ok(()),
         }
     }
 
     pub fn step(&mut self, sketch: &Sketch, step: isize) {
         match &mut self.state {
+            State::Offset(offsetting) => offsetting.step(sketch, step),
             State::Mirror(mirroring) => mirroring.step(sketch, step),
             State::Pattern(patterning) => patterning.step(sketch, step),
             State::Fillet(filleting) => filleting.step(sketch, step),
@@ -721,12 +737,13 @@ impl Modifying {
             State::Blend(blend) => blend.step(sketch, step),
             State::Gear(gearing) => gearing.step(sketch, step),
             State::Text(texting) => texting.step(sketch, step),
-            State::Offset(_) | State::Idle => {}
+            State::Idle => {}
         }
     }
 
     pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match &self.state {
+            State::Offset(offsetting) => offsetting.highlight_needed(),
             State::Mirror(mirroring) => mirroring.highlight_needed(),
             State::Pattern(patterning) => patterning.highlight_needed(),
             State::Fillet(filleting) => filleting.highlight_needed(),
@@ -734,7 +751,7 @@ impl Modifying {
             State::Blend(blend) => blend.highlight_needed(),
             State::Gear(gearing) => gearing.highlight_needed(),
             State::Text(texting) => texting.highlight_needed(),
-            State::Offset(_) | State::Idle => Ok(()),
+            State::Idle => Ok(()),
         }
     }
 
@@ -743,6 +760,16 @@ impl Modifying {
             return Outcome::Nothing;
         };
         match &mut self.state {
+            State::Offset(offsetting) => {
+                let sketch = model
+                    .document()
+                    .feature(feature)
+                    .and_then(|owner| model.displayed_sketch(owner));
+                match sketch {
+                    Some(sketch) => offsetting.activate(&sketch),
+                    None => Outcome::Nothing,
+                }
+            }
             State::Mirror(mirroring) => mirroring.activate(model, feature),
             State::Pattern(patterning) => patterning.activate(),
             State::Fillet(filleting) => filleting.activate(model, feature),
@@ -750,12 +777,13 @@ impl Modifying {
             State::Blend(blend) => blend.activate(model, feature),
             State::Gear(gearing) => gearing.activate(model, feature, self.gear.part()),
             State::Text(texting) => texting.activate(model, feature, self.text.lettering()),
-            State::Offset(_) | State::Idle => Outcome::Nothing,
+            State::Idle => Outcome::Nothing,
         }
     }
 
     pub fn clear_highlight(&mut self) {
         match &mut self.state {
+            State::Offset(offsetting) => offsetting.clear_highlight(),
             State::Mirror(mirroring) => mirroring.clear_highlight(),
             State::Pattern(patterning) => patterning.clear_highlight(),
             State::Fillet(filleting) => filleting.clear_highlight(),
@@ -763,12 +791,13 @@ impl Modifying {
             State::Blend(blend) => blend.clear_highlight(),
             State::Gear(gearing) => gearing.clear_highlight(),
             State::Text(texting) => texting.clear_highlight(),
-            State::Offset(_) | State::Idle => {}
+            State::Idle => {}
         }
     }
 
     pub fn can_back_out(&self) -> bool {
         match &self.state {
+            State::Offset(offsetting) => offsetting.can_back_out(),
             State::Mirror(mirroring) => mirroring.can_back_out(),
             State::Pattern(patterning) => patterning.can_back_out(),
             State::Fillet(filleting) => filleting.can_back_out(),
@@ -776,12 +805,13 @@ impl Modifying {
             State::Blend(blend) => blend.can_back_out(),
             State::Gear(gearing) => gearing.can_back_out(),
             State::Text(texting) => texting.can_back_out(),
-            State::Offset(_) | State::Idle => false,
+            State::Idle => false,
         }
     }
 
     pub fn back_out(&mut self) {
         match &mut self.state {
+            State::Offset(offsetting) => offsetting.back_out(),
             State::Mirror(mirroring) => mirroring.back_out(),
             State::Pattern(patterning) => patterning.back_out(),
             State::Fillet(filleting) => filleting.back_out(),
@@ -789,7 +819,7 @@ impl Modifying {
             State::Blend(blend) => blend.back_out(),
             State::Gear(gearing) => gearing.back_out(),
             State::Text(texting) => texting.back_out(),
-            State::Offset(_) | State::Idle => {}
+            State::Idle => {}
         }
     }
 }

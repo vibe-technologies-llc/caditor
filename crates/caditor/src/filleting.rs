@@ -2,10 +2,10 @@ use std::{ops::Deref, sync::Arc};
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Bevel, ChamferSize, Corner, CrossingPlan, Dimensioned, Entity, EntityId, Faceting, FilletError,
-    Pick, Rounding, Sketch,
+    ArcGeometry, Bevel, ChamferSize, Corner, CrossingPlan, Dimensioned, Entity, EntityId, Faceting,
+    FilletError, Pick, Rounding, Sketch,
 };
 
 use crate::{
@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles, elliptical arcs or splines to round where they cross or would meet";
-pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc, circle or elliptical arc: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
+pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc, circle, elliptical arc or spline: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
 pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles, elliptical arcs or splines to cut where they cross or would meet";
 pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
@@ -261,6 +261,21 @@ struct Joined {
     outcome: Join,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Stub {
+    Segment([Point2; 2]),
+    Arc(ArcGeometry),
+}
+
+impl Stub {
+    fn faceted(self, faceting: Faceting) -> Vec<Point2> {
+        match self {
+            Self::Segment(ends) => ends.to_vec(),
+            Self::Arc(arc) => arc.faceted(faceting),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Filleting {
     cut: CornerCut,
@@ -268,6 +283,7 @@ pub struct Filleting {
     more: Vec<Aim>,
     left_out: Option<LeftOut>,
     hover: Option<Result<Aim, FilletError>>,
+    add_hover: Option<Corner>,
     highlight: Option<Corner>,
     pending: Option<Pick>,
     under: Option<Pick>,
@@ -276,6 +292,7 @@ pub struct Filleting {
     typed: Option<f64>,
     typed_chamfer: Option<Result<ChamferSize, ChamferError>>,
     rounding: Option<Result<Vec<Cut>, FilletError>>,
+    stubs: Vec<Stub>,
     joined: Option<Joined>,
     #[cfg(test)]
     joins: usize,
@@ -424,7 +441,16 @@ impl Filleting {
     ) {
         self.pointer = pointer.map(|pointer| pointer.sketch);
         (self.hover, self.under) = self.hovered((sketch, version), screen, pointer);
+        self.add_hover = pointer
+            .filter(|_| self.chosen.is_some())
+            .and_then(|pointer| end_under(sketch, screen, pointer))
+            .and_then(|point| sketch.corner_at(point).ok())
+            .filter(|corner| {
+                let candidate = Aim::Corner(*corner);
+                !self.aims().iter().any(|known| same_aim(known, &candidate))
+            });
         self.at = None;
+        self.stubs.clear();
 
         let aims = self.aims();
         let (working, corners) = match self.joined(sketch, version, &aims) {
@@ -466,13 +492,22 @@ impl Filleting {
                 })
                 .collect()
         });
+        if let Some(Ok(cuts)) = &self.rounding {
+            self.stubs = corners
+                .iter()
+                .zip(cuts)
+                .flat_map(|(corner, cut)| corner_stubs(&working, corner, cut.touches()))
+                .collect();
+        }
     }
 
     pub fn leave(&mut self) {
         self.pointer = None;
         self.hover = None;
+        self.add_hover = None;
         if self.typed.is_none() && self.typed_chamfer.is_none() {
             self.rounding = None;
+            self.stubs.clear();
         }
     }
 
@@ -530,6 +565,11 @@ impl Filleting {
                 preview.curves.push(cut.faceted(faceting));
                 preview.points.extend(cut.touches());
             }
+            preview.removed = self
+                .stubs
+                .iter()
+                .map(|stub| stub.faceted(faceting))
+                .collect();
         }
         preview
     }
@@ -538,11 +578,21 @@ impl Filleting {
         self.aims()
             .into_iter()
             .flat_map(Aim::curves)
+            .chain(self.add_hover.into_iter().flat_map(|corner| corner.curves))
             .chain(self.pending.map(|pick| pick.curve))
             .collect()
     }
 
     pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
+        if let Some(corner) = self.add_hover {
+            let [first, second] = corner.curves.map(|curve| sketch.entity_label(curve));
+
+            return Some(format!(
+                "Click to also {} the corner of {first} and {second}",
+                self.cut.verb()
+            ));
+        }
+
         let aims = self.aims();
         let left_out = self.left_out.as_ref().map(LeftOut::words);
         let verb = capitalized(self.cut.verb());
@@ -552,11 +602,11 @@ impl Filleting {
             ([], _) => {
                 return match (self.pending, self.under) {
                     (Some(first), _) => Some(format!(
-                        "{verb} where {} meets the next line, arc, circle or elliptical arc clicked",
+                        "{verb} where {} meets the next line, arc, circle, elliptical arc or spline clicked",
                         sketch.entity_label(first.curve)
                     )),
                     (None, Some(under)) => Some(format!(
-                        "Click {} and then a second line, arc, circle or elliptical arc to {} where they meet",
+                        "Click {} and then a second line, arc, circle, elliptical arc or spline to {} where they meet",
                         sketch.entity_label(under.curve),
                         self.cut.verb()
                     )),
@@ -635,6 +685,10 @@ impl Filleting {
 
     pub fn click(&mut self, model: &Model, feature: FeatureId) -> Outcome {
         if self.chosen.is_some() {
+            if let Some(corner) = self.add_hover.take() {
+                self.choose(Aim::Corner(corner));
+                return Outcome::Nothing;
+            }
             return self.round_at_pointer(model, feature);
         }
         match (self.hover.clone(), self.under) {
@@ -766,6 +820,8 @@ impl Filleting {
         self.highlight = None;
         self.pending = None;
         self.rounding = None;
+        self.stubs.clear();
+        self.add_hover = None;
         self.typed_chamfer = None;
         self.last = Some(text);
         Ok(rounded)
@@ -842,8 +898,38 @@ impl Filleting {
             self.more.clear();
             self.left_out = None;
             self.rounding = None;
+            self.stubs.clear();
+            self.add_hover = None;
         }
     }
+}
+
+fn corner_stubs(sketch: &Sketch, corner: &Corner, touches: [Point2; 2]) -> Vec<Stub> {
+    corner
+        .curves
+        .into_iter()
+        .zip(touches)
+        .filter_map(|(curve, touch)| {
+            if touch.distance(corner.position) <= SAME_CORNER {
+                return None;
+            }
+            if let Some(Entity::Arc { center, .. }) = sketch.entity(curve)
+                && let Some(center) = sketch.point(*center)
+            {
+                let from = touch - center;
+                let to = corner.position - center;
+
+                let (start, end) = if Vector2::perp_dot(from, to) >= 0.0 {
+                    (touch, corner.position)
+                } else {
+                    (corner.position, touch)
+                };
+
+                return Some(Stub::Arc(ArcGeometry::from_points(center, start, end)));
+            }
+            Some(Stub::Segment([touch, corner.position]))
+        })
+        .collect()
 }
 
 fn same_corner(first: &Corner, second: &Corner) -> bool {

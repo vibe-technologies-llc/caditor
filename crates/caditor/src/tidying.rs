@@ -157,6 +157,8 @@ pub struct Tidying {
     pub looseness: Looseness,
     pub kinds: BTreeSet<RelationKind>,
     pub datum: EntityId,
+    pub datum_fallback: bool,
+    pub excluded: BTreeSet<usize>,
     feature: Option<FeatureId>,
     running: Option<Running>,
     stopped: Option<Basis>,
@@ -171,6 +173,8 @@ impl Default for Tidying {
             looseness: Looseness::default(),
             kinds: RelationKind::ALL.into_iter().collect(),
             datum: EntityId::ORIGIN,
+            datum_fallback: false,
+            excluded: BTreeSet::new(),
             feature: None,
             running: None,
             stopped: None,
@@ -183,6 +187,10 @@ impl Tidying {
     pub fn open_at(&mut self, task: Task, feature: FeatureId) {
         if self.feature != Some(feature) {
             self.datum = EntityId::ORIGIN;
+            self.datum_fallback = false;
+        }
+        if self.task != task || self.feature != Some(feature) {
+            self.excluded.clear();
         }
         self.open = true;
         self.task = task;
@@ -191,6 +199,8 @@ impl Tidying {
 
     pub fn close(&mut self) {
         self.open = false;
+        self.datum_fallback = false;
+        self.excluded.clear();
         self.feature = None;
         self.answered = None;
         self.cancel();
@@ -264,6 +274,7 @@ impl Tidying {
         }
         self.cancel();
         self.answered = None;
+        self.excluded.clear();
         self.start(
             basis,
             sketch.clone(),

@@ -1,5 +1,5 @@
 use caditor_document::{FeatureId, PlacedText, Transaction, lettered_at};
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, Quantity};
 use caditor_geometry::Point2;
 use caditor_sketch::{
     Constraint, Dimensioned, Entity, EntityId, Faceting, LINE_BREAK, Sketch, SketchError, Text,
@@ -172,6 +172,7 @@ pub struct TextSettings {
     editing: Option<EntityId>,
     loaded: Option<EntityId>,
     evaluated: Option<Result<Lettering, LetteringProblem>>,
+    unit_seeded: bool,
 }
 
 impl Default for TextSettings {
@@ -184,6 +185,7 @@ impl Default for TextSettings {
             editing: None,
             loaded: None,
             evaluated: None,
+            unit_seeded: false,
         }
     }
 }
@@ -262,6 +264,15 @@ impl TextSettings {
     }
 
     pub fn evaluate(&mut self, model: &Model) -> Evaluation {
+        if !self.unit_seeded && self.editing.is_none() {
+            if let Some(height) = self.text_mut(TextField::Height)
+                && *height == TextField::Height.initial()
+            {
+                *height = model.units().show(Quantity::length(5.0));
+            }
+            self.unit_seeded = true;
+        }
+
         let mut problems = Vec::new();
         let content = self
             .text(TextField::Content)
@@ -436,9 +447,6 @@ impl Texting {
         self.selected = self.selected.filter(exists);
         self.highlight = self.highlight.filter(exists);
         self.editing = editing.filter(|text| sketch.text(*text).is_some());
-        if self.editing.is_some() {
-            self.shown = None;
-        }
     }
 
     pub fn hover(
@@ -457,12 +465,17 @@ impl Texting {
 
     pub fn leave(&mut self) {
         self.hover = None;
-        if self.highlight.is_none() {
+        if self.highlight.is_none() && self.editing.is_none() {
             self.shown = None;
         }
     }
 
     fn aim(&self, sketch: &Sketch) -> Option<Aim> {
+        if let Some(editing) = self.editing {
+            let anchor = sketch.text(editing)?.anchor;
+
+            return Some(Aim::Point(anchor, sketch.point(anchor)?));
+        }
         self.highlight
             .and_then(|point| Some(Aim::Point(point, sketch.point(point)?)))
             .or(self.hover)
@@ -473,8 +486,7 @@ impl Texting {
         sketch: &Sketch,
         lettering: Option<&Result<Lettering, LetteringProblem>>,
     ) {
-        let (Some(aim), Some(Ok(lettering)), None) = (self.aim(sketch), lettering, self.editing)
-        else {
+        let (Some(aim), Some(Ok(lettering))) = (self.aim(sketch), lettering) else {
             self.shown = None;
             return;
         };

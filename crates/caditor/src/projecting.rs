@@ -7,7 +7,7 @@ use caditor_document::{
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
 use caditor_kernel::{EdgeId, FaceId, HiddenLineError};
-use caditor_sketch::{Entity, EntityId};
+use caditor_sketch::{ArcGeometry, EllipseGeometry, Entity, EntityId, Faceting};
 
 use crate::{
     bodies,
@@ -15,6 +15,7 @@ use crate::{
     commands::Reason,
     datum_tools,
     display::Displayed,
+    drawing::Preview,
     editing::ActiveSketch,
     model::{Action, Model, Notice},
     outlining::{OutlineRequest, STILL_OUTLINING},
@@ -192,7 +193,7 @@ pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> b
     match (active.tool.intersects(), pickable) {
         (true, Pickable::Face { .. }) => true,
         (true, Pickable::Datum(datum)) => datum_tools::is_plane(model.document(), datum),
-        (true, Pickable::Plane(_)) => true,
+        (true, Pickable::Plane(_) | Pickable::FramePlane { .. }) => true,
         (true, _) => false,
         (
             false,
@@ -200,6 +201,7 @@ pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> b
             | Pickable::Vertex { .. }
             | Pickable::Face { .. }
             | Pickable::Axis(_)
+            | Pickable::FrameAxis { .. }
             | Pickable::Origin,
         ) => true,
         (false, Pickable::Datum(datum)) => datum_tools::is_axis_or_point(model.document(), datum),
@@ -225,6 +227,11 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
                 ))
             }
             Pickable::Datum(datum) => Some(format!("Intersect {}", feature_name(document, datum))),
+            Pickable::FramePlane { feature, plane } => Some(format!(
+                "Intersect {} of {}",
+                plane.name(),
+                feature_name(document, feature)
+            )),
             Pickable::Plane(plane) => Some(format!("Intersect the {}", plane.name())),
             _ => None,
         };
@@ -264,10 +271,83 @@ fn projected_words(model: &Model, sketch: FeatureId, pickable: Pickable) -> Opti
             format!("{} of {}", source.entity_label(entity), owner.name)
         }
         Pickable::Datum(datum) => feature_name(document, datum),
+        Pickable::FrameAxis { feature, axis } => {
+            format!("{} of {}", axis.name(), feature_name(document, feature))
+        }
         Pickable::Axis(axis) => format!("the {}", axis.name()),
         Pickable::Origin => "the origin".to_owned(),
         _ => return None,
     })
+}
+
+pub fn preview(
+    model: &Model,
+    active: ActiveSketch,
+    pickable: Pickable,
+    whole: bool,
+    faceting: Faceting,
+) -> Preview {
+    let mut preview = Preview::default();
+    let Ok((_, plane)) = sketch_plane(model, active.feature) else {
+        return preview;
+    };
+    let outlines: Vec<Outline> = if active.tool.intersects() {
+        intersect_outlines(model, active.feature, &plane, pickable, whole)
+            .map(|(cuts, ..)| cuts.into_iter().map(|(_, outline)| outline).collect())
+            .unwrap_or_default()
+    } else if whole && let Pickable::SketchEntity { feature, .. } = pickable {
+        sketch_candidates(model, active.feature, feature)
+            .map(|(_, candidates)| candidates.into_iter().map(|(_, outline)| outline).collect())
+            .unwrap_or_default()
+    } else {
+        projections_of(model, active.feature, &plane, pickable)
+            .map(|items| items.into_iter().map(|(_, outline)| outline).collect())
+            .unwrap_or_default()
+    };
+
+    for outline in outlines {
+        match outline {
+            Outline::Point(point) => preview.points.push(point),
+            Outline::Line { start, end } => preview.curves.push(vec![start, end]),
+            Outline::Circle { center, radius } => {
+                preview
+                    .curves
+                    .push(ArcGeometry::full_circle(center, radius).faceted(faceting));
+            }
+            Outline::Arc { center, start, end } => {
+                preview
+                    .curves
+                    .push(ArcGeometry::from_points(center, start, end).faceted(faceting));
+            }
+            Outline::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                preview
+                    .curves
+                    .push(EllipseGeometry::full(center, major, minor_radius).faceted(faceting));
+            }
+            Outline::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => {
+                preview.curves.push(
+                    EllipseGeometry::from_points(center, major, minor_radius, start, end)
+                        .faceted(faceting),
+                );
+            }
+            Outline::Spline { points, kind } => {
+                if let Some(curve) = kind.curve(&points) {
+                    preview.curves.push(curve.faceted(faceting));
+                }
+            }
+        }
+    }
+    preview
 }
 
 pub struct Projection {
@@ -291,10 +371,11 @@ pub fn project(
     whole: bool,
 ) -> Result<Projection, ProjectionError> {
     if active.tool.intersects() {
-        return intersect(model, active.feature, pickable, whole).map(Projection::from);
+        return intersect_as(model, active.feature, pickable, whole, active.construction)
+            .map(Projection::from);
     }
     if whole && let Pickable::SketchEntity { feature, .. } = pickable {
-        return project_sketch(model, active.feature, feature);
+        return project_sketch_as(model, active.feature, feature, active.construction);
     }
     project_one(model, active, pickable).map(Projection::from)
 }
@@ -335,6 +416,15 @@ pub fn project_sketch(
     sketch: FeatureId,
     source: FeatureId,
 ) -> Result<Projection, ProjectionError> {
+    project_sketch_as(model, sketch, source, false)
+}
+
+fn project_sketch_as(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+    source: FeatureId,
+    construction: bool,
+) -> Result<Projection, ProjectionError> {
     let document = model.document();
     let (definition, _) = sketch_plane(model, sketch)?;
     let (owner, candidates) = sketch_candidates(model, sketch, source)?;
@@ -356,7 +446,14 @@ pub fn project_sketch(
         document.transaction(format!("Project {} of {}", projected.words(), owner.name));
 
     for (source, outline) in &fresh {
-        transaction.add_projection(sketch, source.clone(), outline);
+        let id = transaction.add_projection(sketch, source.clone(), outline);
+        if construction && !matches!(outline, Outline::Point(_)) {
+            transaction.edit(Edit::SetSketchConstruction {
+                feature: sketch,
+                id,
+                construction: true,
+            });
+        }
     }
 
     let skipped = total.less(projected);
@@ -625,7 +722,14 @@ fn project_one(
     let mut transaction = document.transaction(label);
 
     for (source, outline) in &fresh {
-        transaction.add_projection(sketch, source.clone(), outline);
+        let id = transaction.add_projection(sketch, source.clone(), outline);
+        if active.construction && !matches!(outline, Outline::Point(_)) {
+            transaction.edit(Edit::SetSketchConstruction {
+                feature: sketch,
+                id,
+                construction: true,
+            });
+        }
     }
     Ok(transaction.finish())
 }
@@ -718,6 +822,25 @@ pub fn projections_of(
                 )],
                 (None, None) => return Err(ProjectionError::DatumNotProjected),
             }
+        }
+        Pickable::FrameAxis { feature, axis } => {
+            refuse_later(document, feature, sketch)?;
+
+            let ray = datum_tools::result(model.evaluation(), feature)
+                .and_then(|result| result.frame())
+                .and_then(|frame| axis.in_frame(&frame))
+                .ok_or_else(|| ProjectionError::NotComputed {
+                    name: feature_name(document, feature),
+                })?;
+            let reach = axis_reach(model, &ray, plane);
+            vec![(
+                ProjectionSource::FrameAxis {
+                    frame: feature,
+                    axis,
+                    reach,
+                },
+                axis_projection(&ray, plane, reach)?,
+            )]
         }
         Pickable::Axis(axis) => {
             let principal = axis.principal();
@@ -846,10 +969,18 @@ pub fn intersect(
     pickable: Pickable,
     whole: bool,
 ) -> Result<Transaction, ProjectionError> {
-    let document = model.document();
-    let (definition, plane) = sketch_plane(model, sketch)?;
+    intersect_as(model, sketch, pickable, whole, false)
+}
 
-    let (cuts, construction, label) = match pickable {
+fn intersect_outlines(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+    plane: &Plane,
+    pickable: Pickable,
+    whole: bool,
+) -> Result<(Vec<Projected>, bool, String), ProjectionError> {
+    let document = model.document();
+    Ok(match pickable {
         Pickable::Face { body, face } => {
             let result = seen_or_refuse(model, sketch, body)?;
             let id =
@@ -860,10 +991,10 @@ pub fn intersect(
                 .face(id)
                 .map(caditor_kernel::Face::name)
                 .ok_or_else(|| later_geometry(document, sketch))?;
-            let curves = section_curves(body, &result.solid, &plane, sketch)
+            let curves = section_curves(body, &result.solid, plane, sketch)
                 .map_err(|error| section_refusal(document, body, &error))?;
 
-            let cuts: Vec<(ProjectionSource, Outline)> = curves
+            let cuts: Vec<Projected> = curves
                 .into_iter()
                 .filter(|curve| whole || curve.face == name)
                 .map(|curve| (curve.source, curve.outline))
@@ -898,9 +1029,9 @@ pub fn intersect(
                 .ok_or_else(|| ProjectionError::NotAPlane {
                     name: feature_name(document, datum),
                 })?;
-            let reach = datum_reach(model, &datum_plane, &plane);
+            let reach = datum_reach(model, &datum_plane, plane);
 
-            let outline = datum_outline(&datum_plane, &plane, reach).ok_or_else(|| {
+            let outline = datum_outline(&datum_plane, plane, reach).ok_or_else(|| {
                 ProjectionError::ParallelToSketch {
                     name: feature_name(document, datum),
                 }
@@ -912,9 +1043,53 @@ pub fn intersect(
                 label,
             )
         }
+        Pickable::FramePlane {
+            feature,
+            plane: which,
+        } => {
+            let position = |id: FeatureId| document.features().position(|other| other.id() == id);
+
+            if position(feature) >= position(sketch) {
+                return Err(ProjectionError::DatumAfter {
+                    feature: feature_name(document, feature),
+                    sketch: feature_name(document, sketch),
+                });
+            }
+
+            let datum_plane = datum_tools::result(model.evaluation(), feature)
+                .and_then(|result| result.frame())
+                .and_then(|frame| which.in_frame(&frame))
+                .ok_or_else(|| ProjectionError::NotAPlane {
+                    name: feature_name(document, feature),
+                })?;
+            let reach = datum_reach(model, &datum_plane, plane);
+
+            let outline = datum_outline(&datum_plane, plane, reach).ok_or_else(|| {
+                ProjectionError::ParallelToSketch {
+                    name: format!("{} of {}", which.name(), feature_name(document, feature)),
+                }
+            })?;
+            let label = format!(
+                "Intersect {} of {}",
+                which.name(),
+                feature_name(document, feature)
+            );
+            (
+                vec![(
+                    ProjectionSource::FramePlane {
+                        frame: feature,
+                        plane: which,
+                        reach,
+                    },
+                    outline,
+                )],
+                true,
+                label,
+            )
+        }
         Pickable::Plane(principal) => {
-            let reach = datum_reach(model, &principal.plane(), &plane);
-            let outline = datum_outline(&principal.plane(), &plane, reach).ok_or_else(|| {
+            let reach = datum_reach(model, &principal.plane(), plane);
+            let outline = datum_outline(&principal.plane(), plane, reach).ok_or_else(|| {
                 ProjectionError::ParallelToSketch {
                     name: format!("The {}", principal.name()),
                 }
@@ -932,7 +1107,22 @@ pub fn intersect(
             )
         }
         _ => return Err(ProjectionError::NotIntersectable),
-    };
+    })
+}
+
+fn intersect_as(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+    pickable: Pickable,
+    whole: bool,
+    as_construction: bool,
+) -> Result<Transaction, ProjectionError> {
+    let document = model.document();
+    let (definition, plane) = sketch_plane(model, sketch)?;
+    let (cuts, always_construction, label) =
+        intersect_outlines(model, sketch, &plane, pickable, whole)?;
+    let construction = always_construction || as_construction;
+
     let fresh: Vec<(ProjectionSource, Outline)> = cuts
         .into_iter()
         .filter(|(source, _)| !already_projected(definition, source))
@@ -946,7 +1136,7 @@ pub fn intersect(
 
     for (source, outline) in &fresh {
         let id = transaction.add_projection(sketch, source.clone(), outline);
-        if construction {
+        if construction && !matches!(outline, Outline::Point(_)) {
             transaction.edit(Edit::SetSketchConstruction {
                 feature: sketch,
                 id,

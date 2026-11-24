@@ -93,7 +93,7 @@ use crate::{
     scene_palette::{Canvas, Contrast},
     section::{self, SectionCommand, SectionTool},
     section_panel::{self, SectionContext},
-    selection::{Selection, SelectionFilter},
+    selection::{Selection, SelectionFilter, SketchSelectionFilter},
     selection_sets::{self, SetsDraft},
     shell_tools,
     shortcut_editor::{self, ShortcutEditor},
@@ -889,6 +889,7 @@ pub fn show(
         snaps: viewport.body_snaps(),
         last_offers,
         toggles,
+        escape_finishes: preferences.sketching.escape_finishes,
     };
     let chosen = sketch_toolbar::show(
         ui,
@@ -904,7 +905,7 @@ pub fn show(
         ui.ctx().request_repaint();
         deferred_commands.extend(chosen);
     }
-    tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
+    tidy_panel::commands(model, editing, viewport.selection(), tidying, &mut commands);
     tidying.refresh(model, editing.active().map(|active| active.feature));
     guide_commands(
         ui.ctx(),
@@ -938,6 +939,11 @@ pub fn show(
             viewport.filter()
         } else {
             SelectionFilter::Everything
+        },
+        sketch_filter: if viewport.sketch_filter_applies() {
+            viewport.sketch_filter()
+        } else {
+            SketchSelectionFilter::Everything
         },
     };
 
@@ -2138,6 +2144,7 @@ pub fn perform(
             Action::Editing(command) => workspace.editing.perform_after(command, model, since),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
+            Action::SketchFilter(filter) => workspace.viewport.set_sketch_filter(filter),
             Action::Select(chosen) => workspace.viewport.select_exactly(chosen),
             Action::StopUploading => workspace.viewport.request_upload(UploadRequest::Stop),
             Action::ResumeUploading => workspace.viewport.request_upload(UploadRequest::Resume),

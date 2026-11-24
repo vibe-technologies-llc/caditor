@@ -87,12 +87,22 @@ pub enum ProjectionSource {
         datum: FeatureId,
         reach: f64,
     },
+    FramePlane {
+        frame: FeatureId,
+        plane: PrincipalPlane,
+        reach: f64,
+    },
     PrincipalPlane {
         plane: PrincipalPlane,
         reach: f64,
     },
     DatumAxis {
         datum: FeatureId,
+        reach: f64,
+    },
+    FrameAxis {
+        frame: FeatureId,
+        axis: PrincipalAxis,
         reach: f64,
     },
     PrincipalAxis {
@@ -125,8 +135,10 @@ impl ProjectionSource {
             | Self::BodyOutline { body, .. } => Some(*body),
             Self::SketchEntity { .. }
             | Self::DatumPlane { .. }
+            | Self::FramePlane { .. }
             | Self::PrincipalPlane { .. }
             | Self::DatumAxis { .. }
+            | Self::FrameAxis { .. }
             | Self::PrincipalAxis { .. }
             | Self::DatumPoint { .. }
             | Self::Origin => None,
@@ -149,14 +161,14 @@ impl ProjectionSource {
 
     pub fn plane_datum(&self) -> Option<FeatureId> {
         match self {
-            Self::DatumPlane { datum, .. } => Some(*datum),
+            Self::DatumPlane { datum, .. } | Self::FramePlane { frame: datum, .. } => Some(*datum),
             _ => None,
         }
     }
 
     pub fn axis_datum(&self) -> Option<FeatureId> {
         match self {
-            Self::DatumAxis { datum, .. } => Some(*datum),
+            Self::DatumAxis { datum, .. } | Self::FrameAxis { frame: datum, .. } => Some(*datum),
             _ => None,
         }
     }
@@ -171,8 +183,10 @@ impl ProjectionSource {
     pub fn reach(&self) -> Option<f64> {
         match self {
             Self::DatumPlane { reach, .. }
+            | Self::FramePlane { reach, .. }
             | Self::PrincipalPlane { reach, .. }
             | Self::DatumAxis { reach, .. }
+            | Self::FrameAxis { reach, .. }
             | Self::PrincipalAxis { reach, .. } => Some(*reach),
             Self::Edge { .. }
             | Self::Vertex { .. }
@@ -194,8 +208,10 @@ impl ProjectionSource {
             Self::Vertex { .. }
             | Self::SketchEntity { .. }
             | Self::DatumPlane { .. }
+            | Self::FramePlane { .. }
             | Self::PrincipalPlane { .. }
             | Self::DatumAxis { .. }
+            | Self::FrameAxis { .. }
             | Self::PrincipalAxis { .. }
             | Self::DatumPoint { .. }
             | Self::Origin => BTreeSet::new(),
@@ -210,7 +226,9 @@ impl ProjectionSource {
             | Self::BodyOutline { body, .. } => Some(*body),
             Self::SketchEntity { sketch, .. } => Some(*sketch),
             Self::DatumPlane { datum, .. }
+            | Self::FramePlane { frame: datum, .. }
             | Self::DatumAxis { datum, .. }
+            | Self::FrameAxis { frame: datum, .. }
             | Self::DatumPoint { datum } => Some(*datum),
             Self::PrincipalPlane { .. } | Self::PrincipalAxis { .. } | Self::Origin => None,
         }
@@ -236,6 +254,22 @@ impl ProjectionSource {
             | (Self::DatumAxis { datum, .. }, Self::DatumAxis { datum: other, .. }) => {
                 datum == other
             }
+            (
+                Self::FramePlane { frame, plane, .. },
+                Self::FramePlane {
+                    frame: other_frame,
+                    plane: other_plane,
+                    ..
+                },
+            ) => frame == other_frame && plane == other_plane,
+            (
+                Self::FrameAxis { frame, axis, .. },
+                Self::FrameAxis {
+                    frame: other_frame,
+                    axis: other_axis,
+                    ..
+                },
+            ) => frame == other_frame && axis == other_axis,
             (Self::PrincipalPlane { plane, .. }, Self::PrincipalPlane { plane: other, .. }) => {
                 plane == other
             }
@@ -1141,6 +1175,19 @@ fn outline_of<'a>(
                 .filter(|outline| outline.shape() == wanted)
                 .ok_or(ProjectionError::Parallel)
         }
+        ProjectionSource::FramePlane {
+            frame,
+            plane: which,
+            reach,
+        } => {
+            let datum = datum_result(inputs, *frame)
+                .and_then(DatumResult::frame)
+                .and_then(|frame| which.in_frame(&frame))
+                .ok_or(ProjectionError::SourceUnavailable)?;
+            datum_outline(&datum, plane, *reach)
+                .filter(|outline| outline.shape() == wanted)
+                .ok_or(ProjectionError::Parallel)
+        }
         ProjectionSource::PrincipalPlane {
             plane: principal,
             reach,
@@ -1150,6 +1197,19 @@ fn outline_of<'a>(
         ProjectionSource::DatumAxis { datum, reach } => {
             let axis = datum_result(inputs, *datum)
                 .and_then(DatumResult::axis)
+                .ok_or(ProjectionError::SourceUnavailable)?;
+            axis_outline(&axis, plane, *reach)
+                .filter(|outline| outline.shape() == wanted)
+                .ok_or(ProjectionError::ChangedShape)
+        }
+        ProjectionSource::FrameAxis {
+            frame,
+            axis: which,
+            reach,
+        } => {
+            let axis = datum_result(inputs, *frame)
+                .and_then(DatumResult::frame)
+                .and_then(|frame| which.in_frame(&frame))
                 .ok_or(ProjectionError::SourceUnavailable)?;
             axis_outline(&axis, plane, *reach)
                 .filter(|outline| outline.shape() == wanted)
@@ -1364,10 +1424,13 @@ fn projection_failure(
         ProjectionSource::SketchEntity { .. } => format!("geometry of {source_name}"),
         ProjectionSource::Section { .. } => format!("the cut through {source_name}"),
         ProjectionSource::BodyOutline { .. } => format!("the outline of {source_name}"),
-        ProjectionSource::DatumPlane { .. } | ProjectionSource::PrincipalPlane { .. } => {
+        ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::FramePlane { .. }
+        | ProjectionSource::PrincipalPlane { .. } => {
             format!("the cut along {source_name}")
         }
         ProjectionSource::DatumAxis { .. }
+        | ProjectionSource::FrameAxis { .. }
         | ProjectionSource::PrincipalAxis { .. }
         | ProjectionSource::DatumPoint { .. }
         | ProjectionSource::Origin => source_name,
@@ -1376,6 +1439,7 @@ fn projection_failure(
         source,
         ProjectionSource::Section { .. }
             | ProjectionSource::DatumPlane { .. }
+            | ProjectionSource::FramePlane { .. }
             | ProjectionSource::PrincipalPlane { .. }
     );
     let fix = match error {

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
-use caditor_sketch::{Caps, Chain, EntityId, Faceting, OffsetError, Outline, Side, Sketch};
+use caditor_sketch::{Caps, Chain, Entity, EntityId, Faceting, OffsetError, Outline, Side, Sketch};
 use thiserror::Error;
 
 use crate::{
@@ -10,7 +10,10 @@ use crate::{
     editing::Tool,
     feature_tree::count,
     model::Model,
-    modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
+    modifying::{
+        HighlightNeeded, Hint, Outcome, Prompt, StepError, Value, ValueError, ValueField,
+        length_text,
+    },
     shape_modes::OffsetMode,
     snap::{Pointer, Screen},
     trimming::{self, SketchGone, capitalized},
@@ -25,8 +28,8 @@ pub const CHOOSE_PROMPT: &str = "Click a curve to take its chain, or select the 
 pub const FREE_SPLINE: &str = "as a spline that will not follow it";
 pub const TRANSACTION: &str = "Offset curves";
 pub const BOTH_TRANSACTION: &str = "Offset curves to both sides";
-const KEYS: &str = "Type a distance, negative for the other side   Esc: back to Select";
-const BOTH_KEYS: &str = "Type the distance on each side   Esc: back to Select";
+const KEYS: &str = "Type a distance, negative for the other side   Esc: choose another curve";
+const BOTH_KEYS: &str = "Type the distance on each side   Esc: choose another curve";
 const CHOOSE_KEYS: &str = "Esc: back to Select";
 pub const FIELD: ValueField = ValueField {
     label: "Offset by",
@@ -40,6 +43,8 @@ pub enum OffsettingError {
     SketchGone(#[from] SketchGone),
     #[error("{}: {source}.", Tool::Offset.label())]
     Refused { source: OffsetError },
+    #[error(transparent)]
+    Value(#[from] ValueError),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -48,13 +53,29 @@ pub struct Offsetting {
     chains: Option<Result<Vec<Chain>, OffsetError>>,
     pointer: Option<Point2>,
     under: Option<EntityId>,
+    highlight: Option<EntityId>,
     typed: Option<f64>,
+    last: Option<String>,
 }
 
 impl Offsetting {
+    pub fn new(last: Option<String>) -> Self {
+        Self {
+            last,
+            ..Self::default()
+        }
+    }
+
+    pub fn last(&self) -> Option<&str> {
+        self.last.as_deref()
+    }
+
     pub fn sync(&mut self, sketch: &Sketch, selected: &[EntityId], mode: OffsetMode) {
         self.mode = mode;
         self.chains = (!selected.is_empty()).then(|| sketch.offset_chains(selected));
+        self.highlight = self
+            .highlight
+            .filter(|curve| is_offsettable(sketch, *curve));
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
@@ -70,6 +91,20 @@ impl Offsetting {
     pub fn leave(&mut self) {
         self.pointer = None;
         self.under = None;
+    }
+
+    fn reused(&self, text: &str) -> String {
+        match self.last.as_deref() {
+            Some(last) if text.trim().is_empty() => last.to_owned(),
+            _ => text.trim().to_owned(),
+        }
+    }
+
+    pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
+        self.typed = text
+            .map(|text| self.reused(text))
+            .and_then(|text| Value::typed(model, &text).ok())
+            .map(|value| value.millimetres);
     }
 
     pub fn show_typed(&mut self, typed: Option<f64>) {
@@ -146,11 +181,11 @@ impl Offsetting {
     }
 
     pub fn highlighted_entities(&self) -> Vec<EntityId> {
-        self.under.into_iter().collect()
+        self.highlight.or(self.under).into_iter().collect()
     }
 
     pub fn label(&self, sketch: &Sketch, unit: Units) -> Option<String> {
-        if let Some(curve) = self.under {
+        if let Some(curve) = self.highlight.or(self.under) {
             return Some(format!(
                 "Take the chain of {} to offset",
                 sketch.entity_label(curve)
@@ -193,12 +228,24 @@ impl Offsetting {
         if self.chains().is_some() && self.mode.caps().is_some() {
             Prompt {
                 text: BOTH_PROMPT,
-                hint: Hint::Keys(BOTH_KEYS),
+                hint: match self.last.as_deref() {
+                    Some(last) => Hint::Text(format!(
+                        "Type the distance on each side   Enter: offset by {last}, as last time   \
+                         Esc: choose another curve"
+                    )),
+                    None => Hint::Keys(BOTH_KEYS),
+                },
             }
         } else if self.chains().is_some() {
             Prompt {
                 text: PROMPT,
-                hint: Hint::Keys(KEYS),
+                hint: match self.last.as_deref() {
+                    Some(last) => Hint::Text(format!(
+                        "Type a distance, negative for the other side   Enter: offset by {last}, \
+                         as last time   Esc: choose another curve"
+                    )),
+                    None => Hint::Keys(KEYS),
+                },
             }
         } else {
             Prompt {
@@ -210,12 +257,7 @@ impl Offsetting {
 
     pub fn click(&mut self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Outcome {
         if let Some(curve) = self.under {
-            let chain = sketch.offset_chain_through(curve);
-
-            return match sketch.offset_chains(&chain) {
-                Ok(_) => Outcome::Select(chain),
-                Err(source) => Outcome::Refused(OffsettingError::Refused { source }.into()),
-            };
+            return select_chain(sketch, curve);
         }
         match &self.chains {
             Some(Ok(chains)) => {
@@ -225,7 +267,14 @@ impl Offsetting {
                 let Some(value) = Value::pointed(model, placement.distance) else {
                     return Outcome::Nothing;
                 };
-                commit(model, feature, chains, self.mode, &placement.sides, value).into()
+                let text = length_text(model.units(), value.millimetres);
+
+                let result = commit(model, feature, chains, self.mode, &placement.sides, value);
+
+                if result.is_ok() {
+                    self.last = Some(text);
+                }
+                result.into()
             }
             Some(Err(source)) => Outcome::Refused(
                 OffsettingError::Refused {
@@ -235,6 +284,34 @@ impl Offsetting {
             ),
             None => Outcome::Nothing,
         }
+    }
+
+    pub fn finish(&mut self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Outcome {
+        if let Some(curve) = self.highlight.take() {
+            return select_chain(sketch, curve);
+        }
+        if self.can_pull()
+            && let Some(last) = self.last.clone()
+        {
+            return self
+                .enter_text(model, feature, &last)
+                .unwrap_or_else(|error| Outcome::Refused(error.into()));
+        }
+        self.click(model, feature, sketch)
+    }
+
+    pub fn enter_text(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        text: &str,
+    ) -> Result<Outcome, OffsettingError> {
+        let text = self.reused(text);
+        let value = Value::typed(model, &text)?;
+        let outcome = self.enter_value(model, feature, value)?;
+
+        self.last = Some(text);
+        Ok(outcome)
     }
 
     pub fn enter_value(
@@ -264,6 +341,84 @@ impl Offsetting {
             .map(|chain| (chain.curves(), self.side(chain, flipped)))
             .collect();
         commit(model, feature, chains, self.mode, &sides, value).map(Outcome::Apply)
+    }
+
+    pub fn steps_targets(&self) -> bool {
+        !self.can_pull()
+    }
+
+    pub fn steppable(&self, sketch: &Sketch) -> Result<(), StepError> {
+        if sketch.entities().any(|(id, _)| is_offsettable(sketch, id)) {
+            Ok(())
+        } else {
+            Err(StepError::NothingToPick)
+        }
+    }
+
+    pub fn step(&mut self, sketch: &Sketch, step: isize) {
+        let curves: Vec<EntityId> = sketch
+            .entities()
+            .filter(|(id, _)| is_offsettable(sketch, *id))
+            .map(|(id, _)| id)
+            .collect();
+        let total = curves.len() as isize;
+
+        if total == 0 {
+            return;
+        }
+
+        let current = self
+            .highlight
+            .or(self.under)
+            .and_then(|aim| curves.iter().position(|curve| *curve == aim));
+        let next = match current {
+            Some(index) => (index as isize + step).rem_euclid(total),
+            None if step < 0 => total - 1,
+            None => 0,
+        };
+
+        self.highlight = usize::try_from(next)
+            .ok()
+            .and_then(|next| curves.get(next).copied());
+    }
+
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
+        match self.highlight {
+            Some(_) => Ok(()),
+            None => Err(HighlightNeeded::Curve),
+        }
+    }
+
+    pub fn activate(&mut self, sketch: &Sketch) -> Outcome {
+        match self.highlight.take() {
+            Some(curve) => select_chain(sketch, curve),
+            None => Outcome::Nothing,
+        }
+    }
+
+    pub fn clear_highlight(&mut self) {
+        self.highlight = None;
+    }
+
+    pub fn can_back_out(&self) -> bool {
+        self.highlight.is_some()
+    }
+
+    pub fn back_out(&mut self) {
+        self.highlight = None;
+    }
+}
+
+fn is_offsettable(sketch: &Sketch, id: EntityId) -> bool {
+    !id.is_reference() && !matches!(sketch.entity(id), None | Some(Entity::Point(_)))
+}
+
+fn select_chain(sketch: &Sketch, curve: EntityId) -> Outcome {
+    let chain = sketch.offset_chain_through(curve);
+
+    match sketch.offset_chains(&chain) {
+        Ok(_) => Outcome::Select(chain),
+        Err(source) => Outcome::Refused(OffsettingError::Refused { source }.into()),
     }
 }
 

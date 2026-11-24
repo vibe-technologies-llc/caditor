@@ -9,9 +9,16 @@ use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
-    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, queued::Pending,
-    samples::Sample, section::SectionCommand, selection::SelectionFilter, shape_modes::ShapeMode,
-    sketch_tools::ConstraintTool, variants::all_variants,
+    analysis::AnalysisCommand,
+    display_style::DisplayStyle,
+    editing::Tool,
+    queued::Pending,
+    samples::Sample,
+    section::SectionCommand,
+    selection::{SelectionFilter, SketchSelectionFilter},
+    shape_modes::ShapeMode,
+    sketch_tools::ConstraintTool,
+    variants::all_variants,
 };
 
 const SETTINGS_PREFIX: &str = "keys.";
@@ -206,6 +213,7 @@ pub enum Command {
     Camera(CameraMove),
     Window(WindowStep),
     Filter(SelectionFilter),
+    SketchFilter(SketchSelectionFilter),
     Style(DisplayStyle),
     Analysis(AnalysisCommand),
     Section(SectionCommand),
@@ -760,6 +768,7 @@ macro_rules! plain_commands {
             | Command::Camera(_)
             | Command::Window(_)
             | Command::Filter(_)
+            | Command::SketchFilter(_)
             | Command::Style(_)
             | Command::Analysis(_)
             | Command::Section(_)
@@ -1081,6 +1090,11 @@ impl Command {
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
             .chain(WindowStep::ALL.into_iter().map(Self::Window))
             .chain(SelectionFilter::ALL.into_iter().map(Self::Filter))
+            .chain(
+                SketchSelectionFilter::ALL
+                    .into_iter()
+                    .map(Self::SketchFilter),
+            )
             .chain(DisplayStyle::ALL.into_iter().map(Self::Style))
             .chain(AnalysisCommand::ALL.into_iter().map(Self::Analysis))
             .chain(SectionCommand::ALL.into_iter().map(Self::Section))
@@ -1193,6 +1207,7 @@ impl Command {
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
+            Self::SketchFilter(filter) => filter.id(),
             Self::Style(style) => style.id(),
             Self::Analysis(analysis) => analysis.id(),
             Self::Section(section) => section.id(),
@@ -1636,6 +1651,7 @@ impl Command {
             Self::Camera(camera) => camera.title(),
             Self::Window(step) => step.title(),
             Self::Filter(filter) => filter.title(),
+            Self::SketchFilter(filter) => filter.title(),
             Self::Style(style) => style.title(),
             Self::Analysis(analysis) => analysis.title(),
             Self::Section(section) => section.title(),
@@ -2130,6 +2146,7 @@ impl Command {
             | Self::Camera(_)
             | Self::Window(_)
             | Self::Filter(_)
+            | Self::SketchFilter(_)
             | Self::Style(_)
             | Self::Analysis(_)
             | Self::CancelAnalysis
@@ -2585,6 +2602,7 @@ impl Command {
             | Self::CancelShape
             | Self::ToggleFirstDimensionScales
             | Self::Filter(_)
+            | Self::SketchFilter(_)
             | Self::Style(_)
             | Self::Analysis(_)
             | Self::Section(_)

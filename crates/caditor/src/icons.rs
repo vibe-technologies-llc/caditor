@@ -322,7 +322,7 @@ pub fn command(command: Command) -> &'static str {
         Command::NarrowerPanel => phosphor::CARET_DOUBLE_LEFT,
         Command::NormalPanel => phosphor::SIDEBAR_SIMPLE,
         Command::View(_) => phosphor::CUBE_FOCUS,
-        Command::Filter(_) => phosphor::FUNNEL,
+        Command::Filter(_) | Command::SketchFilter(_) => phosphor::FUNNEL,
         Command::Style(DisplayStyle::Rendered) | Command::Lighting => LIGHTING,
         Command::ResetLighting | Command::ClearBackdrop => RESET_SECTION,
         Command::ChooseBackdrop => SKY_PICTURE,

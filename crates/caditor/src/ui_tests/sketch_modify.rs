@@ -298,6 +298,16 @@ fn mirror_steps_through_lines_and_axes_from_the_keyboard() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
+    assert_eq!(harness.tool(), Some(Tool::Mirror));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert_eq!(harness.tool(), Some(Tool::Mirror));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
     assert_eq!(harness.tool(), Some(Tool::Select));
 }
 
@@ -749,7 +759,7 @@ fn the_modify_tools_name_their_keys_and_what_they_do() {
             harness
                 .texts
                 .iter()
-                .any(|(text, _)| text.ends_with(&format!("({keys})"))),
+                .any(|(text, _)| text.contains(&format!("({keys})"))),
             "{name}"
         );
     }

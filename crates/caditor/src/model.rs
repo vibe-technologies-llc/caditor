@@ -49,7 +49,7 @@ use crate::{
     queued::{Awaited, Queue, Queued, Rerun},
     save_preview::SavePreviews,
     scene,
-    selection::{Pickable, SelectionFilter},
+    selection::{Pickable, SelectionFilter, SketchSelectionFilter},
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
     visibility::PrincipalView,
     widgets::Tone,
@@ -116,6 +116,7 @@ pub enum Action {
     Cloud(CloudCommand),
     Assistant(AssistantCommand),
     Filter(SelectionFilter),
+    SketchFilter(SketchSelectionFilter),
     Select(Vec<Pickable>),
 }
 
@@ -1494,6 +1495,10 @@ impl Model {
                 Ok(None)
             }
             Action::Filter(filter) => {
+                log::warn!("{filter:?} reached the model instead of the viewport");
+                Ok(None)
+            }
+            Action::SketchFilter(filter) => {
                 log::warn!("{filter:?} reached the model instead of the viewport");
                 Ok(None)
             }

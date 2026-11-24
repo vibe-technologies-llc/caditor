@@ -7,6 +7,10 @@
   point, else about the middle of the selection.
 - {command:sketch.scale} scales it by a factor the same way.
 
+While typing a move, rotation or scale, the view marks the anchor or pivot and previews the moved
+curves live. Double-click sketch text or a gear with Select to edit it in its panel, or right-click
+it and choose **Edit text** or **Edit gear**.
+
 Constraints still hold, so geometry tied to the rest may not go all the way. With one dimension
 selected, Move places its label instead. Projected geometry, the origin and the axes never move:
 dragging them says so beside the pointer. A value entered while the sketch is still being

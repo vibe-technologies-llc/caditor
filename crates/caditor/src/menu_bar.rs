@@ -22,7 +22,7 @@ use crate::{
     queued::QUEUE_ON_CLICK,
     ribbon,
     section::SectionCommand,
-    selection::SelectionFilter,
+    selection::{SelectionFilter, SketchSelectionFilter},
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
     toggles::ToggleStates,
@@ -1160,6 +1160,17 @@ impl Menus<'_> {
                             Command::SelectOpenEnds,
                             Command::SelectRedundant,
                         ],
+                    );
+                    ui.separator();
+                    submenu(
+                        ui,
+                        icons::command(Command::SketchFilter(SketchSelectionFilter::Everything)),
+                        "Selection filter",
+                        |ui| {
+                            for filter in SketchSelectionFilter::ALL {
+                                self.choice(ui, Command::SketchFilter(filter));
+                            }
+                        },
                     );
                 },
             );

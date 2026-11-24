@@ -1,5 +1,5 @@
 use caditor_document::{FeatureId, Transaction};
-use caditor_expression::{Dimension, Expression, Unit};
+use caditor_expression::{Dimension, Expression, Quantity, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
     ChainSize, Dimensioned, Entity, EntityId, Faceting, Gear, GearCentre, GearError, GearOutline,
@@ -493,6 +493,7 @@ pub struct GearSettings {
     editing: Option<EntityId>,
     loaded: Option<EntityId>,
     evaluated: Option<Result<Part, PartProblem>>,
+    unit_seeded: bool,
 }
 
 impl Default for GearSettings {
@@ -504,6 +505,7 @@ impl Default for GearSettings {
             editing: None,
             loaded: None,
             evaluated: None,
+            unit_seeded: false,
         }
     }
 }
@@ -626,6 +628,19 @@ impl GearSettings {
     }
 
     pub fn evaluate(&mut self, model: &Model, sketch: Option<&Sketch>) -> Evaluation {
+        if !self.unit_seeded && self.editing.is_none() {
+            let units = model.units();
+
+            for (field, millimetres) in [(GearField::Module, 2.0), (GearField::RootFillet, 0.75)] {
+                if let Some(text) = self.text_mut(field)
+                    && *text == field.initial()
+                {
+                    *text = units.show(Quantity::length(millimetres));
+                }
+            }
+            self.unit_seeded = true;
+        }
+
         let kind = self.kind;
         let mut problems = Vec::new();
         let mut read: [Option<Dimensioned>; 10] = Default::default();
@@ -954,9 +969,6 @@ impl Gearing {
         self.selected = self.selected.filter(exists);
         self.highlight = self.highlight.filter(exists);
         self.editing = editing.filter(|gear| sketch.gear(*gear).is_some());
-        if self.editing.is_some() {
-            self.shown = None;
-        }
     }
 
     pub fn hover(
@@ -975,19 +987,24 @@ impl Gearing {
 
     pub fn leave(&mut self) {
         self.hover = None;
-        if self.highlight.is_none() {
+        if self.highlight.is_none() && self.editing.is_none() {
             self.shown = None;
         }
     }
 
     fn aim(&self, sketch: &Sketch) -> Option<Aim> {
+        if let Some(editing) = self.editing {
+            let centre = sketch.gear(editing)?.centre;
+
+            return Some(Aim::Point(centre, sketch.point(centre)?));
+        }
         self.highlight
             .and_then(|point| Some(Aim::Point(point, sketch.point(point)?)))
             .or(self.hover)
     }
 
     fn refresh(&mut self, sketch: &Sketch, part: Option<&Result<Part, PartProblem>>) {
-        let (Some(aim), Some(Ok(part)), None) = (self.aim(sketch), part, self.editing) else {
+        let (Some(aim), Some(Ok(part))) = (self.aim(sketch), part) else {
             self.shown = None;
             return;
         };

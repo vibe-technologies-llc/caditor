@@ -2494,6 +2494,12 @@ fn followed(document: &Document, source: &ProjectionSource) -> String {
         ProjectionSource::DatumPlane { datum, .. }
         | ProjectionSource::DatumAxis { datum, .. }
         | ProjectionSource::DatumPoint { datum } => named(*datum),
+        ProjectionSource::FramePlane { frame, plane, .. } => {
+            format!("{} of {}", plane.name(), named(*frame))
+        }
+        ProjectionSource::FrameAxis { frame, axis, .. } => {
+            format!("{} of {}", axis.name(), named(*frame))
+        }
         ProjectionSource::PrincipalPlane { plane, .. } => format!("the {}", plane.name()),
         ProjectionSource::PrincipalAxis { axis, .. } => format!("the {}", axis.name()),
         ProjectionSource::Origin => "the origin".to_owned(),

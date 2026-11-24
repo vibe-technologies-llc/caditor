@@ -1,8 +1,12 @@
 use caditor_render::ProjectionMode;
 
 use crate::{
-    commands::Command, display_style::DisplayStyle, section::SectionCommand,
-    selection::SelectionFilter, view_aids::ViewAids, viewport::ViewportState,
+    commands::Command,
+    display_style::DisplayStyle,
+    section::SectionCommand,
+    selection::{SelectionFilter, SketchSelectionFilter},
+    view_aids::ViewAids,
+    viewport::ViewportState,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +35,7 @@ impl Shown {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ToggleStates {
     pub filter: SelectionFilter,
+    pub sketch_filter: SketchSelectionFilter,
     pub style: DisplayStyle,
     pub snapping: bool,
     pub grid_snapping: bool,
@@ -55,6 +60,7 @@ impl ToggleStates {
     pub fn of(viewport: &ViewportState, sectioning: bool) -> Self {
         Self {
             filter: viewport.filter(),
+            sketch_filter: viewport.sketch_filter(),
             style: viewport.style(),
             snapping: viewport.snapping(),
             grid_snapping: viewport.grid_snapping(),
@@ -97,6 +103,7 @@ impl ToggleStates {
         let toggle = |on: bool| if on { Shown::On } else { Shown::Off };
         Some(match command {
             Command::Filter(filter) => choice(filter == self.filter),
+            Command::SketchFilter(filter) => choice(filter == self.sketch_filter),
             Command::Style(style) => choice(style == self.style),
             Command::AutomaticProjection => toggle(self.automatic_projection),
             Command::ToggleSnapping => toggle(self.snapping),
@@ -171,6 +178,7 @@ mod tests {
     fn toggles_read_on_or_off_and_choices_mark_only_the_current_one() {
         let states = ToggleStates {
             filter: SelectionFilter::Faces,
+            sketch_filter: SketchSelectionFilter::Everything,
             style: DisplayStyle::ShadedWithEdges,
             snapping: true,
             grid_snapping: false,

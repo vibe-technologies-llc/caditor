@@ -6,11 +6,12 @@ be dragged and follows its source whenever the model changes.
 ## Project
 
 {command:sketch.project} copies an edge, a corner or every edge round a face of a body, a curve
-or point of another sketch, a datum axis or point, the X, Y or Z axis or the origin onto this
+or point of another sketch, a datum axis or point, a coordinate frame's axis, the X, Y or Z axis or the origin onto this
 sketch. While it is active the axes, the origin and the datum axes and points made before the
 sketch are shown to click. An axis comes in as a line reaching across the bodies, or as a point
-where it runs straight through the sketch. Hover shows what a click would add. Projected curves
-make regions and take constraints like drawn ones.
+where it runs straight through the sketch. Hover shows what a click would add with a live preview on
+the sketch plane. Projected curves make regions and take constraints like drawn ones; turn on
+{command:sketch.construction} first to project or intersect curves as construction geometry.
 
 Shift-click a curve or point of another sketch to project the whole of that sketch in one step:
 every curve, construction ones included, and every point no curve uses, with one Undo for all of
@@ -53,7 +54,7 @@ edge projects it for you.
 {command:sketch.intersect}, also in the menu of the arrow beside the Project button, draws where
 the model crosses the sketch plane. Click a face for the cut
 through that face, or Shift-click it for the cut through the whole body
-({command:sketch.intersect_body} from the keyboard). Click a datum or principal plane for the line
+({command:sketch.intersect_body} from the keyboard). Click a datum, frame or principal plane for the line
 where it crosses the sketch, drawn as construction.
 
 Only geometry made before the sketch in the [feature tree](feature-tree) can be used.

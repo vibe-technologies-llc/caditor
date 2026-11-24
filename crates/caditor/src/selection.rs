@@ -10,7 +10,7 @@ use caditor_document::{
 };
 use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeName, RegionKey};
-use caditor_sketch::{ConstraintId, EntityId};
+use caditor_sketch::{ConstraintId, EntityId, Sketch};
 
 use crate::{
     bodies::{self, FaceKey, VertexKey},
@@ -91,6 +91,75 @@ impl SelectionFilter {
             Self::Edges => "Selecting edges only",
             Self::Vertices => "Selecting vertices only",
             Self::SketchGeometry => "Selecting sketch geometry only",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SketchSelectionFilter {
+    #[default]
+    Everything,
+    Points,
+    Curves,
+    Construction,
+    Constraints,
+}
+
+all_variants!(
+    SketchSelectionFilter: Everything,
+    Points,
+    Curves,
+    Construction,
+    Constraints
+);
+
+impl SketchSelectionFilter {
+    pub fn allows(self, sketch: &Sketch, pickable: Pickable) -> bool {
+        match (self, pickable) {
+            (Self::Everything, _) => true,
+            (Self::Points, Pickable::SketchEntity { entity, .. }) => {
+                entity == EntityId::ORIGIN || sketch.point(entity).is_some()
+            }
+            (Self::Curves, Pickable::SketchEntity { entity, .. }) => {
+                !entity.is_reference()
+                    && sketch.point(entity).is_none()
+                    && !sketch.is_construction(entity)
+            }
+            (Self::Construction, Pickable::SketchEntity { entity, .. }) => {
+                sketch.is_construction(entity)
+            }
+            (Self::Constraints, Pickable::SketchConstraint { .. }) => true,
+            _ => false,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Everything => "sketch.select.everything",
+            Self::Points => "sketch.select.points",
+            Self::Curves => "sketch.select.curves",
+            Self::Construction => "sketch.select.construction",
+            Self::Constraints => "sketch.select.constraints",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Everything => "Select anything in sketch",
+            Self::Points => "Select sketch points only",
+            Self::Curves => "Select sketch curves only",
+            Self::Construction => "Select construction geometry only",
+            Self::Constraints => "Select sketch constraints only",
+        }
+    }
+
+    pub fn status(self) -> &'static str {
+        match self {
+            Self::Everything => "Selecting anything",
+            Self::Points => "Selecting sketch points only",
+            Self::Curves => "Selecting sketch curves only",
+            Self::Construction => "Selecting construction geometry only",
+            Self::Constraints => "Selecting sketch constraints only",
         }
     }
 }
@@ -554,8 +623,15 @@ impl Pickable {
                     && (context.solid == Some(feature) || visibility::is_shown(document, feature))
                     && datum_tools::result(evaluation, feature).is_some()
             }
-            Self::FrameAxis { feature, .. } | Self::FramePlane { feature, .. } => {
-                editing.is_none()
+            Self::FrameAxis { feature, .. } => {
+                (editing.is_none() || (context.projecting && !context.intersecting))
+                    && (context.solid == Some(feature) || visibility::is_shown(document, feature))
+                    && datum_tools::result(evaluation, feature)
+                        .and_then(|result| result.frame())
+                        .is_some()
+            }
+            Self::FramePlane { feature, .. } => {
+                (editing.is_none() || context.intersecting)
                     && (context.solid == Some(feature) || visibility::is_shown(document, feature))
                     && datum_tools::result(evaluation, feature)
                         .and_then(|result| result.frame())

@@ -106,6 +106,25 @@ impl Mirroring {
             preview.curves = image.curves.clone();
             preview.points = image.points.clone();
         }
+        if let Some(axis) = self.aim().filter(|line| line.is_reference()) {
+            let span = preview
+                .curves
+                .iter()
+                .flatten()
+                .chain(preview.points.iter())
+                .map(|point| point.abs().max_element())
+                .fold(50.0_f64, f64::max)
+                * 1.25;
+            if axis == EntityId::HORIZONTAL_AXIS {
+                preview
+                    .guides
+                    .push([Point2::new(-span, 0.0), Point2::new(span, 0.0)]);
+            } else if axis == EntityId::VERTICAL_AXIS {
+                preview
+                    .guides
+                    .push([Point2::new(0.0, -span), Point2::new(0.0, span)]);
+            }
+        }
         preview
     }
 
@@ -138,13 +157,9 @@ impl Mirroring {
                 text: SELECT_MORE,
                 hint: Hint::Keys(GATHERED_KEYS),
             },
-            (false, _) if self.gathered => Prompt {
-                text: PROMPT,
-                hint: Hint::Keys(LINE_KEYS),
-            },
             (false, _) => Prompt {
                 text: PROMPT,
-                hint: Hint::Targets,
+                hint: Hint::Keys(LINE_KEYS),
             },
         }
     }
@@ -234,12 +249,13 @@ impl Mirroring {
     }
 
     pub fn can_back_out(&self) -> bool {
-        self.highlight.is_some() || (self.gathered && !self.gathering)
+        self.highlight.is_some() || !self.gathering
     }
 
     pub fn back_out(&mut self) {
         if self.highlight.take().is_none() {
             self.gathering = true;
+            self.gathered = true;
             self.image = None;
         }
     }

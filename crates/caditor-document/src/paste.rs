@@ -665,7 +665,9 @@ impl FeatureKind {
                         | ProjectionSource::BodyOutline { body, .. } => *body = rename(*body),
                         ProjectionSource::SketchEntity { sketch, .. } => *sketch = rename(*sketch),
                         ProjectionSource::DatumPlane { datum, .. }
+                        | ProjectionSource::FramePlane { frame: datum, .. }
                         | ProjectionSource::DatumAxis { datum, .. }
+                        | ProjectionSource::FrameAxis { frame: datum, .. }
                         | ProjectionSource::DatumPoint { datum } => *datum = rename(*datum),
                         ProjectionSource::PrincipalPlane { .. }
                         | ProjectionSource::PrincipalAxis { .. }

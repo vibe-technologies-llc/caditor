@@ -461,6 +461,13 @@ paths:
   the next of body, face and edge, from any other filter to body. It applies only while no sketch or
   tool is open and no plane is being chosen (`ViewportState::filter_applies`); the status bar names
   an active filter and its button clears it. Kept for the session, not saved.
+- While a sketch is edited with Select active, the in-sketch selection filter
+  (`SketchSelectionFilter`: Everything, Points, Curves, Construction, Constraints; commands
+  `Command::SketchFilter`, `sketch.select.*`, Sketch › Select geometry › Selection filter and the
+  sketch context menu) restricts hover, click, pick list (`last_pick_listed`), box/lasso selection
+  (`select_within`) and constraint/dimension annotation interaction to the chosen kind. The status
+  bar shows a reset chip whenever a filter other than Everything is active; kept for the session,
+  not saved.
 - Outside sketch editing a primary drag in the 3D view draws a box (`PrimaryDrag::ModelBox`,
   `box_selection.rs`): left to right a window taking what lies wholly inside, right to left a
   crossing box taking what it touches, replacing the selection (Shift or Ctrl adds). It takes faces,

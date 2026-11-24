@@ -149,7 +149,7 @@ pub fn show(
                                     .clicked()
                             });
                             if add {
-                                settings.add_direction();
+                                settings.add_direction(context.model);
                                 patterning.direction_added();
                             }
                         }
@@ -168,7 +168,9 @@ pub fn show(
                         }
                     }
                     if let Ok(spec) = &evaluation.spec {
-                        copies_row(ui, spec, patterning);
+                        copies_row(ui, context.sketch, spec, patterning);
+                    } else {
+                        patterning.set_panel_aimed(None);
                     }
                     widgets::property(ui, REPEATS, |ui| match patterning.repeated() {
                         0 => wrapped(ui, widgets::muted(NOTHING_REPEATED, ui)),
@@ -353,15 +355,17 @@ enum DirectionAsk {
     Angle,
 }
 
-fn copies_row(ui: &mut Ui, spec: &Spec, patterning: &mut Patterning) {
-    let rows = copy_rows(spec);
+fn copies_row(ui: &mut Ui, sketch: Option<&Sketch>, spec: &Spec, patterning: &mut Patterning) {
+    let rows = copy_rows(sketch, spec);
 
     if rows.is_empty() {
+        patterning.set_panel_aimed(None);
         return;
     }
 
     let left_out = patterning.left_out_of(spec);
     let mut toggled = None;
+    let mut hovered = None;
     let mut brought_back = false;
 
     widgets::property(ui, COPIES, |ui| {
@@ -382,6 +386,9 @@ fn copies_row(ui: &mut Ui, spec: &Spec, patterning: &mut Patterning) {
                             })
                             .inner;
 
+                        if response.hovered() && !copy.is_original() {
+                            hovered = Some(copy.clone());
+                        }
                         if response.clicked() {
                             toggled = Some(copy.clone());
                         }
@@ -403,6 +410,7 @@ fn copies_row(ui: &mut Ui, spec: &Spec, patterning: &mut Patterning) {
             }
         });
     });
+    patterning.set_panel_aimed(hovered);
     if let Some(copy) = toggled {
         patterning.toggle(&copy);
     }
@@ -411,7 +419,7 @@ fn copies_row(ui: &mut Ui, spec: &Spec, patterning: &mut Patterning) {
     }
 }
 
-fn copy_rows(spec: &Spec) -> Vec<Vec<PatternCopy>> {
+fn copy_rows(sketch: Option<&Sketch>, spec: &Spec) -> Vec<Vec<PatternCopy>> {
     let copies = spec.copies();
 
     if copies.is_empty() {
@@ -430,8 +438,8 @@ fn copy_rows(spec: &Spec) -> Vec<Vec<PatternCopy>> {
             vec![every]
         }
         Spec::Rectangular(pattern) => {
-            let rightward = drawn_sign(pattern.directions.first(), f64::cos);
-            let upward = drawn_sign(pattern.directions.get(1), f64::sin);
+            let rightward = drawn_sign(sketch, pattern.directions.first(), true);
+            let upward = drawn_sign(sketch, pattern.directions.get(1), false);
             let mut rows: BTreeMap<(Vec<i64>, i64), Vec<PatternCopy>> = BTreeMap::new();
 
             for copy in every {
@@ -460,13 +468,34 @@ fn copy_rows(spec: &Spec) -> Vec<Vec<PatternCopy>> {
     }
 }
 
-fn drawn_sign(row: Option<&PatternRow>, part: fn(f64) -> f64) -> i64 {
+fn drawn_sign(sketch: Option<&Sketch>, row: Option<&PatternRow>, horizontal: bool) -> i64 {
     let Some(row) = row else {
         return 1;
     };
     let along = match &row.heading {
-        Heading::Angle(angle) => part(angle.value.to_radians()),
-        Heading::Along { .. } => 1.0,
+        Heading::Angle(angle) => {
+            let radians = angle.value.to_radians();
+            if horizontal {
+                radians.cos()
+            } else {
+                radians.sin()
+            }
+        }
+        Heading::Along { line, square } => {
+            let vector = if *line == EntityId::HORIZONTAL_AXIS {
+                Some(caditor_geometry::Vector2::X)
+            } else if *line == EntityId::VERTICAL_AXIS {
+                Some(caditor_geometry::Vector2::Y)
+            } else {
+                sketch
+                    .and_then(|sketch| sketch.line_endpoints(*line))
+                    .and_then(|(start, end)| (end - start).try_normalize())
+            };
+            vector.map_or(1.0, |direction| {
+                let direction = if *square { direction.perp() } else { direction };
+                if horizontal { direction.x } else { direction.y }
+            })
+        }
     };
     let flipped = if row.reversed { -1.0 } else { 1.0 };
 

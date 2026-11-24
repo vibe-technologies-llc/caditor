@@ -14,7 +14,7 @@ use crate::{
     icons,
     menu_bar::{self, MenuEntries},
     model::Model,
-    selection::{Pickable, Selection, SelectionFilter},
+    selection::{Pickable, Selection, SelectionFilter, SketchSelectionFilter},
     sketch_placement::{self, SketchTarget},
     sketch_tools::ConstraintTool,
     viewport, widgets,
@@ -96,10 +96,11 @@ const GROWING: [(Command, &str); 8] = [
     (Command::SelectTangentFaces, "Tangent faces"),
     (Command::SelectHole, "The whole hole"),
 ];
-const SKETCH_SELECTING: [(Command, &str); 3] = [
+const SKETCH_SELECTING: [(Command, &str); 4] = [
     (Command::SelectAll, "All sketch geometry"),
     (Command::SelectFree, "What is still free"),
     (Command::SelectOpenEnds, "The open ends"),
+    (Command::SelectRedundant, "Redundant constraints"),
 ];
 const TRANSFORMING: [(Command, &str); 3] = [
     (Command::MoveGeometry, "Move"),
@@ -147,9 +148,37 @@ pub struct Held {
     sketch: bool,
     plane: bool,
     made_by: Option<MadeBy>,
+    sketch_edit: Option<Tool>,
 }
 
 impl Held {
+    pub fn sketch(model: &Model, selection: &Selection, feature: FeatureId) -> Self {
+        let selected: Vec<caditor_sketch::EntityId> = selection
+            .iter()
+            .filter_map(|pickable| match pickable {
+                Pickable::SketchEntity {
+                    feature: owner,
+                    entity,
+                } if owner == feature => Some(entity),
+                _ => None,
+            })
+            .collect();
+        let sketch_edit = match (
+            selected.as_slice(),
+            model
+                .document()
+                .feature(feature)
+                .and_then(|owner| owner.kind.sketch()),
+        ) {
+            ([only], Some(sketch)) if sketch.text(*only).is_some() => Some(Tool::Text),
+            ([only], Some(sketch)) if sketch.gear(*only).is_some() => Some(Tool::Gear),
+            _ => None,
+        };
+        Self {
+            sketch_edit,
+            ..Self::default()
+        }
+    }
     pub fn of(model: &Model, selection: &Selection) -> Self {
         let items: Vec<Pickable> = selection.iter().collect();
         let bodies: BTreeSet<FeatureId> = items
@@ -202,6 +231,7 @@ impl Held {
                 Ok(SketchTarget::Face(_) | SketchTarget::Datum(_) | SketchTarget::Principal(_))
             ),
             made_by,
+            sketch_edit: None,
         }
     }
 
@@ -382,7 +412,7 @@ fn contents(ui: &mut Ui, place: Place, held: &Held, entries: &mut MenuEntries<'_
         }
         Place::Sketch { on_item } => {
             repeat(ui, entries);
-            sketch(ui, entries, on_item);
+            sketch(ui, entries, on_item, held);
         }
         Place::Shape => shape(ui, entries),
     }
@@ -523,8 +553,19 @@ fn model_space(ui: &mut Ui, entries: &mut MenuEntries<'_>, selected: bool) {
     );
 }
 
-fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
+fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool, held: &Held) {
     if on_item {
+        match held.sketch_edit {
+            Some(Tool::Text) => {
+                entries.titled_item(ui, Command::SketchTool(Tool::Text), "Edit text");
+                ui.separator();
+            }
+            Some(Tool::Gear) => {
+                entries.titled_item(ui, Command::SketchTool(Tool::Gear), "Edit gear");
+                ui.separator();
+            }
+            _ => {}
+        }
         constraints(ui, entries);
 
         let toggle_title = entries
@@ -543,6 +584,11 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
         entries.offered(ui, Command::InsertSplinePoint, "Add a control point");
         entries.offered(ui, Command::AddTangentHandle, "Add a tangent handle");
         entries.offered(ui, Command::UnlinkProjection, "Keep as ordinary curves");
+        entries.offered(
+            ui,
+            Command::DrawSymmetrically,
+            &Command::DrawSymmetrically.title(),
+        );
         entries.titled_item(ui, Command::DeleteSelection, DELETE);
         sketch_modifying(ui, entries);
         ui.separator();
@@ -557,6 +603,21 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
     }
     ui.separator();
     titled_submenu(ui, entries, Command::SelectAll, SELECT, &SKETCH_SELECTING);
+    menu_bar::submenu(
+        ui,
+        icons::command(Command::SketchFilter(SketchSelectionFilter::Everything)),
+        SELECTION_FILTER,
+        |ui| {
+            for filter in SketchSelectionFilter::ALL {
+                entries.choice(ui, Command::SketchFilter(filter));
+            }
+        },
+    );
+    entries.offered(
+        ui,
+        Command::ListUnderPointer,
+        &Command::ListUnderPointer.title(),
+    );
     entries.item(ui, Command::SketchTool(Tool::Dimension));
     ui.separator();
     entries.item(ui, Command::FinishSketch);

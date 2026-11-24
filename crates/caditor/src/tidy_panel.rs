@@ -52,6 +52,7 @@ pub struct Shown {
 }
 
 pub fn commands(
+    model: &Model,
     editing: &SketchEditing,
     selection: &Selection,
     tidying: &mut Tidying,
@@ -68,18 +69,25 @@ pub fn commands(
             && let Some(feature) = edited
         {
             tidying.open_at(task, feature);
-            if task == Task::Dimensions
-                && let Some(point) = selected_point(selection, feature)
-            {
-                tidying.datum = point;
+            if task == Task::Dimensions {
+                let selected = sketch_tools::selected_entities(selection, feature);
+                let point = selected_point(model, selection, feature);
+
+                tidying.datum_fallback = point.is_none() && !selected.is_empty();
+                if let Some(point) = point {
+                    tidying.datum = point;
+                } else {
+                    tidying.datum = EntityId::ORIGIN;
+                }
             }
         }
     }
 }
 
-fn selected_point(selection: &Selection, feature: FeatureId) -> Option<EntityId> {
+fn selected_point(model: &Model, selection: &Selection, feature: FeatureId) -> Option<EntityId> {
+    let sketch = model.settled_sketch(feature)?;
     match sketch_tools::selected_entities(selection, feature).as_slice() {
-        [only] => Some(*only),
+        [only] if sketch.point(*only).is_some() => Some(*only),
         _ => None,
     }
 }
@@ -117,12 +125,15 @@ pub fn show(
             if let Some(index) = widgets::segmented(ui, &choices, chosen)
                 && let Some(task) = Task::ALL.get(index)
             {
+                if tidying.task != *task {
+                    tidying.excluded.clear();
+                }
                 tidying.task = *task;
             }
             ui.add_space(SPACE_S);
 
             let primary = match tidying.progress() {
-                Progress::Found(found) => primary_label(found, tidying.task),
+                Progress::Found(found) => primary_label(found, tidying.task, &tidying.excluded),
                 _ => None,
             };
 
@@ -136,6 +147,8 @@ pub fn show(
                 ui.add_space(SPACE_M);
 
                 let task = tidying.task;
+                let mut excluded = tidying.excluded.clone();
+
                 match tidying.progress() {
                     Progress::Closed => {}
                     Progress::NotSettled => {
@@ -157,17 +170,23 @@ pub fn show(
                         widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
                     }
                     Progress::Found(found) => {
-                        found_proposal(ui, model, feature, task, found, &mut shown);
+                        found_proposal(ui, model, feature, task, found, &mut excluded, &mut shown);
                     }
                 }
+                tidying.excluded = excluded;
             });
         },
     );
 
     if accepted && let Progress::Found(found) = tidying.progress() {
-        shown
-            .actions
-            .extend(accept(model, feature, tidying.task, tidying.datum, found));
+        shown.actions.extend(accept(
+            model,
+            feature,
+            tidying.task,
+            tidying.datum,
+            found,
+            &tidying.excluded,
+        ));
     }
     if stopped {
         tidying.stop();
@@ -178,19 +197,35 @@ pub fn show(
     shown
 }
 
-fn primary_label(found: &Found, task: Task) -> Option<String> {
+fn included_constraints(constraints: &[Constraint], excluded: &BTreeSet<usize>) -> Vec<Constraint> {
+    constraints
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !excluded.contains(index))
+        .map(|(_, constraint)| constraint.clone())
+        .collect()
+}
+
+fn primary_label(found: &Found, task: Task, excluded: &BTreeSet<usize>) -> Option<String> {
     match (&found.proposal, task) {
-        (Proposal::Relations(kept), Task::Relations) if !kept.constraints.is_empty() => {
-            Some(format!(
-                "Add {}",
-                tidying::count(kept.constraints.len(), "relation", "relations")
-            ))
+        (Proposal::Relations(kept), Task::Relations) => {
+            let chosen = kept.constraints.len().saturating_sub(
+                excluded
+                    .iter()
+                    .filter(|i| **i < kept.constraints.len())
+                    .count(),
+            );
+            (chosen > 0).then(|| format!("Add {}", tidying::count(chosen, "relation", "relations")))
         }
-        (Proposal::Dimensions(kept), Task::Dimensions) if !kept.constraints.is_empty() => {
-            Some(format!(
-                "Add {}",
-                tidying::count(kept.constraints.len(), "dimension", "dimensions")
-            ))
+        (Proposal::Dimensions(kept), Task::Dimensions) => {
+            let chosen = kept.constraints.len().saturating_sub(
+                excluded
+                    .iter()
+                    .filter(|i| **i < kept.constraints.len())
+                    .count(),
+            );
+            (chosen > 0)
+                .then(|| format!("Add {}", tidying::count(chosen, "dimension", "dimensions")))
         }
         (Proposal::Flaws(flaws), Task::Check) => {
             let fixable = flaws.iter().filter(|(_, fix)| !fix.is_empty()).count();
@@ -206,25 +241,38 @@ fn accept(
     task: Task,
     datum: EntityId,
     found: &Found,
+    excluded: &BTreeSet<usize>,
 ) -> Option<Action> {
     let transaction = match (&found.proposal, task) {
         (Proposal::Relations(kept), Task::Relations) => {
-            tidying::relations_transaction(model, feature, &kept.constraints)
+            let chosen = included_constraints(&kept.constraints, excluded);
+
+            if chosen.is_empty() {
+                return None;
+            }
+            tidying::relations_transaction(model, feature, &chosen)
         }
-        (Proposal::Dimensions(kept), Task::Dimensions) => tidying::dimensions_transaction(
-            model,
-            feature,
-            &datum_name(&found.sketch, datum),
-            &kept.constraints,
-            model.units(),
-        ),
+        (Proposal::Dimensions(kept), Task::Dimensions) => {
+            let chosen = included_constraints(&kept.constraints, excluded);
+
+            if chosen.is_empty() {
+                return None;
+            }
+            tidying::dimensions_transaction(
+                model,
+                feature,
+                &datum_name(&found.sketch, datum),
+                &chosen,
+                model.units(),
+            )
+        }
         (Proposal::Flaws(flaws), Task::Check) => {
             let fixes: Vec<&Fix> = flaws
                 .iter()
                 .map(|(_, fix)| fix)
                 .filter(|fix| !fix.is_empty())
                 .collect();
-            let label = primary_label(found, task)?;
+            let label = primary_label(found, task, excluded)?;
             tidying::fixes_transaction(model, feature, label, &fixes)
         }
         _ => return None,
@@ -254,11 +302,7 @@ fn settings(
 
                 ui.add(Label::new(name).wrap_mode(TextWrapMode::Wrap));
 
-                let point = selected_point(selection, feature).filter(|point| {
-                    model
-                        .settled_sketch(feature)
-                        .is_some_and(|sketch| sketch.point(*point).is_some())
-                });
+                let point = selected_point(model, selection, feature);
                 let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED_POINT);
 
                 let response = ui.add_enabled(point.is_some(), button);
@@ -272,6 +316,8 @@ fn settings(
                     && let Some(point) = point
                 {
                     tidying.datum = point;
+                    tidying.datum_fallback = false;
+                    tidying.excluded.clear();
                 }
                 if tidying.datum != EntityId::ORIGIN {
                     let origin = widgets::small_button(
@@ -281,10 +327,23 @@ fn settings(
                     );
                     if ui.add(origin).clicked() {
                         tidying.datum = EntityId::ORIGIN;
+                        tidying.datum_fallback = false;
+                        tidying.excluded.clear();
                     }
                 }
             });
             ui.end_row();
+            if tidying.datum_fallback {
+                widgets::caption(ui, "");
+                wrapped(
+                    ui,
+                    widgets::muted(
+                        "Selection is not a point; measuring from the origin instead.",
+                        ui,
+                    ),
+                );
+                ui.end_row();
+            }
             return;
         }
         widgets::caption(ui, TOLERANCE);
@@ -351,6 +410,7 @@ fn found_proposal(
     feature: FeatureId,
     task: Task,
     found: &Found,
+    excluded: &mut BTreeSet<usize>,
     shown: &mut Shown,
 ) {
     let units = model.units();
@@ -360,14 +420,26 @@ fn found_proposal(
                 widgets::callout(ui, Tone::Success, |ui| wrapped(ui, NO_RELATIONS));
                 return;
             }
-            constraints_list(ui, feature, &found.sketch, kept, units, true, shown);
+            constraints_list(
+                ui,
+                (feature, &found.sketch, kept),
+                (units, true),
+                excluded,
+                shown,
+            );
         }
         (Proposal::Dimensions(kept), Task::Dimensions) => {
             if kept.constraints.is_empty() {
                 widgets::callout(ui, Tone::Success, |ui| wrapped(ui, NO_DIMENSIONS));
                 return;
             }
-            constraints_list(ui, feature, &found.sketch, kept, units, false, shown);
+            constraints_list(
+                ui,
+                (feature, &found.sketch, kept),
+                (units, false),
+                excluded,
+                shown,
+            );
         }
         (Proposal::Flaws(flaws), Task::Check) => {
             if flaws.is_empty() {
@@ -398,11 +470,9 @@ fn footer_button(ui: &mut Ui, label: &str) -> bool {
 
 fn constraints_list(
     ui: &mut Ui,
-    feature: FeatureId,
-    sketch: &Sketch,
-    kept: &Kept,
-    units: Units,
-    relations: bool,
+    (feature, sketch, kept): (FeatureId, &Sketch, &Kept),
+    (units, relations): (Units, bool),
+    excluded: &mut BTreeSet<usize>,
     shown: &mut Shown,
 ) {
     let freedom = match kept.degrees_of_freedom {
@@ -417,19 +487,23 @@ fn constraints_list(
     ui.add_space(SPACE_S);
     shown.previewed = pickables(
         feature,
-        kept.constraints.iter().flat_map(Constraint::entities),
+        kept.constraints
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !excluded.contains(index))
+            .flat_map(|(_, constraint)| constraint.entities()),
     );
 
-    let mut groups: Vec<(&str, Vec<&Constraint>)> = Vec::new();
+    let mut groups: Vec<(&str, Vec<(usize, &Constraint)>)> = Vec::new();
 
-    for constraint in &kept.constraints {
+    for (index, constraint) in kept.constraints.iter().enumerate() {
         let title = match RelationKind::of(constraint) {
             Some(kind) if relations => kind.label(),
             Some(_) | None => "Dimensions",
         };
         match groups.iter_mut().find(|(known, _)| *known == title) {
-            Some((_, members)) => members.push(constraint),
-            None => groups.push((title, vec![constraint])),
+            Some((_, members)) => members.push((index, constraint)),
+            None => groups.push((title, vec![(index, constraint)])),
         }
     }
     for (title, members) in groups {
@@ -439,7 +513,7 @@ fn constraints_list(
         )));
         ui.add_space(SPACE_S);
         widgets::card(ui, |ui| {
-            for constraint in members.iter().take(MAX_LISTED) {
+            for (index, constraint) in members.iter().take(MAX_LISTED) {
                 let mut text = sketch.describe(constraint);
 
                 if constraint.dimension().is_some()
@@ -448,11 +522,17 @@ fn constraints_list(
                     text = format!("{text}: {}", units.measured_length(value));
                 }
 
-                let row = ui.add(
-                    Label::new(text)
-                        .wrap_mode(TextWrapMode::Wrap)
-                        .sense(Sense::hover()),
-                );
+                let mut keep = !excluded.contains(index);
+
+                let row = widgets::checkbox(ui, &mut keep, &text);
+
+                if row.changed() {
+                    if keep {
+                        excluded.remove(index);
+                    } else {
+                        excluded.insert(*index);
+                    }
+                }
                 if row.hovered() {
                     shown.previewed = pickables(feature, constraint.entities());
                 }

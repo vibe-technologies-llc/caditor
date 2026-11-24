@@ -21,7 +21,7 @@ use crate::{
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
     queued, ribbon,
-    selection::SelectionFilter,
+    selection::{SelectionFilter, SketchSelectionFilter},
     upload_badge,
     widgets::{self, Named, Tone},
 };
@@ -103,6 +103,7 @@ pub struct StatusContext<'a> {
     pub appearance: &'a Appearance,
     pub edited: Option<FeatureId>,
     pub filter: SelectionFilter,
+    pub sketch_filter: SketchSelectionFilter,
 }
 
 pub fn show(
@@ -223,6 +224,10 @@ fn trailing(
         divider(ui);
         if context.filter != SelectionFilter::Everything {
             filter(ui, context.filter, actions);
+            divider(ui);
+        }
+        if context.sketch_filter != SketchSelectionFilter::Everything {
+            sketch_filter(ui, context.sketch_filter, actions);
             divider(ui);
         }
         if let Some(size) = context.offers.size.as_deref().or(context.between) {
@@ -705,6 +710,21 @@ fn filter(ui: &mut Ui, filter: SelectionFilter, actions: &mut Vec<Action>) {
     );
     if response.clicked() {
         actions.push(Action::Filter(SelectionFilter::Everything));
+    }
+}
+
+fn sketch_filter(ui: &mut Ui, filter: SketchSelectionFilter, actions: &mut Vec<Action>) {
+    let button = widgets::small_button(
+        ui,
+        icons::command(Command::SketchFilter(filter)),
+        filter.status(),
+    );
+    let response = ui.add(Named::new(button, filter.status())).on_hover_text(
+        "Clicks and box selection skip everything else in the sketch. Click to select anything \
+         again.",
+    );
+    if response.clicked() {
+        actions.push(Action::SketchFilter(SketchSelectionFilter::Everything));
     }
 }
 

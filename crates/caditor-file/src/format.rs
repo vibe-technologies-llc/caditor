@@ -2141,12 +2141,22 @@ pub(crate) enum ProjectionSourceRecord {
         datum: u64,
         reach: f64,
     },
+    FramePlane {
+        frame: u64,
+        plane: PrincipalPlaneRecord,
+        reach: f64,
+    },
     PrincipalPlane {
         plane: PrincipalPlaneRecord,
         reach: f64,
     },
     DatumAxis {
         datum: u64,
+        reach: f64,
+    },
+    FrameAxis {
+        frame: u64,
+        axis: PrincipalAxisRecord,
         reach: f64,
     },
     PrincipalAxis {
@@ -5878,6 +5888,15 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
             datum: datum.raw(),
             reach: *reach,
         },
+        ProjectionSource::FramePlane {
+            frame,
+            plane,
+            reach,
+        } => ProjectionSourceRecord::FramePlane {
+            frame: frame.raw(),
+            plane: principal_plane_record(*plane),
+            reach: *reach,
+        },
         ProjectionSource::PrincipalPlane { plane, reach } => {
             ProjectionSourceRecord::PrincipalPlane {
                 plane: principal_plane_record(*plane),
@@ -5886,6 +5905,11 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
         }
         ProjectionSource::DatumAxis { datum, reach } => ProjectionSourceRecord::DatumAxis {
             datum: datum.raw(),
+            reach: *reach,
+        },
+        ProjectionSource::FrameAxis { frame, axis, reach } => ProjectionSourceRecord::FrameAxis {
+            frame: frame.raw(),
+            axis: principal_axis_record(*axis),
             reach: *reach,
         },
         ProjectionSource::PrincipalAxis { axis, reach } => ProjectionSourceRecord::PrincipalAxis {
@@ -5932,6 +5956,15 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
             datum: FeatureId::from_raw(*datum),
             reach: usable_reach(*reach)?,
         },
+        ProjectionSourceRecord::FramePlane {
+            frame,
+            plane,
+            reach,
+        } => ProjectionSource::FramePlane {
+            frame: FeatureId::from_raw(*frame),
+            plane: restore_principal_plane(*plane),
+            reach: usable_reach(*reach)?,
+        },
         ProjectionSourceRecord::PrincipalPlane { plane, reach } => {
             ProjectionSource::PrincipalPlane {
                 plane: restore_principal_plane(*plane),
@@ -5940,6 +5973,11 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
         }
         ProjectionSourceRecord::DatumAxis { datum, reach } => ProjectionSource::DatumAxis {
             datum: FeatureId::from_raw(*datum),
+            reach: usable_reach(*reach)?,
+        },
+        ProjectionSourceRecord::FrameAxis { frame, axis, reach } => ProjectionSource::FrameAxis {
+            frame: FeatureId::from_raw(*frame),
+            axis: restore_principal_axis(*axis),
             reach: usable_reach(*reach)?,
         },
         ProjectionSourceRecord::PrincipalAxis { axis, reach } => ProjectionSource::PrincipalAxis {

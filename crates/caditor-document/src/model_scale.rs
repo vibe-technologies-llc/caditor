@@ -533,6 +533,15 @@ impl Rescaler {
                     datum: *datum,
                     reach: reach * self.factor,
                 },
+                ProjectionSource::FramePlane {
+                    frame,
+                    plane,
+                    reach,
+                } => ProjectionSource::FramePlane {
+                    frame: *frame,
+                    plane: *plane,
+                    reach: reach * self.factor,
+                },
                 ProjectionSource::PrincipalPlane { plane, reach } => {
                     match self.datums.planes.get(plane) {
                         Some(datum) => ProjectionSource::DatumPlane {
@@ -547,6 +556,11 @@ impl Rescaler {
                 }
                 ProjectionSource::DatumAxis { datum, reach } => ProjectionSource::DatumAxis {
                     datum: *datum,
+                    reach: reach * self.factor,
+                },
+                ProjectionSource::FrameAxis { frame, axis, reach } => ProjectionSource::FrameAxis {
+                    frame: *frame,
+                    axis: *axis,
                     reach: reach * self.factor,
                 },
                 ProjectionSource::PrincipalAxis { axis, reach } => {
@@ -1429,7 +1443,9 @@ fn projected_geometry(source: &ProjectionSource) -> Option<PrincipalGeometry> {
         | ProjectionSource::SketchEntity { .. }
         | ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::FramePlane { .. }
         | ProjectionSource::DatumAxis { .. }
+        | ProjectionSource::FrameAxis { .. }
         | ProjectionSource::BodyOutline { .. }
         | ProjectionSource::DatumPoint { .. } => None,
     }

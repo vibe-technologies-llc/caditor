@@ -49,7 +49,7 @@ pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentA
 pub const CURVE_LABEL: &str = "Curve";
 pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
 pub const POLYGON_LABEL: &str = "Polygon";
-pub const POLYGON_WAYS_LABEL: &str = "Ways to draw a polygon";
+pub const POLYGON_WAYS_LABEL: &str = "Polygon, Spur gear, or Text";
 pub const POLYGON_TOOLS: [Tool; 3] = [Tool::Polygon, Tool::Gear, Tool::Text];
 pub const CURVE_TOOLS: [Tool; 4] = [
     Tool::Spline,
@@ -449,6 +449,7 @@ pub struct BarContext<'a> {
     pub snaps: &'a BodySnaps,
     pub last_offers: &'a [commands::Offer],
     pub toggles: ToggleStates,
+    pub escape_finishes: bool,
 }
 
 pub fn show(
@@ -577,6 +578,7 @@ pub fn show(
         commands,
         last_offers: context.last_offers,
         toggles: context.toggles,
+        escape_finishes: context.escape_finishes,
         request: Request::default(),
         compact: false,
     };
@@ -882,6 +884,7 @@ struct Bar<'a, 'b> {
     commands: &'a mut CommandFrame<'b>,
     last_offers: &'a [commands::Offer],
     toggles: ToggleStates,
+    escape_finishes: bool,
     request: Request,
     compact: bool,
 }
@@ -1168,7 +1171,8 @@ impl Bar<'_, '_> {
                                         )
                                         .truncate()
                                         .selectable(false),
-                                    );
+                                    )
+                                    .on_hover_text(&title);
                                 });
                                 counted
                             },
@@ -1303,8 +1307,17 @@ impl Bar<'_, '_> {
             .selected(active);
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
+        let keys = self.commands.keys(command);
+        let hover = match (keys, mode) {
+            (Some(keys), Some(mode)) => format!(
+                "{description} ({keys})\n{keys} again: {}",
+                mode.next().label().to_lowercase()
+            ),
+            (Some(keys), None) => format!("{description} ({keys})"),
+            (None, _) => description.to_owned(),
+        };
 
-        let help = Ok::<_, std::convert::Infallible>(self.commands.with_keys(command, description));
+        let help = Ok::<_, std::convert::Infallible>(hover);
         let response = explained(ui.add(button), tool.label(), &help);
 
         for way in ShapeMode::of_tool(tool) {
@@ -1321,9 +1334,20 @@ impl Bar<'_, '_> {
     }
 
     fn partnered_tool_button(&mut self, ui: &mut Ui, partners: &Partners) {
-        let button = self.compact_tool_button(ui, partners.host);
         let tools = partners.tools();
-        let contents = partners.contents();
+        let remembered = Id::unique(("sketch-bar-partners-current", partners.host));
+
+        let shown_tool = if tools.contains(&self.active.tool) {
+            ui.data_mut(|data| data.insert_temp(remembered, self.active.tool));
+            self.active.tool
+        } else {
+            ui.data(|data| data.get_temp::<Tool>(remembered))
+                .filter(|tool| tools.contains(tool))
+                .unwrap_or(partners.host)
+        };
+        let button = self.compact_tool_button(ui, shown_tool);
+        let active_mode = self.modes.of(shown_tool);
+        let contents = menu_contents(&tools, Some(shown_tool));
 
         let menu = ArrowMenu {
             id: Id::unique(("sketch-bar-partners", partners.host)),
@@ -1334,7 +1358,6 @@ impl Bar<'_, '_> {
         let response = widgets::arrow_button(ui, button.height(), &menu);
         let commands = &*self.commands;
         let active = self.active.tool;
-        let host_mode = self.modes.of(partners.host);
 
         let shown = Popup::menu(&response)
             .align(RectAlign::BOTTOM_START)
@@ -1357,9 +1380,9 @@ impl Bar<'_, '_> {
                             chosen = Some(GroupChoice::Tool(tool));
                         }
                     }
-                    if let Some(current) = host_mode {
+                    if let Some(current) = active_mode {
                         ui.separator();
-                        for mode in ShapeMode::of_tool(partners.host) {
+                        for mode in ShapeMode::of_tool(shown_tool) {
                             let keys = commands.keys(Command::ShapeMode(mode));
                             let glyph = icons::shape_mode(mode);
                             if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current)
@@ -1373,7 +1396,10 @@ impl Bar<'_, '_> {
                 })
             });
         match shown.and_then(|shown| shown.inner) {
-            Some(GroupChoice::Tool(tool)) => self.request.tool = Some(tool),
+            Some(GroupChoice::Tool(tool)) => {
+                ui.data_mut(|data| data.insert_temp(remembered, tool));
+                self.request.tool = Some(tool);
+            }
             Some(GroupChoice::Way(mode)) => self.request.mode = Some(mode),
             None => {}
         }
@@ -1438,7 +1464,12 @@ impl Bar<'_, '_> {
             }
         }
 
-        let button = self.tool_button(ui, current, group.label).rect;
+        let label = if group.id == POLYGON_GROUP.id {
+            current.label()
+        } else {
+            group.label
+        };
+        let button = self.tool_button(ui, current, label).rect;
         let current_mode = self.modes.of(current);
         let contents = menu_contents(group.tools, Some(current));
         let menu = ArrowMenu {
@@ -1771,13 +1802,18 @@ impl Bar<'_, '_> {
         let keys = self
             .commands
             .keys(Command::FinishSketch)
-            .unwrap_or_else(|| FINISH_KEYS.to_owned());
+            .or_else(|| self.escape_finishes.then(|| FINISH_KEYS.to_owned()));
+        let hover = match keys {
+            Some(keys) => format!("Leave the sketch. Everything is kept. ({keys})"),
+            None => "Leave the sketch. Everything is kept.".to_owned(),
+        };
         let button =
             widgets::primary_icon_button(ui, icons::command(Command::FinishSketch), FINISH_LABEL)
                 .min_size(vec2(0.0, FINISH_HEIGHT));
+
         let response = ui
             .add(widgets::Named::new(button, FINISH_LABEL))
-            .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"));
+            .on_hover_text(hover);
         let beside = match beside {
             Beside::InRow => {
                 let cancelling = self.cancel_button(ui);

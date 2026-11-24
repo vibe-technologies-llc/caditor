@@ -184,7 +184,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   splines (files saved before centripetal spacing) into centripetal ones
   (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", solved like a
-  drag; button and command share availability (`Moving::offered`). Positions and the relative anchor
+  drag; button and command share availability (`Moving::offered`). While the field is open,
+  `Moving::preview` and `Transforming::preview` show the anchor or pivot marker and a live ghost
+  preview of the transformed geometry (texts and gears included). Positions and the relative anchor
   are taken afresh from the displayed sketch at Enter (`Moving::refreshed`, `Transforming::refreshed`),
   so a drag or undo made while the field waited is not undone; gone geometry or a recalculating
   sketch leaves the field open with the reason; a recalculating one also queues the entry
@@ -193,8 +195,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `ScaleGeometry`; `sketch_drag::Transforming`) open the same field as "Rotate by" (degrees unless a
   unit is named, counter-clockwise) or "Scale by" (a factor above zero), acting about the one selected
   point no selected curve uses (a lone point or the origin), else the centre of the selection's
-  extent (circle rims and whole ellipses included, `ellipse_half_extent`); a scale also scales
-  selected circles' radii. A lone point with nothing to turn about is refused in words.
+  extent (circle rims, whole ellipses, texts and gears included, `ellipse_half_extent`); a scale
+  also scales selected circles' radii. A lone point with nothing to turn about is refused in words.
 - Copy, Cut and Paste (`Command::CopyGeometry`, `CutGeometry`, `PasteGeometry`) work through a
   `SketchClip` (`Sketch::clip`): selected curves with their points, lone points, construction flags
   and every constraint among them (inactive staying inactive), never reference geometry or a
@@ -334,13 +336,17 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Project (`Tool::Project`, Alt+P, sketch bar Edit group) brings model geometry in: while active,
   `Context::projecting` draws bodies and other sketches as pickable background
   (`Presence::Projectable`) and `Pickable::is_available` lets their faces, edges, corners and curves
-  be hovered; it also draws the shown principal axes and origin and the shown datum axes and points
-  above the sketch (`Builder::projectable_references`). A click or Activate runs
+  be hovered; it also draws the shown principal axes and origin, shown datum axes and points, and
+  coordinate-system axes (`Pickable::FrameAxis`) above the sketch (`Builder::projectable_references`).
+  Hovering a projectable item previews its 2D projection live on the sketch plane
+  (`projecting::preview`, wired through `ViewportState::projection_preview`). New projected curves
+  honour `ActiveSketch::construction` (points stay points). A click or Activate runs
   `projecting::project` over `projections_of` (shared with a hole's Place by and the MCP server, which
   is why they take a `Surroundings`, not a `Model`, and fail with a typed `ProjectionError`): an edge, a corner,
-  every boundary edge of a face not seen end-on, a curve or point of a sketch above it, a datum or
-  principal axis (a line spanning the shown bodies, `axis_reach`, or a point where it stands square
-  to the sketch), a datum point or the origin, each one undoable transaction from the body's state at
+  every boundary edge of a face not seen end-on, a curve or point of a sketch above it, a datum,
+  coordinate-system (`ProjectionSource::FrameAxis`) or principal axis (a line spanning the shown
+  bodies, `axis_reach`, or a point where it stands square to the sketch), a datum point or the
+  origin, each one undoable transaction from the body's state at
   the sketch (`body_result_seen_by`). Geometry made later in the tree, a datum plane (Intersect takes
   it), a corner shared by two vertices of one name and anything already projected
   (`ProjectionSource::is_same_source`) are refused in words. The highlight commands step only
@@ -374,13 +380,16 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`OutlineProjected`), a body the plane sees no outline of `NoOutline`.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's arrow menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
-  (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and
-  shown principal planes crossing it. A click on a face adds the cut through that face
-  (`section_curves`, filtered by the face's name), Shift-click or `Command::IntersectBody`
-  (Shift+Space) the cut through its whole body, a click on a datum or principal plane the line where
-  it crosses the sketch as a construction line spanning the shown bodies (`datum_reach`). Each is one
-  undoable transaction; a plane missing the face or body, a parallel plane, a later datum and cuts
-  already drawn are refused in words.
+  (`Tool::projects`); `Context::intersecting` also offers shown datum planes and coordinate-system
+  planes (`Pickable::FramePlane`, `ProjectionSource::FramePlane`) above the sketch and shown
+  principal planes crossing it, previewing the 2D cut live on hover (`projecting::preview`). A click
+  on a face adds the cut through that face
+  (`section_curves`, filtered by the face's name; construction when `ActiveSketch::construction` is
+  on), Shift-click or `Command::IntersectBody`
+  (Shift+Space) the cut through its whole body, a click on a datum, coordinate-system or principal
+  plane the line where it crosses the sketch as a construction line spanning the shown bodies
+  (`datum_reach`). Each is one undoable transaction; a plane missing the face or body, a parallel
+  plane, a later datum and cuts already drawn are refused in words.
 - Keep the selected projections as ordinary curves (`Command::UnlinkProjection`, no default key;
   palette, Sketch › Modify geometry, the Modify group menu, the right-click menu while it applies;
   `sketch_tools::UnlinkChange`) takes every selected entity that has a `ProjectionSource` and, in
@@ -433,25 +442,31 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   typed value the field's error) and the tool stays active.
 - Trim's primary drag is a trim path: every piece the path crosses is trimmed on release in crossing
   order as one transaction, each found again by its middle on whichever curve now carries it after
-  earlier splits. Extend ignores drags.
+  earlier splits; the swept path is drawn live in `preview.guides` (`TrimPath::trail`). Extend
+  ignores drags.
 - Offset works on the selected chains (`Sketch::offset_chains`, any number); with none, a click on a
-  curve selects its chain. The pointer's side (per chain) and the distance to the nearest chain
-  choose side and distance, previewed live for every chain, a typed negative value flipping every
-  side, committed by `Sketch::offset_each` as one transaction; the words of an offset that
+  curve selects its chain, and the highlight commands step through offsettable curves so Space or
+  Enter picks a chain from the keyboard. Escape lets go of the picked chain before leaving Offset
+  (`Modifying::lets_go_of_selection`). The pointer's side (per chain) and the distance to the nearest
+  chain choose side and distance, previewed live for every chain, a typed negative value flipping
+  every side, committed by `Sketch::offset_each` as one transaction; the last committed distance is
+  kept in `LastSizes::offset` while caditor runs, shown as the field placeholder and reused on an
+  empty Enter. The words of an offset that
   includes an ellipse or spline end `offsetting::FREE_SPLINE` (several chains: that the splines
   among them will not follow), since its offset spline does not follow it (`sketch.md`). `OffsetMode`
   (one side, both sides with round ends, both with flat ends): the both ways put the distance on each
   side (pointer side irrelevant, a negative typed value its magnitude) as one "Offset curves to both
   sides" transaction (`Sketch::offset_both_sides`). Mirror copies the selection about the line or axis
-  under the pointer (sketch lines win a tie with an axis).
+  under the pointer (sketch lines win a tie with an axis), drawing a reference-axis guide in
+  `preview.guides` while aimed at one.
 - Mirror and both patterns select inside the tool, as Smart dimension picks: started with nothing
   selected (or once it empties) they gather (`Modifying::gathers`): a click on a sketch item toggles it
   (`ViewportState::gather_click`), a primary drag draws a box or lasso that adds, and the highlight
   commands step through the scene's pickables with Activate toggling. Enter moves Mirror on to its line
   and Circular pattern to its centre (`finish`, refused while nothing is selected); Rectangular
-  pattern gathers throughout. Escape goes back from the line or centre to gathering, then lets go of
-  what was gathered (`Modifying::lets_go_of_selection`), then leaves the tool; started with a
-  selection they go straight to the line or centre and Escape leaves the tool keeping it.
+  pattern gathers throughout. Escape goes back from the line or centre to gathering (including when
+  started with a pre-selection), then lets go of what was gathered (`Modifying::lets_go_of_selection`),
+  then leaves the tool.
 - Rectangular and Circular pattern (`Tool::RectangularPattern`, `CircularPattern`, `patterning.rs`;
   Mirror's arrow menu) repeat the selection (`sketch.md`, Patterns). While either is active the
   sketch pattern panel (`sketch_pattern_panel.rs`, a right-hand panel closing back to Select) holds
@@ -506,10 +521,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   colour alone. The panel's Copies row (`copies_row`) lists every copy and the original
   (disabled) as `widgets::instance_toggle`s named "Copy (2, 1)" (`patterning::copy_name`): a row
   per step of direction 2, farthest up first as drawn, each running along direction 1 the way it
-  is drawn (`drawn_sign`, from the angle, distance and flip; a direction along a line counts as
-  rightward and up), a row per further combination after them, Circular one row by turn. Every
-  toggle is a Tab stop, so leaving out works from the keyboard; the row counts what is left out
-  and offers Bring the copies back, and the label counts only the copies made.
+  is drawn (`drawn_sign`, from the angle, distance and flip, resolving a chosen line or reference
+  axis's actual direction on the sketch), a row per further combination after them, Circular one
+  row by turn; hovering a copy toggle highlights that copy on the canvas
+  (`Patterning::set_panel_aimed`). New directions seed their default spacing in the model's SI
+  length unit (`PatternSettings::add_direction`). Every toggle is a Tab stop, so leaving out works
+  from the keyboard; the row counts what is left out and offers Bring the copies back, and the
+  label counts only the copies made.
 - Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's arrow menu) takes the
   lines, circles and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two
   selected at start, then each one clicked or highlighted and chosen with Space or Enter (axes
@@ -542,25 +560,31 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   both, and a sprocket is one stored `Gear` (`Part::Sprocket(StoredSprocket)`: the `Sprocket`
   numbers, the turn and the `Gear::sprocket` of typed expressions, put on its centre by
   `Sketch::add_stored_gear` as a gear is).
-- Started with one gear selected (`GearSettings::begin`), the tool edits it: the panel loads its
+- Started with one gear selected (`GearSettings::begin`), or opened by double-clicking a gear in
+  Select (`ViewportState::edit_sketch_item`) or choosing "Edit gear" in the sketch context menu,
+  the tool edits it: the panel loads its
   values (`GearSettings::load`, expressions shown with parameter names, an empty bore as empty),
-  hides the kind choice, the canvas previews and writes nothing, and the primary button "Update
-  Gear N" applies one "Edit spur gear" `SetSketchGear` keeping the centre (a selected sprocket
+  hides the kind choice, the canvas previews the updated gear live at its centre while leaving
+  clicks inert, and the primary button "Update Gear N" applies one "Edit spur gear" `SetSketchGear`
+  keeping the centre (a selected sprocket
   opens as `GearKind::Sprocket` with its Chain and Teeth, Bore and Rotation, "Update Sprocket N",
   and applies one "Edit sprocket", `gearing::update_sprocket`); "Draw a new gear
-  instead" drops the edit. A first gear with partners says which mesh with it and follow its
+  instead" drops the edit. New gears seed default module and root fillet in the model's SI length
+  unit. A first gear with partners says which mesh with it and follow its
   values; a meshing gear opens as `GearKind::Meshing` with only Meshing teeth, Meshing bore and
   Direction, evaluated against its driver's values (`PartProblem::DriverBroken` when they cannot
   be worked out) as a `Part::Pair` whose update is `gearing::update_meshing`. A gear is drawn, picked and selected as one `SketchShape` under its id
   (`scene::sketch_shapes`: its pieces and bore solid, its four circles dashed, coloured by its
   centre's state), kept by the selection while the sketch has it (`Pickable::is_available`),
+  included in box/lasso selection, Select all and Move/Rotate/Scale (`sketch_drag.rs`),
   deleted with Delete through `remove_sketch_items` (a first gear takes its meshing gears) and
   dragged by its centre (`ViewportState` grabs the centre for a gear; a pair moves together, the
   solver holding the distance).
 - Text (`Tool::Text`, `texting.rs`; Polygon's arrow menu, the palette's "Write or edit sketch
   text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
   (`text_panel.rs`, a right-hand panel closing back to Select) holds a multi-line Text field
-  (Enter starts a line; `\r` from a paste is normalised to `\n` when evaluated), Height and Angle
+  (Enter starts a line; `\r` from a paste is normalised to `\n` when evaluated), Height (seeded in
+  the model's SI length unit) and Angle
   fields, an Align segmented control (Left, Centre, Right: `widgets::segmented`) and Bold and
   Italic checkboxes, kept in `Modifying` (`TextSettings`) while caditor runs; Height and Angle are
   `patterning::quantity` fields kept as typed expressions, Text is checked by
@@ -569,12 +593,16 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   where it is, a click writes there (a new point when free, a new point `Coincident` with the origin
   there), Enter or the panel's primary button writes at the one selected point, else the origin. One
   "Draw text" transaction through `reshape_sketch`.
-- Started with one text selected (`TextSettings::begin`), the tool edits it: the panel loads its
-  values (`TextSettings::load`, expressions shown with parameter names), the canvas previews and
-  writes nothing, and the primary button "Update Text N" applies one "Edit text" `SetSketchText`
+- Started with one text selected (`TextSettings::begin`), or opened by double-clicking text in
+  Select (`ViewportState::edit_sketch_item`) or choosing "Edit text" in the sketch context menu,
+  the tool edits it: the panel loads its
+  values (`TextSettings::load`, expressions shown with parameter names), the canvas previews the
+  updated letters live at their anchor while leaving clicks inert, and the primary button "Update
+  Text N" applies one "Edit text" `SetSketchText`
   keeping the anchor; "Write new text instead" drops the edit. A text is drawn, picked and selected
   as one `SketchShape` under its id (`scene::sketch_shapes`, coloured by its anchor's state), kept by
-  the selection while the sketch has it (`Pickable::is_available`), deleted with Delete through
+  the selection while the sketch has it (`Pickable::is_available`), included in box/lasso selection,
+  Select all and Move/Rotate/Scale (`sketch_drag.rs`), deleted with Delete through
   `remove_sketch_items`, and dragged by its anchor (`ViewportState` grabs the anchor for a text).
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's arrow menu) joins two
   curve ends with a spline (`sketch.md`, Blend curves). It takes the end of a line, arc or spline
@@ -594,9 +622,11 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   kept in `Filleting::joined` by the `SketchVersion` of the displayed sketch (feature, document
   revision, evaluation and displayed-sketch generations) and by the aims, a crossing aim by its
   `CrossingPlan`: which crossing and which ends move, so a pointer moving along the second curve
-  copies the sketch again only when the kept side changes). A click, or Space on a
-  highlighted corner, adds corners. Then the pointer sets the radius through the first corner
-  (`radius_through`), previewed on all, and a click, typed value or Enter rounds all in
+  copies the sketch again only when the kept side changes). Clicking another unchosen corner while
+  at least one corner is already chosen (`Filleting::add_hover`), or pressing Space on a highlighted
+  corner, adds it to the batch. Then the pointer sets the radius through the first corner
+  (`radius_through`), previewed on all with the trimmed-away corner stubs drawn dashed in
+  `Preview::removed` (`corner_stubs`), and a click, typed value or Enter rounds all in
   one transaction ("Fillet corners" when several), each corner found again by its point on the working
   copy as earlier ones change it; chosen corners clear after each fillet. The last value committed is
   kept per cut while caditor runs (`Modifying`, `LastSizes`): it is the field's placeholder and Enter
@@ -939,15 +969,18 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   session.
 - Relations and Check take a tolerance (`Looseness`: Tight, Normal, Loose, shares of the sketch's
   extent and angles, in the document's unit), Relations a checkbox per `RelationKind`, Dimensions the
-  datum (selected point or origin). The proposal is listed by kind with what adding it leaves free, a
-  dimension with its measured value, a flaw in words with its remedy; at most `MAX_LISTED` rows a
-  group. Its entities are highlighted in the view as hovered geometry is
-  (`ViewportState::preview_entities`, under the pointer's own hover), a hovered row's alone.
-- The primary action sits in a footer (Add N relations, Add N dimensions, Fix N flaws) and applies the
-  whole proposal as one undoable transaction settled first; dimensions go into the document's unit
-  (`sketch_tools::in_unit`). A flaw's own button applies its fix alone; a fix set drops added
-  constraints touching removed geometry. A sketch that does not solve is refused in words
-  (`tidying::UNSOLVED`).
+  datum (selected point or origin; if the selection is not a point, `Tidying::datum_fallback` shows
+  a muted note explaining the fallback to the origin). The proposal is listed by kind with what
+  adding it leaves free, a dimension with its measured value, a flaw in words with its remedy; at
+  most `MAX_LISTED` rows a group. Each proposed relation and dimension carries a checkbox
+  (`Tidying::excluded`) so individual suggestions can be left out before applying; its entities are
+  highlighted in the view as hovered geometry is (`ViewportState::preview_entities`, under the
+  pointer's own hover, skipping unchecked rows), a hovered row's alone.
+- The primary action sits in a footer (Add N relations, Add N dimensions, Fix N flaws) counting only
+  checked items and applies the checked proposal as one undoable transaction settled first;
+  dimensions go into the document's unit (`sketch_tools::in_unit`). A flaw's own button applies its
+  fix alone; a fix set drops added constraints touching removed geometry. A sketch that does not
+  solve is refused in words (`tidying::UNSOLVED`).
 
 ## Status pills
 

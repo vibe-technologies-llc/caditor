@@ -499,6 +499,7 @@ pub enum SketchTarget {
     Principal(PrincipalPlane),
     Datum(DatumTarget),
     Face(FaceChoice),
+    CurvedFace,
     Choose,
 }
 
@@ -516,7 +517,7 @@ pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarge
         .collect();
     match targets.as_slice() {
         [] => Ok(SketchTarget::Choose),
-        [SketchTarget::Face(face)] if !is_flat(model, *face) => Ok(SketchTarget::Choose),
+        [SketchTarget::Face(face)] if !is_flat(model, *face) => Ok(SketchTarget::CurvedFace),
         [target] => Ok(*target),
         [_, _, ..] => Err(TargetError::Several),
     }

@@ -81,7 +81,7 @@ use crate::{
     scene_palette::{self, Canvas, Contrast},
     section::{self, SectionCommand},
     sectioned_screen::SectionedScreen,
-    selection::{Pickable, Selection, SelectionFilter},
+    selection::{Pickable, Selection, SelectionFilter, SketchSelectionFilter},
     selection_sets,
     shape_modes::ShapeMode,
     shell_tools,
@@ -485,6 +485,9 @@ pub struct ViewportState {
     description: SceneDescription,
     filter: SelectionFilter,
     filter_applies: bool,
+    sketch_filter: SketchSelectionFilter,
+    sketch_filter_applies: bool,
+    last_pick_listed: Vec<Pickable>,
     style: DisplayStyle,
     style_before_see_through: DisplayStyle,
     contrast: Contrast,
@@ -933,6 +936,9 @@ impl ViewportState {
             description: SceneDescription::default(),
             filter: SelectionFilter::default(),
             filter_applies: true,
+            sketch_filter: SketchSelectionFilter::default(),
+            sketch_filter_applies: false,
+            last_pick_listed: Vec::new(),
             style: DisplayStyle::default(),
             style_before_see_through: DisplayStyle::default(),
             contrast: Contrast::default(),
@@ -1233,6 +1239,32 @@ impl ViewportState {
             self.filter
         } else {
             SelectionFilter::Everything
+        }
+    }
+
+    pub fn sketch_filter(&self) -> SketchSelectionFilter {
+        self.sketch_filter
+    }
+
+    pub fn sketch_filter_applies(&self) -> bool {
+        self.sketch_filter_applies
+    }
+
+    pub fn set_sketch_filter(&mut self, filter: SketchSelectionFilter) {
+        if self.sketch_filter == filter {
+            return;
+        }
+        self.sketch_filter = filter;
+        self.hovered = None;
+        self.keyboard_highlight = None;
+        self.last_pick = None;
+    }
+
+    fn active_sketch_filter(&self) -> SketchSelectionFilter {
+        if self.sketch_filter_applies {
+            self.sketch_filter
+        } else {
+            SketchSelectionFilter::Everything
         }
     }
 
@@ -1608,6 +1640,7 @@ impl ViewportState {
 
         let best = picks.best_hit(result, self.active_filter());
 
+        self.last_pick_listed = picks.listed(&result.hits, self.active_filter());
         self.hovered = best.map(|(pickable, _)| pickable);
         self.hover_source = Some(PickSource {
             cursor: result.cursor,
@@ -1750,6 +1783,10 @@ impl ViewportState {
 
         self.filter_applies =
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
+        self.sketch_filter_applies = editing
+            .active()
+            .is_some_and(|active| active.tool == Tool::Select)
+            && self.dimensioning.is_none();
         if edited != self.edited {
             self.edited = edited;
             self.face_edited_sketch = edited
@@ -1793,9 +1830,30 @@ impl ViewportState {
                 ..availability
             });
         }
-        self.hovered = self
-            .hovered
-            .filter(|hovered| hovered.is_available(document, evaluation, context));
+        if self.sketch_filter_applies
+            && self.sketch_filter != SketchSelectionFilter::Everything
+            && let Some(sketch) = edited_sketch(model, editing)
+        {
+            let filter = self.sketch_filter;
+            let allowed = |pickable: Pickable| {
+                pickable.is_available(document, evaluation, context)
+                    && filter.allows(&sketch, pickable)
+            };
+
+            self.hovered = self
+                .hovered
+                .filter(|pickable| allowed(*pickable))
+                .or_else(|| {
+                    self.last_pick_listed
+                        .iter()
+                        .copied()
+                        .find(|pickable| allowed(*pickable))
+                });
+        } else {
+            self.hovered = self
+                .hovered
+                .filter(|hovered| hovered.is_available(document, evaluation, context));
+        }
 
         let highlighted = self.highlighted();
         let grabbed = match &self.primary {
@@ -1946,6 +2004,8 @@ impl ViewportState {
                 self.modifying.preview(faceting),
                 self.grab_preview(),
                 self.body_preview(editing),
+                self.transform_preview(model, editing, faceting),
+                self.projection_preview(model, editing, faceting),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             calibration: self.calibration.clone(),
@@ -2986,6 +3046,56 @@ impl ViewportState {
         preview
     }
 
+    fn transform_preview(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        faceting: Faceting,
+    ) -> Preview {
+        let Some(sketch) = edited_sketch(model, editing) else {
+            return Preview::default();
+        };
+
+        if let Some(moving) = &self.moving {
+            let target = self.typed_point.typing_text().and_then(|text| {
+                let from = typed_point::From {
+                    last: Some(moving.anchor),
+                    toward: None,
+                    width: None,
+                };
+                typed_point::parse(model, text, from).ok()
+            });
+
+            return moving.preview(&sketch, target, faceting);
+        }
+        if let Some(transforming) = &self.transforming {
+            let amount = self.typed_point.typing_text().and_then(|text| {
+                typed_point::parse_transform(model, text, transforming.transform).ok()
+            });
+
+            return transforming.preview(&sketch, amount, faceting);
+        }
+        Preview::default()
+    }
+
+    fn projection_preview(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        faceting: Faceting,
+    ) -> Preview {
+        let Some(active) = editing.active().filter(|active| active.tool.projects()) else {
+            return Preview::default();
+        };
+        let Some(pickable) = self
+            .highlighted()
+            .filter(|pickable| projecting::projectable(model, active, *pickable))
+        else {
+            return Preview::default();
+        };
+        projecting::preview(model, active, pickable, false, faceting)
+    }
+
     fn grab_snapping<'a>(
         &self,
         model: &'a Model,
@@ -3152,7 +3262,20 @@ impl ViewportState {
             return;
         };
 
-        let caught = sketch_drag::within(&sketch, &screen, area, self.scenes.faceting());
+        let filter = self.active_sketch_filter();
+        let caught: Vec<EntityId> =
+            sketch_drag::within(&sketch, &screen, area, self.scenes.faceting())
+                .into_iter()
+                .filter(|entity| {
+                    filter.allows(
+                        &sketch,
+                        Pickable::SketchEntity {
+                            feature,
+                            entity: *entity,
+                        },
+                    )
+                })
+                .collect();
 
         self.add_to_selection(feature, caught, toggle);
     }
@@ -3719,6 +3842,9 @@ impl ViewportState {
             }
             return;
         }
+        if click.double && self.edit_sketch_item(model, editing, actions) {
+            return;
+        }
         if click.double && self.select_chain(model, editing) {
             return;
         }
@@ -3893,6 +4019,32 @@ impl ViewportState {
             dimensioning::Fit::Ready(_)
         )
         .then_some((feature, staged))
+    }
+
+    fn edit_sketch_item(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) -> bool {
+        let Some(pickable @ Pickable::SketchEntity { feature: _, entity }) = self.hovered else {
+            return false;
+        };
+        let Some(sketch) = edited_sketch(model, editing) else {
+            return false;
+        };
+
+        let tool = if sketch.text(entity).is_some() {
+            Tool::Text
+        } else if sketch.gear(entity).is_some() {
+            Tool::Gear
+        } else {
+            return false;
+        };
+
+        self.selection.replace_with(pickable);
+        actions.push(Action::Editing(EditingCommand::SetTool(tool)));
+        true
     }
 
     fn select_chain(&mut self, model: &Model, editing: &SketchEditing) -> bool {
@@ -4089,6 +4241,14 @@ impl ViewportState {
         for filter in SelectionFilter::ALL {
             if commands.available(Command::Filter(filter)) {
                 self.set_filter(filter);
+            }
+        }
+
+        let in_sketch = editing.feature().map(|_| ()).ok_or("Edit a sketch first");
+
+        for filter in SketchSelectionFilter::ALL {
+            if commands.invoke(Command::SketchFilter(filter), &in_sketch) {
+                self.set_sketch_filter(filter);
             }
         }
         if commands.available(Command::CycleSelectionPriority) {
@@ -5843,6 +6003,10 @@ impl ViewportState {
         let place = self.menu_place(editing, on_item);
         let held = match place {
             Place::Model { on_item: true, .. } => Held::of(model, &self.selection),
+            Place::Sketch { on_item: true } => editing
+                .feature()
+                .map(|feature| Held::sketch(model, &self.selection, feature))
+                .unwrap_or_default(),
             Place::Model { .. } | Place::Sketch { .. } | Place::Shape => Held::default(),
         };
 
@@ -6121,7 +6285,11 @@ impl ViewportState {
             interactive: !self.drawing.is_active()
                 && !self.trimming.is_active()
                 && !self.modifying.is_active()
-                && self.dimensioning.is_none(),
+                && self.dimensioning.is_none()
+                && matches!(
+                    self.active_sketch_filter(),
+                    SketchSelectionFilter::Everything | SketchSelectionFilter::Constraints
+                ),
             glyphs: self.glyphs_shown,
             auto_hide: self.auto_hide_marks,
             highlight: self.keyboard_highlight,

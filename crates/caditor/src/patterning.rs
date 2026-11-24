@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{FeatureId, Transaction};
-use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Unit};
+use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Quantity, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
     CircularPattern, CopyImage, Dimensioned, Distribution, Entity, EntityId, Faceting, Heading,
@@ -42,8 +42,6 @@ pub const RECTANGULAR_KEYS: &str =
 pub const RECTANGULAR_GATHERED_KEYS: &str = "Enter: make the copies   Click or drag a box: change what is repeated   Esc: let go of the selection";
 pub const CIRCULAR_KEYS: &str =
     "Enter: make the copies   Click another point: repeat about it   Esc: choose another point";
-pub const CENTRE_KEYS: &str =
-    "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
 pub const DIRECTION_PROMPT: &str = "Click the line or axis this direction runs along";
 pub const DIRECTION_KEYS: &str =
@@ -358,7 +356,7 @@ struct DirectionSettings {
 }
 
 impl DirectionSettings {
-    fn initial(direction: Direction) -> Self {
+    fn initial(direction: Direction, spacing: String) -> Self {
         let (count, angle) = match direction.index() {
             0 => ("3", "0°"),
             1 => ("2", ""),
@@ -366,7 +364,7 @@ impl DirectionSettings {
         };
         Self {
             count: count.to_owned(),
-            spacing: "10 mm".to_owned(),
+            spacing,
             angle: angle.to_owned(),
             sides: Sides::One,
             reversed: false,
@@ -397,17 +395,22 @@ pub struct PatternSettings {
     distribution: Distribution,
     turn: TurnKind,
     evaluated: Option<Spec>,
+    unit_seeded: bool,
 }
 
 impl Default for PatternSettings {
     fn default() -> Self {
         Self {
-            directions: vec![DirectionSettings::initial(Direction::FIRST)],
+            directions: vec![DirectionSettings::initial(
+                Direction::FIRST,
+                "10 mm".to_owned(),
+            )],
             copies: "6".to_owned(),
             total_angle: "90°".to_owned(),
             distribution: Distribution::Spacing,
             turn: TurnKind::FullTurn,
             evaluated: None,
+            unit_seeded: false,
         }
     }
 }
@@ -432,10 +435,12 @@ impl PatternSettings {
         (0..self.directions.len()).map(Direction)
     }
 
-    pub fn add_direction(&mut self) -> Direction {
+    pub fn add_direction(&mut self, model: &Model) -> Direction {
         let added = Direction(self.directions.len());
+        let spacing = model.units().show(Quantity::length(10.0));
 
-        self.directions.push(DirectionSettings::initial(added));
+        self.directions
+            .push(DirectionSettings::initial(added, spacing));
         added
     }
 
@@ -507,6 +512,17 @@ impl PatternSettings {
         kind: PatternKind,
         lines: &[Option<EntityId>],
     ) -> PatternEvaluation {
+        if !self.unit_seeded {
+            let spacing = model.units().show(Quantity::length(10.0));
+
+            for direction in &mut self.directions {
+                if direction.spacing == "10 mm" {
+                    direction.spacing = spacing.clone();
+                }
+            }
+            self.unit_seeded = true;
+        }
+
         let mut problems = Vec::new();
 
         let spec = match kind {
@@ -777,6 +793,7 @@ pub struct Patterning {
     image: Option<Result<PatternImage, PatternError>>,
     left_out: BTreeSet<PatternCopy>,
     aimed: Option<PatternCopy>,
+    panel_aimed: Option<PatternCopy>,
 }
 
 impl Patterning {
@@ -796,7 +813,12 @@ impl Patterning {
             image: None,
             left_out: BTreeSet::new(),
             aimed: None,
+            panel_aimed: None,
         }
+    }
+
+    pub fn set_panel_aimed(&mut self, copy: Option<PatternCopy>) {
+        self.panel_aimed = copy;
     }
 
     pub fn is_left_out(&self, copy: &PatternCopy) -> bool {
@@ -1067,23 +1089,46 @@ impl Patterning {
     pub fn preview(&self) -> Preview {
         let mut preview = Preview::default();
 
-        let Some(Ok(image)) = &self.image else {
-            return preview;
-        };
+        if let Some(Ok(image)) = &self.image {
+            let highlighted = self.aimed.as_ref().or(self.panel_aimed.as_ref());
 
-        for copy in &image.copies {
-            let (curves, points) = if copy.left_out {
-                (&mut preview.left_out, &mut preview.left_out_points)
-            } else {
-                (&mut preview.curves, &mut preview.points)
-            };
+            for copy in &image.copies {
+                let (curves, points) = if copy.left_out {
+                    (&mut preview.left_out, &mut preview.left_out_points)
+                } else {
+                    (&mut preview.curves, &mut preview.points)
+                };
 
-            curves.extend(copy.curves.iter().cloned());
-            points.extend(copy.points.iter().copied());
-            if self.aimed.as_ref() == Some(&copy.copy) {
-                preview.aimed.extend(copy.curves.iter().cloned());
-                preview.aimed_points.extend(copy.points.iter().copied());
+                curves.extend(copy.curves.iter().cloned());
+                points.extend(copy.points.iter().copied());
+                if highlighted == Some(&copy.copy) {
+                    preview.aimed.extend(copy.curves.iter().cloned());
+                    preview.aimed_points.extend(copy.points.iter().copied());
+                }
             }
+        }
+        if self.picking.is_some()
+            && let Some(axis) = self.highlight.or(self.hover).filter(|id| id.is_reference())
+        {
+            let span = preview
+                .curves
+                .iter()
+                .flatten()
+                .chain(preview.points.iter())
+                .map(|point| point.abs().max_element())
+                .fold(50.0_f64, f64::max)
+                * 1.25;
+            if axis == EntityId::HORIZONTAL_AXIS {
+                preview
+                    .guides
+                    .push([Point2::new(-span, 0.0), Point2::new(span, 0.0)]);
+            } else if axis == EntityId::VERTICAL_AXIS {
+                preview
+                    .guides
+                    .push([Point2::new(0.0, -span), Point2::new(0.0, span)]);
+            }
+        } else if self.kind == PatternKind::Circular && self.centre() == Some(EntityId::ORIGIN) {
+            preview.snap = Some(Point2::ZERO);
         }
         preview
     }
@@ -1153,10 +1198,9 @@ impl Patterning {
             (PatternKind::Circular, false) if self.gathering => {
                 (CIRCULAR_SELECT_MORE, CIRCULAR_GATHERED_KEYS)
             }
-            (PatternKind::Circular, false) => match (self.centre(), self.gathered) {
-                (None, true) => (CENTRE_PROMPT, GATHERED_CENTRE_KEYS),
-                (None, false) => (CENTRE_PROMPT, CENTRE_KEYS),
-                (Some(_), _) => (CIRCULAR_PROMPT, CIRCULAR_KEYS),
+            (PatternKind::Circular, false) => match self.centre() {
+                None => (CENTRE_PROMPT, GATHERED_CENTRE_KEYS),
+                Some(_) => (CIRCULAR_PROMPT, CIRCULAR_KEYS),
             },
         };
         Prompt {
@@ -1305,7 +1349,7 @@ impl Patterning {
     }
 
     fn regathers(&self) -> bool {
-        self.kind == PatternKind::Circular && self.gathered && !self.gathering
+        self.kind == PatternKind::Circular && !self.gathering
     }
 
     pub fn back_out(&mut self) {
@@ -1314,6 +1358,7 @@ impl Patterning {
         }
         if self.chosen.take().is_none() && self.regathers() {
             self.gathering = true;
+            self.gathered = true;
             self.image = None;
         }
     }

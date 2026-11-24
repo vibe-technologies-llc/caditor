@@ -22,7 +22,7 @@ use crate::{
     loft_tools, mate_tools,
     menu_bar::MenuEntries,
     mirror_tools::{self, MirrorStart},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     move_face_tools, move_tools,
     offers::Offers,
     offset_face_tools,
@@ -501,6 +501,11 @@ fn sketch_buttons(
                 .to_owned(),
             EditingCommand::NewSketchOnFace(face),
         ),
+        Ok(SketchTarget::CurvedFace) => (
+            "The selected face is curved; click a plane or flat face to start the sketch"
+                .to_owned(),
+            EditingCommand::NewSketch(None),
+        ),
         Ok(SketchTarget::Choose) | Err(_) => (
             "Start a sketch on the plane or flat face you click next".to_owned(),
             EditingCommand::NewSketch(None),
@@ -514,6 +519,11 @@ fn sketch_buttons(
     let invoked = commands.invoke(Command::NewSketch, &target);
     let response = tool(ui, commands, Command::NewSketch, NEW_SKETCH_LABEL, &help);
     if (response.clicked() || invoked) && target.is_ok() {
+        if matches!(target, Ok(SketchTarget::CurvedFace)) {
+            actions.push(Action::Inform(Notice::info(
+                "Sketches need a flat face or plane; click one to start the sketch.",
+            )));
+        }
         actions.push(Action::Editing(command));
     }
 }

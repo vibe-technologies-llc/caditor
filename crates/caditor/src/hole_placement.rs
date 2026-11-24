@@ -203,13 +203,16 @@ impl Held {
     pub fn noun(&self) -> &'static str {
         match self.source {
             ProjectionSource::Edge { .. } => "edge",
-            ProjectionSource::DatumAxis { .. } | ProjectionSource::PrincipalAxis { .. } => "axis",
+            ProjectionSource::DatumAxis { .. }
+            | ProjectionSource::FrameAxis { .. }
+            | ProjectionSource::PrincipalAxis { .. } => "axis",
             ProjectionSource::Vertex { .. }
             | ProjectionSource::SketchEntity { .. }
             | ProjectionSource::DatumPoint { .. }
             | ProjectionSource::Origin
             | ProjectionSource::Section { .. }
             | ProjectionSource::DatumPlane { .. }
+            | ProjectionSource::FramePlane { .. }
             | ProjectionSource::PrincipalPlane { .. }
             | ProjectionSource::BodyOutline { .. } => "sketch curve",
         }
@@ -428,11 +431,13 @@ fn places_holes(source: &ProjectionSource) -> bool {
         | ProjectionSource::Vertex { .. }
         | ProjectionSource::SketchEntity { .. }
         | ProjectionSource::DatumAxis { .. }
+        | ProjectionSource::FrameAxis { .. }
         | ProjectionSource::PrincipalAxis { .. }
         | ProjectionSource::DatumPoint { .. }
         | ProjectionSource::Origin => true,
         ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::FramePlane { .. }
         | ProjectionSource::PrincipalPlane { .. }
         | ProjectionSource::BodyOutline { .. } => false,
     }
@@ -484,10 +489,14 @@ pub fn source_words(model: &Model, sketch: FeatureId, source: &ProjectionSource)
         ProjectionSource::DatumAxis { datum, .. } | ProjectionSource::DatumPoint { datum } => {
             named(*datum)
         }
+        ProjectionSource::FrameAxis { frame, axis, .. } => {
+            named(*frame).map(|name| format!("{} of {name}", axis.name()))
+        }
         ProjectionSource::PrincipalAxis { axis, .. } => Some(format!("The {}", axis.name())),
         ProjectionSource::Origin => Some("The origin".to_owned()),
         ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::FramePlane { .. }
         | ProjectionSource::PrincipalPlane { .. }
         | ProjectionSource::BodyOutline { .. } => None,
     };

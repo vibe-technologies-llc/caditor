@@ -94,6 +94,7 @@ impl Aim {
 #[derive(Clone, Debug, Default)]
 struct TrimPath {
     last: Option<Point2>,
+    trail: Vec<Point2>,
     crossed: Vec<Piece>,
 }
 
@@ -219,6 +220,7 @@ impl Trimming {
         if matches!(self.context, Some((_, Tool::Trim))) {
             self.path = Some(TrimPath {
                 last: Some(from),
+                trail: vec![from],
                 crossed: Vec::new(),
             });
         }
@@ -274,6 +276,14 @@ impl Trimming {
                 .crossed
                 .iter()
                 .map(|piece| piece.faceted(faceting))
+                .collect();
+            preview.guides = path
+                .trail
+                .windows(2)
+                .filter_map(|pair| match pair {
+                    [from, to] => Some([*from, *to]),
+                    _ => None,
+                })
                 .collect();
             return preview;
         }
@@ -350,6 +360,13 @@ impl TrimPath {
 
         if from == to {
             return;
+        }
+        if self
+            .trail
+            .last()
+            .is_none_or(|previous| previous.distance(to) >= 1e-3)
+        {
+            self.trail.push(to);
         }
 
         let trimmable: Vec<EntityId> = sketch

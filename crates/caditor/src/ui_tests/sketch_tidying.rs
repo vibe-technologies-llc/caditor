@@ -56,9 +56,29 @@ fn relations_the_drawing_shows_are_listed_then_added_as_one_undoable_change() {
     assert_eq!(harness.workspace.tidying.task, Task::Relations);
     assert!(harness.shows_containing(tidy_panel::TITLE));
     assert!(harness.shows("Coincident ends (4)"));
-    assert!(harness.shows("Horizontal lines (2)"));
     assert!(harness.shows("Adding them leaves 4 degrees of freedom."));
     assert!(harness.sketch(feature).same_content(&before));
+
+    let list_spot = harness
+        .texts
+        .iter()
+        .find(|(text, _)| text == "Coincident ends (4)")
+        .unwrap()
+        .1
+        .center();
+
+    harness.events.push(egui::Event::PointerMoved(list_spot));
+    harness.events.push(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Horizontal lines (2)"));
 
     harness.click_button("Add 8 relations");
     harness.settle();
