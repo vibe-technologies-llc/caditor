@@ -762,7 +762,7 @@ impl Panel<'_> {
     }
 
     fn edge_mode_row(&mut self, ui: &mut Ui, body: FeatureId, edge: &EdgeReference, mode: usize) {
-        let round = mode == 0;
+        let round = mode == 0 || datum_tools::is_round_edge(self.model, body, edge, self.index);
         let choices = [
             (CENTRE_OF_EDGE, "Sit at the centre of the round edge"),
             (
@@ -782,19 +782,28 @@ impl Panel<'_> {
 
         let chosen = widgets::property(ui, "Edge", |ui| widgets::segmented(ui, &offered, shown))
             .map(|chosen| if round { chosen } else { chosen + 1 });
+        let unit = self.model.length_unit();
+
         let switched = match chosen {
-            Some(1) if mode != 1 => PointBy::Along(Box::new(CurveStation {
+            Some(0) if mode != 0 => Datum::Point(DatumPoint {
+                base: PointReference::Centre {
+                    body,
+                    edge: Box::new(*edge),
+                },
+                offset: std::array::from_fn(|_| unit.default_length(0.0)),
+            }),
+            Some(1) if mode != 1 => Datum::PointBy(PointBy::Along(Box::new(CurveStation {
                 body,
                 edge: Box::new(*edge),
-                distance: self.model.length_unit().default_length(0.0),
-            })),
-            Some(2) if mode != 2 => PointBy::EdgeMiddle {
+                distance: unit.default_length(0.0),
+            }))),
+            Some(2) if mode != 2 => Datum::PointBy(PointBy::EdgeMiddle {
                 body,
                 edge: Box::new(*edge),
-            },
+            }),
             _ => return,
         };
-        let change = self.change(Datum::PointBy(switched));
+        let change = self.change(switched);
 
         self.apply(change);
     }

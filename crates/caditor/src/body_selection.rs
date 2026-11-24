@@ -164,6 +164,22 @@ pub fn standing_bodies(model: &Model) -> Standing {
     }
 }
 
+pub fn tree_or_standing(model: &Model, tree: &[FeatureId]) -> Standing {
+    let document = model.document();
+    let standing = document.bodies_standing_in(model.evaluation());
+    let chosen: Vec<FeatureId> = tree
+        .iter()
+        .copied()
+        .filter(|body| standing.contains(body))
+        .collect();
+
+    match chosen.as_slice() {
+        [only] => Standing::Only(*only),
+        [_, _, ..] => Standing::Several,
+        [] => standing_bodies(model),
+    }
+}
+
 fn shown_bodies(model: &Model) -> impl Iterator<Item = (FeatureId, &SolidResult)> {
     let document = model.document();
     let evaluation = model.evaluation();

@@ -71,16 +71,25 @@ pub fn selected_body(
     )?)
 }
 
-pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {
+fn create_centred(
+    document: &Document,
+    body: FeatureId,
+    unit: LengthUnit,
+    center: Option<Point3>,
+) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+    let center = match center {
+        Some(point) => [point.x, point.y, point.z].map(|value| unit.measured(value)),
+        None => std::array::from_fn(|_| unit.default_length(0.0)),
+    };
 
     let feature = transaction.add_feature(
         name,
         FeatureKind::Scale(Scale {
             body,
             factor: Expression::Number(DEFAULT_FACTOR),
-            center: std::array::from_fn(|_| unit.default_length(0.0)),
+            center,
             frame: None,
         }),
     );
@@ -88,7 +97,11 @@ pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transa
 }
 
 pub fn create_actions(model: &Model, body: FeatureId) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), body, model.length_unit());
+    let center = crate::bodies::shown(model.evaluation(), body)
+        .and_then(|shown| shown.bounding_box())
+        .map(|bounds| bounds.center());
+    let (transaction, feature) =
+        create_centred(model.document(), body, model.length_unit(), center);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),

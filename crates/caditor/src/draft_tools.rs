@@ -11,6 +11,7 @@ use crate::{
     body_selection,
     commands::{Command, Reason},
     datum_tools::{self, OneChoiceError},
+    draft_panel,
     editing::{self, EditingCommand},
     field::{self, CheckError},
     last_values::{Remembered, Starts},
@@ -58,18 +59,53 @@ impl Reason for DraftToolError {
     }
 }
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
-    offset_face_tools::faces_of_one_body(model, selection, FacePurpose::Draft)
+#[derive(Clone, Debug, PartialEq)]
+pub struct DraftSource {
+    pub faces: FaceSource,
+    pub neutral: Option<PlaneReference>,
+}
+
+pub fn selected_faces(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<DraftSource, FaceToolError> {
+    let mut faces =
+        offset_face_tools::faces_of_one_body(model, selection, tree, FacePurpose::Draft)?;
+    let index = model.document().bar_index();
+    let mut planes: Vec<PlaneReference> = Vec::new();
+
+    for pickable in &faces.left_out {
+        if let Some(plane) = datum_tools::plane_reference(model, *pickable, index)
+            && !planes.contains(&plane)
+        {
+            planes.push(plane);
+        }
+    }
+
+    let neutral = if let [only] = planes.as_slice() {
+        let chosen = only.clone();
+
+        faces.left_out.retain(|pickable| {
+            datum_tools::plane_reference(model, *pickable, index).as_ref() != Some(&chosen)
+        });
+        Some(chosen)
+    } else {
+        None
+    };
+    Ok(DraftSource { faces, neutral })
 }
 
 pub fn create(
     document: &Document,
     evaluation: &Evaluation,
-    source: &FaceSource,
+    source: &DraftSource,
     starts: &Starts,
 ) -> Result<(Transaction, FeatureId), FaceToolError> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(FaceToolError::NoShape)?;
-    let ids: Vec<FaceId> = source
+    let chosen = &source.faces;
+    let shown = bodies::shown(evaluation, chosen.body).ok_or(FaceToolError::NoShape)?;
+
+    let ids: Vec<FaceId> = chosen
         .faces
         .iter()
         .filter_map(|key| bodies::find_face(shown, *key))
@@ -80,18 +116,24 @@ pub fn create(
         .filter_map(|face| FaceReference::capture(&shown.solid, *face))
         .collect();
 
-    if faces.len() < source.faces.len() {
+    if faces.len() < chosen.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
 
-    let (neutral, flipped) = default_neutral(source.body, &shown.solid, &ids);
+    let (neutral, flipped) = match &source.neutral {
+        Some(neutral) => (
+            neutral.clone(),
+            flipped_on_shown(evaluation, chosen.body, &faces, neutral),
+        ),
+        None => default_neutral(chosen.body, &shown.solid, &ids),
+    };
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
 
     let feature = transaction.add_feature(
         name,
         FeatureKind::Draft(Draft {
-            body: source.body,
+            body: chosen.body,
             faces,
             neutral,
             angle: starts.angle(Remembered::DraftAngle, DEFAULT_ANGLE),
@@ -107,14 +149,14 @@ pub fn create(
 pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
-    source: &FaceSource,
+    source: &DraftSource,
     starts: &Starts,
 ) -> Vec<Action> {
     match create(document, evaluation, source, starts) {
         Ok((transaction, feature)) => {
-            let told = body_selection::left_out_words(&source.left_out).map(|words| {
+            let told = body_selection::left_out_words(&source.faces.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(
-                    "{TITLE} takes faces to draft only, so {words}."
+                    "{TITLE} takes faces to draft and one neutral plane, so {words}."
                 )))
             });
             [
@@ -129,14 +171,43 @@ pub fn create_actions(
     }
 }
 
-pub fn edit(document: &Document, feature: FeatureId, draft: Draft) -> Option<Transaction> {
-    let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
-        format!("Edit {name}"),
+fn finish_edit(
+    document: &Document,
+    feature: FeatureId,
+    label: String,
+    draft: Draft,
+) -> Transaction {
+    let mut owned: Vec<(String, &caditor_expression::Expression)> =
+        vec![(draft_panel::ANGLE.to_owned(), &draft.angle)];
+
+    if let Some(beyond) = &draft.beyond {
+        owned.push((draft_panel::BEYOND.to_owned(), beyond));
+    }
+    for (index, own) in draft.own.iter().enumerate() {
+        owned.push((draft_panel::own_angle_caption(index), &own.angle));
+    }
+
+    let fields: Vec<(&str, &caditor_expression::Expression)> = owned
+        .iter()
+        .map(|(caption, expression)| (caption.as_str(), *expression))
+        .collect();
+    let transaction = Transaction::single(
+        label,
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Draft(draft),
+            kind: FeatureKind::Draft(draft.clone()),
         },
+    );
+    document.carrying_owners(transaction, feature, fields)
+}
+
+pub fn edit(document: &Document, feature: FeatureId, draft: Draft) -> Option<Transaction> {
+    let name = &document.feature(feature)?.name;
+    Some(finish_edit(
+        document,
+        feature,
+        format!("Edit {name}"),
+        draft,
     ))
 }
 
@@ -355,10 +426,16 @@ fn own_angle_toggled(
 
     let label = if changed.own.len() == draft.own.len() {
         without_faces(&mut changed, solid, &clicked_only);
+        if waits_for_its_first_face(draft, solid) {
+            let (neutral, flipped) = default_neutral(draft.body, solid, &[clicked]);
+
+            changed.neutral = neutral;
+            changed.flipped = flipped;
+        }
         changed.own.push(FaceAngle {
             face: FaceReference::capture(solid, clicked)
                 .ok_or(DraftToolError::NoShape { body: draft.body })?,
-            angle: draft.angle.clone(),
+            angle: field::copied_value(document, feature, &draft.angle),
         });
         format!("Give a face of {} its own draft angle", owner.name)
     } else {
@@ -368,16 +445,7 @@ fn own_angle_toggled(
         );
         format!("Give a face of {} the draft angle", owner.name)
     };
-    field::checked(
-        document,
-        Transaction::single(
-            label,
-            Edit::SetFeatureKind {
-                id: feature,
-                kind: FeatureKind::Draft(changed),
-            },
-        ),
-    )
+    field::checked(document, finish_edit(document, feature, label, changed))
 }
 
 fn clicked_face(model: &Model, feature: FeatureId, pickable: Pickable) -> Option<FaceId> {
@@ -449,13 +517,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         changed = with_faces(&changed, solid, faces);
         format!("Draft a face with {}", owner.name)
     };
-    Some(Transaction::single(
-        label,
-        Edit::SetFeatureKind {
-            id: feature,
-            kind: FeatureKind::Draft(changed),
-        },
-    ))
+    Some(finish_edit(model.document(), feature, label, changed))
 }
 
 pub fn with_selected_faces(
@@ -463,7 +525,8 @@ pub fn with_selected_faces(
     feature: FeatureId,
     selection: &Selection,
 ) -> Option<Transaction> {
-    let owner = model.document().feature(feature)?;
+    let document = model.document();
+    let owner = document.feature(feature)?;
     let draft = owner.kind.draft()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
@@ -493,12 +556,11 @@ pub fn with_selected_faces(
         taken.insert(found);
     }
     (faces.len() > draft.faces.len()).then(|| {
-        Transaction::single(
+        finish_edit(
+            document,
+            feature,
             format!("Draft the selected faces with {}", owner.name),
-            Edit::SetFeatureKind {
-                id: feature,
-                kind: FeatureKind::Draft(with_faces(draft, solid, faces)),
-            },
+            with_faces(draft, solid, faces),
         )
     })
 }

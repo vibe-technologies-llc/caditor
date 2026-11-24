@@ -15,6 +15,7 @@ use crate::{
     model::{Action, Model, Notice},
     offset_face_tools::{self, FacePurpose, FaceToolError},
     queued::{self, Pending},
+    reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
     sketch_placement::{self, FaceChoice},
@@ -145,6 +146,7 @@ fn by_body(picks: &[Pickable]) -> Vec<Picked> {
 pub fn selected_faces(
     model: &Model,
     selection: &Selection,
+    tree: &[FeatureId],
 ) -> Result<ReplaceSource, ReplaceSourceError> {
     let no_faces = FaceToolError::NoFaces {
         purpose: FacePurpose::Replace,
@@ -152,7 +154,7 @@ pub fn selected_faces(
     let picks = selection.in_pick_order();
 
     if picks.is_empty() {
-        let body = offset_face_tools::only_body(model, FacePurpose::Replace)?;
+        let body = offset_face_tools::only_body(model, tree, FacePurpose::Replace)?;
 
         return Ok(ReplaceSource {
             faces: FaceSource {
@@ -182,7 +184,7 @@ pub fn selected_faces(
         .filter(|pickable| !is_plane_pick(*pickable) && !matches!(pickable, Pickable::Face { .. }))
         .collect();
 
-    bodies::shown(model.evaluation(), replaced.body).ok_or(no_faces)?;
+    bodies::shown(model.evaluation(), replaced.body).ok_or(FaceToolError::NoShape)?;
 
     let target = match targets.as_slice() {
         [] => None,
@@ -252,13 +254,19 @@ pub fn create_actions(
                      so {words}."
                 )))
             });
-            [
+            let mut actions = vec![
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
-            ]
-            .into_iter()
-            .chain(told)
-            .collect()
+            ];
+
+            if !source.faces.faces.is_empty() && source.target.is_none() {
+                actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::ReplaceTarget,
+                ))));
+            }
+            actions.extend(told);
+            actions
         }
         Err(reason) => vec![queued::refused(Command::ReplaceFace, TITLE, &reason)],
     }

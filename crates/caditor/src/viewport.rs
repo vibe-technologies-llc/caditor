@@ -5872,11 +5872,15 @@ impl ViewportState {
                 && let Some(command) = open_command(self.keyboard_highlight, model)
             {
                 actions.push(Action::Editing(command));
-            } else if editing.feature().is_none()
-                && editing.picking().is_none()
-                && editing.solid().is_some()
-            {
-                actions.push(Action::Editing(EditingCommand::CloseSolid));
+            } else if editing.feature().is_none() && editing.solid().is_some() {
+                match editing.picking() {
+                    None => actions.push(Action::Editing(EditingCommand::CloseSolid)),
+                    Some(picking) if picking.slot.keeps_choosing() => {
+                        actions.push(Action::Editing(EditingCommand::StopPicking));
+                        actions.push(Action::Editing(EditingCommand::CloseSolid));
+                    }
+                    Some(_) => {}
+                }
             }
         }
         if back && self.drawing.has_heading() {

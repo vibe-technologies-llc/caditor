@@ -25,8 +25,9 @@ pub const ANGLE: &str = "Angle";
 const DIRECTION: &str = "Direction";
 const TILT_AXIS: &str = "Tilt about";
 const DIRECTION_HOVER: &str =
-    "Shift the faces along the selected axis, straight edge or round face";
-const AXIS_HOVER: &str = "Tilt the faces about the selected axis or straight edge";
+    "Shift the faces along the selected axis, straight edge, round face or sketch line";
+const AXIS_HOVER: &str =
+    "Tilt the faces about the selected axis, straight edge, round face or sketch line";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
 pub struct FacesRow<'a> {
@@ -250,8 +251,10 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         panel.faces_row(ui, cache);
         panel.value_row(ui, Reference::Direction);
         panel.reference_row(ui, Reference::Direction);
-        panel.value_row(ui, Reference::Axis);
         panel.reference_row(ui, Reference::Axis);
+        if row.moving.axis.is_some() {
+            panel.value_row(ui, Reference::Axis);
+        }
         feature_fields::feature_row(ui, row.model.document(), "Body", row.moving.body);
     });
 }

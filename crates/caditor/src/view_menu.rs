@@ -43,10 +43,20 @@ pub const FEATURE_COMMANDS: [Command; 3] = [
     Command::RenameFeature,
     Command::DeleteFeature,
 ];
-const EDGE_TOOLS: [Command; 2] = [Command::Fillet, Command::Chamfer];
-const FACE_TOOLS: [Command; 12] = [
+const EDGE_TOOLS: [Command; 5] = [
+    Command::Fillet,
+    Command::Chamfer,
+    Command::Sweep,
+    Command::Pipe,
+    Command::CurvePattern,
+];
+const FACE_TOOLS: [Command; 17] = [
     Command::Extrude,
+    Command::Revolve,
+    Command::Loft,
     Command::Hole,
+    Command::Fillet,
+    Command::Chamfer,
     Command::OffsetFace,
     Command::DeleteFace,
     Command::Emboss,
@@ -57,14 +67,20 @@ const FACE_TOOLS: [Command; 12] = [
     Command::SplitFace,
     Command::Thread,
     Command::MirrorFaces,
+    Command::DatumPlane,
 ];
-const SKETCH_TOOLS: [Command; 6] = [
+const SKETCH_TOOLS: [Command; 11] = [
     Command::Extrude,
     Command::Revolve,
     Command::Sweep,
     Command::Pipe,
     Command::Loft,
     Command::Rib,
+    Command::Hole,
+    Command::Emboss,
+    Command::SplitFace,
+    Command::CurvePattern,
+    Command::PointPattern,
 ];
 const BODY_COMMANDS: [Command; 8] = [
     Command::Move,

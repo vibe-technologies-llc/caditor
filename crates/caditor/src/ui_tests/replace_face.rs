@@ -99,6 +99,14 @@ fn a_top_chosen_alone_waits_for_its_target() {
         .expect("the replacement is open");
 
     assert_eq!(replace_of(&harness, replace).target, None);
+    assert_eq!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .map(|picking| picking.slot),
+        Some(crate::reference_picking::Slot::ReplaceTarget)
+    );
     assert!(harness.shows("Waiting for a target"));
     assert!(harness.shows_containing("Choose the plane or face to replace the faces"));
     assert!(volume_about(&harness, plate, SIDE * SIDE * HEIGHT));

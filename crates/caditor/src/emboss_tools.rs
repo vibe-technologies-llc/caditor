@@ -15,6 +15,7 @@ use crate::{
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     queued::{self, Pending},
+    reference_picking::{Picking, Slot},
     scene,
     selection::{self, Pickable, Selection},
     solid_tools::RegionError,
@@ -67,7 +68,11 @@ pub struct EmbossSource {
     pub left_out: Vec<Pickable>,
 }
 
-fn chosen_sketch(model: &Model, selection: &Selection) -> Result<Option<FeatureId>, EmbossError> {
+fn chosen_sketch(
+    model: &Model,
+    selection: &Selection,
+    rows: &[FeatureId],
+) -> Result<Option<FeatureId>, EmbossError> {
     let document = model.document();
     let mut sketches: Vec<FeatureId> = Vec::new();
 
@@ -77,6 +82,17 @@ fn chosen_sketch(model: &Model, selection: &Selection) -> Result<Option<FeatureI
             && !sketches.contains(&feature)
         {
             sketches.push(feature);
+        }
+    }
+    if sketches.is_empty() {
+        for row in rows {
+            if document
+                .feature(*row)
+                .is_some_and(|feature| feature.kind.sketch().is_some())
+                && !sketches.contains(row)
+            {
+                sketches.push(*row);
+            }
         }
     }
     match sketches.as_slice() {
@@ -93,7 +109,11 @@ fn chosen_sketch(model: &Model, selection: &Selection) -> Result<Option<FeatureI
     }
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, EmbossError> {
+pub fn source(
+    model: &Model,
+    selection: &Selection,
+    (tree, rows): (&[FeatureId], &[FeatureId]),
+) -> Result<EmbossSource, EmbossError> {
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
@@ -112,7 +132,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
         }
     }
 
-    let sketch = chosen_sketch(model, selection)?;
+    let sketch = chosen_sketch(model, selection, rows)?;
     let regions = selection
         .iter()
         .filter_map(|pickable| match pickable {
@@ -123,19 +143,26 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
     let mut attached = None;
 
     if faces.is_empty() {
-        let attachment = sketch
+        if let Some(attachment) = sketch
             .and_then(|sketch| model.document().feature(sketch))
             .and_then(|sketch| sketch.kind.attachment())
             .and_then(|attachment| attachment.face())
-            .ok_or(EmbossError::ChooseFaces)?;
-
-        body = Some(attachment.body);
-        attached = Some(attachment.face.clone());
+        {
+            body = Some(attachment.body);
+            attached = Some(attachment.face.clone());
+        } else if let body_selection::Standing::Only(chosen) =
+            body_selection::tree_or_standing(model, tree)
+            && !tree.is_empty()
+        {
+            body = Some(chosen);
+        } else {
+            return Err(EmbossError::ChooseFaces);
+        }
     }
 
     let body = body.ok_or(EmbossError::ChooseFaces)?;
 
-    bodies::shown(model.evaluation(), body).ok_or(EmbossError::ChooseFaces)?;
+    bodies::shown(model.evaluation(), body).ok_or(EmbossError::NoShape)?;
     Ok(EmbossSource {
         body,
         faces,
@@ -215,13 +242,19 @@ pub fn create_actions(
                      {words}."
                 )))
             });
-            [
+            let mut actions = vec![
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
-            ]
-            .into_iter()
-            .chain(told)
-            .collect()
+            ];
+
+            if (!source.faces.is_empty() || source.attached.is_some()) && source.sketch.is_none() {
+                actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::EmbossSketch,
+                ))));
+            }
+            actions.extend(told);
+            actions
         }
         Err(reason) => vec![queued::refused(Command::Emboss, TITLE, &reason)],
     }
@@ -265,7 +298,7 @@ pub fn sketch_change(
     feature: FeatureId,
     emboss: &Emboss,
 ) -> Result<Transaction, EmbossError> {
-    let sketch = chosen_sketch(model, selection)?.ok_or(EmbossError::NoSketch)?;
+    let sketch = chosen_sketch(model, selection, &[])?.ok_or(EmbossError::NoSketch)?;
 
     if emboss.sketch == Some(sketch) {
         return Err(EmbossError::Already);

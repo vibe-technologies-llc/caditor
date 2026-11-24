@@ -278,6 +278,7 @@ pub fn show(
     };
 
     widgets::properties(ui, ("primitive-properties", feature.id()), |ui| {
+        feature_fields::description_row(ui, shape_hover(primitive.shape.kind()));
         panel.shape_row(ui);
         panel.plane_rows(ui);
         panel.position_rows(ui);

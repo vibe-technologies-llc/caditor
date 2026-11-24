@@ -19,8 +19,12 @@ use crate::{
 
 pub const TITLE: &str = "Delete face";
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
-    offset_face_tools::faces_of_one_body(model, selection, FacePurpose::Delete)
+pub fn selected_faces(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<FaceSource, FaceToolError> {
+    offset_face_tools::faces_of_one_body(model, selection, tree, FacePurpose::Delete)
 }
 
 pub fn create(

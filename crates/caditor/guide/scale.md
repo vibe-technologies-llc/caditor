@@ -3,13 +3,14 @@
 ## Scale body
 
 {command:model.scale} scales one body by a factor about a centre. Select the body, then choose the
-command (with only one body shown, nothing needs selecting); it starts at a factor of 1. The panel sets the **Factor**, a plain number above zero, and
-the **Centre**, its three coordinates measured in the world or in a
+command (with only one body shown, nothing needs selecting); it starts at a factor of 1 about the
+body's centre with the **Factor** field ready to type. The panel sets the **Factor**, a plain number
+above zero, and the **Centre**, its three coordinates measured in the world or in a
 [coordinate system](coordinate-systems).
 
 **Centre at** fills in those coordinates: **Use selected** (or **Choose in the view**) takes a
-selected corner, round edge, sphere, sketch point or datum point, and **Body centre** the middle of
-the body's box as it was before scaling.
+selected corner, round edge, sphere, torus, sketch point, datum point or origin, and **Body centre**
+the middle of the body's box as it was before scaling.
 
 ## Scale model
 

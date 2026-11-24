@@ -392,12 +392,16 @@ fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it
     let offered = [
         "New sketch",
         "Extrude",
+        "Fillet",
+        "Chamfer",
         "Offset face",
+        "Draft",
+        "Replace face",
         "Shell",
         "Split face",
     ]
     .map(|name| has_entry(&harness, name));
-    let left_out = ["Fillet", "Chamfer"].map(|name| has_entry(&harness, name));
+    let left_out = ["Sweep", "Thread"].map(|name| has_entry(&harness, name));
     let body = has_entry(&harness, view_menu::BODY_TOOLS);
     let feature = ["Rename Extrude 1", "Delete Extrude 1"].map(|name| has_entry(&harness, name));
     let menus = open_menus(&harness);
@@ -409,7 +413,7 @@ fn a_face_offers_the_tools_that_take_it_and_suppressing_the_feature_that_made_it
         assert!(SCREEN.contains_rect(shown), "{shown:?}");
     }
 
-    assert_eq!(offered, [true; 5]);
+    assert_eq!(offered, [true; 9]);
     assert_eq!(left_out, [false; 2]);
     assert!(body);
     assert_eq!(feature, [true; 2]);

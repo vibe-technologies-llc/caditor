@@ -8,8 +8,9 @@ use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
+    editing::EditingCommand,
     feature_fields::{self, AxisRow, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
-    icons,
+    hole_panel, icons,
     model::{Action, Model},
     pattern_tools::{self, PatternToolError, Reference, Shape},
     reference_picking::Slot,
@@ -47,9 +48,10 @@ pub const INSTANCES: &str = "Instances";
 pub const REPEATS: &str = "Repeats";
 pub const WHOLE_BODY: &str = "The whole body";
 pub const REPEAT_CHOSEN: &str = "Repeat the chosen features";
-const REPEAT_CHOSEN_HINT: &str = "Choose extrusions, revolves, holes or primitives of this body above the \
-                                  pattern in the tree (Ctrl+click), then repeat them instead of \
-                                  the whole body";
+const REPEAT_CHOSEN_HINT: &str = "Choose features of this body (extrusions, revolves, sweeps, \
+                                  lofts, pipes, coils, holes, fillets, chamfers, shells, embosses \
+                                  or primitives) above the pattern in the tree (Ctrl+click), then \
+                                  repeat them instead of the whole body";
 pub const NO_SECOND_DIRECTION: &str = "None";
 pub const RESULT: &str = "Result";
 pub const ADD_TO_BODY: &str = "Add to body";
@@ -182,10 +184,11 @@ fn exact_quotient(value: f64, steps: f64) -> Option<f64> {
     None
 }
 
-fn instance_hover(instance: Instance, kept: bool) -> String {
+fn instance_hover(instance: Instance, kept: bool, whole_body: bool) -> String {
     let name = capitalized(&instance_name(instance));
     match (instance == ORIGINAL_INSTANCE, kept) {
-        (true, _) => format!("{name} body is always kept"),
+        (true, _) if whole_body => format!("{name} body is always kept"),
+        (true, _) => format!("{name} is always kept"),
         (false, true) => format!("{name} is made; click to leave it out"),
         (false, false) => format!("{name} is left out; click to make it again"),
     }
@@ -298,7 +301,8 @@ impl Panel<'_> {
                         let kept = !self.pattern.is_skipped(instance);
                         let name = capitalized(&instance_name(instance));
 
-                        let hover = instance_hover(instance, kept);
+                        let hover =
+                            instance_hover(instance, kept, self.pattern.repeated.is_empty());
                         let original = instance == ORIGINAL_INSTANCE;
 
                         let response = ui
@@ -670,26 +674,52 @@ impl Panel<'_> {
                 Some(current) => feature_fields::feature_name(document, current),
                 None => Some(FOLLOWS_EDGES),
             };
-            let shown = feature_fields::combo_text(ui, name, "Missing sketch");
-            let chosen = feature_fields::combo(ui, id, shown, || {
-                sketch_pattern_tools::listed(self.model, shape, before)
-                    .into_iter()
-                    .map(|sketch| Choice {
-                        label: feature_fields::feature_name(document, sketch)
-                            .unwrap_or_default()
-                            .to_owned(),
-                        selected: Some(sketch) == current,
-                        change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
-                            .map_err(PatternToolError::from)
-                            .and_then(|pattern| {
-                                pattern_tools::change(self.model, self.id(), pattern)
-                            })
-                            .map(Action::Apply),
-                    })
-                    .collect()
-            });
+            let editable =
+                current.filter(|sketch| feature_fields::feature_name(document, *sketch).is_some());
+            let mut edit_sketch = false;
 
-            self.actions.extend(chosen);
+            let chosen = ui
+                .horizontal(|ui| {
+                    let shown = feature_fields::combo_text(ui, name, "Missing sketch");
+                    let picked = feature_fields::combo(ui, id, shown, || {
+                        sketch_pattern_tools::listed(self.model, shape, before)
+                            .into_iter()
+                            .map(|sketch| Choice {
+                                label: feature_fields::feature_name(document, sketch)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                                selected: Some(sketch) == current,
+                                change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
+                                    .map_err(PatternToolError::from)
+                                    .and_then(|pattern| {
+                                        pattern_tools::change(self.model, self.id(), pattern)
+                                    })
+                                    .map(Action::Apply),
+                            })
+                            .collect()
+                    });
+
+                    if editable.is_some() {
+                        let button = widgets::icon_button(ui, icons::EDIT, hole_panel::EDIT_SKETCH);
+
+                        edit_sketch = button.on_hover_text("Show and edit this sketch").clicked();
+                    }
+                    picked
+                })
+                .inner;
+
+            if let Some(action) = chosen {
+                self.actions.push(action);
+                feature_fields::stop_picking_if_for(
+                    ui.ctx(),
+                    (self.id(), Slot::PatternPath),
+                    self.actions,
+                );
+            }
+            if edit_sketch && let Some(sketch) = editable {
+                self.actions
+                    .push(Action::Editing(EditingCommand::Enter(sketch)));
+            }
 
             let (model, selection, feature, pattern) =
                 (self.model, self.selection, self.id(), self.pattern);
@@ -863,6 +893,11 @@ impl Panel<'_> {
                             PointReference::Origin,
                         ),
                     ));
+                    feature_fields::stop_picking_if_for(
+                        ui.ctx(),
+                        (feature, Slot::PatternBase),
+                        self.actions,
+                    );
                 }
             }
         });

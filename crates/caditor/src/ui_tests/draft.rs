@@ -409,3 +409,51 @@ fn a_boss_drafted_from_the_palette_narrows_into_a_cone_from_the_plate() {
 
     assert!(volume_about(&harness, plate, with_drafted_boss(0.0)));
 }
+
+#[test]
+fn draft_uses_a_preselected_neutral_plane_and_names_own_angle_only_state() {
+    let mut harness = Harness::new();
+
+    let (_, _) = extruded_plate(&mut harness);
+    let sides = walls(&mut harness);
+    let first_wall = *sides.first().expect("a wall face");
+
+    harness.select([
+        first_wall,
+        Pickable::Plane(crate::selection::PrincipalPlane::Xy),
+    ]);
+    run_from_palette(&mut harness, "Draft");
+    harness.settle();
+
+    let draft = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the draft is open");
+
+    assert_eq!(
+        draft_of(&harness, draft).neutral,
+        PlaneReference::Principal(caditor_document::PrincipalPlane::Xy)
+    );
+
+    harness.click(draft_panel::ADD_OWN_ANGLE);
+    harness.frame();
+
+    let Pickable::Face { face, .. } = first_wall else {
+        panic!("a wall face");
+    };
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 0.0),
+        Pickable::ShellFace {
+            feature: draft,
+            face,
+        },
+    );
+    harness.settle();
+
+    assert!(draft_of(&harness, draft).faces.is_empty());
+    assert_eq!(draft_of(&harness, draft).own.len(), 1);
+    assert!(harness.shows("None: every drafted face takes its own angle"));
+}

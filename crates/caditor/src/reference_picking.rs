@@ -24,7 +24,7 @@ use crate::{
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
 const GONE: &str = "The feature no longer exists";
-const AXIS: &str = "an axis, straight edge or round face";
+const AXIS: &str = "an axis, straight edge, round face or sketch line";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Side {
@@ -128,6 +128,7 @@ impl Slot {
             | Self::HelixAxis
             | Self::MateTarget(MatePart::Axis)
             | Self::FrameAxis
+            | Self::DatumRotation
             | Self::HoleEdge(_) => PrincipalSet::AXES,
             Self::PatternBase
             | Self::HelixStart
@@ -135,10 +136,9 @@ impl Slot {
             | Self::ScaleCentre
             | Self::HoleConcentric(_)
             | Self::LoftEnd => PrincipalSet::ORIGIN,
-            Self::DatumBase
-            | Self::DatumRotation
-            | Self::MateTarget(MatePart::Main)
-            | Self::MeasuredItem(_) => PrincipalSet::ALL,
+            Self::DatumBase | Self::MateTarget(MatePart::Main) | Self::MeasuredItem(_) => {
+                PrincipalSet::ALL
+            }
             Self::HolePlace
             | Self::ImageCalibration
             | Self::HoleAdd
@@ -241,20 +241,19 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ExtrudeTarget(_) => "Click a face or plane to extrude up to".to_owned(),
         Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
-        Slot::CoilAxis => format!(
-            "Click {AXIS} or a sketch line to wind the coil around, or press Escape to leave it \
-             where it is"
-        ),
+        Slot::CoilAxis => {
+            format!("Click {AXIS} to wind the coil around, or press Escape to leave it where it is")
+        }
         Slot::HelixAxis => format!(
-            "Click {AXIS} or a sketch line to wind the helix around, or press Escape to leave it \
-             where it is"
+            "Click {AXIS} to wind the helix around, or press Escape to leave it where it is"
         ),
         Slot::HelixStart => "Click a corner, round edge, sketch point or datum point to start the \
                              helix at, or press Escape to leave it where it is"
             .to_owned(),
         Slot::HolePlace => {
-            "Click a flat face where the hole goes, or press Escape to leave it where it is"
-                .to_owned()
+            "Click a flat or round face where the hole goes, or press Escape to leave it where it \
+             is"
+            .to_owned()
         }
         Slot::HoleEdge(_) => {
             "Click a straight edge, a line of another sketch or an axis to measure the hole from"
@@ -273,17 +272,17 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                 .to_owned()
         }
         Slot::DraftOwnAngle => {
-            "Click a flat face to give it its own draft angle or the draft's again, or press \
-             Escape to stop"
+            "Click a flat or round face to give it its own draft angle or the draft's again, or \
+             press Escape to stop"
                 .to_owned()
         }
         Slot::MoveFaceDirection => format!("Click {AXIS} to shift the faces along"),
         Slot::MoveFaceAxis => format!("Click {AXIS} to tilt the faces about"),
         Slot::DraftNeutral => "Click a plane or flat face to draft from".to_owned(),
         Slot::ReplaceTarget => "Click a plane or face to replace the faces with".to_owned(),
-        Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
-                                    along"
-            .to_owned(),
+        Slot::ExtrudeDirection => {
+            format!("Click {AXIS} to extrude along")
+        }
         Slot::RevolveTarget => {
             "Click a face, or a plane through the axis, to turn up to".to_owned()
         }

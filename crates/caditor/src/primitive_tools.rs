@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use caditor_document::{
     BodyOperation, Document, Edit, FeatureId, FeatureKind, PlaneReference, Primitive,
-    PrimitiveAnchor, PrimitiveKind, PrimitiveShape, PrincipalPlane, Transaction, displayed_frame,
+    PrimitiveAnchor, PrimitiveKind, PrimitiveShape, PrincipalPlane, Transaction, capitalized,
+    displayed_frame,
 };
 use caditor_geometry::{Plane, Point2, Ray};
 
@@ -10,6 +11,7 @@ use crate::{
     commands::{Command, Reason},
     datum_tools::{self, ChosenPlane},
     editing::{self, EditingCommand},
+    feature_fields,
     field::{self, CheckError},
     hole_tools,
     model::{Action, Model, Notice},
@@ -173,8 +175,13 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, Pr
             face: None,
         }),
         Pickable::Datum(datum) => {
-            let plane = datum_tools::plane_reference(model, pickable, index)
-                .ok_or(PrimitiveError::DatumNotAPlane)?;
+            let plane = datum_tools::plane_reference(model, pickable, index).ok_or_else(|| {
+                if datum_tools::is_plane(model.document(), datum) {
+                    PrimitiveError::DatumMadeLater
+                } else {
+                    PrimitiveError::DatumNotAPlane
+                }
+            })?;
             let frame = datum_tools::result(model.evaluation(), datum)
                 .and_then(|result| result.plane())
                 .ok_or(PrimitiveError::PlaneUnavailable)?;
@@ -333,14 +340,30 @@ pub fn create_actions(model: &Model, kind: PrimitiveKind, source: &PrimitiveSour
 
 pub fn edit(document: &Document, feature: FeatureId, primitive: Primitive) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
+    let owned: Vec<(String, &caditor_expression::Expression)> = feature_fields::POSITION_CAPTIONS
+        .into_iter()
+        .zip(primitive.at.iter())
+        .map(|(caption, expression)| (caption.to_owned(), expression))
+        .chain(
+            primitive
+                .shape
+                .sizes()
+                .into_iter()
+                .map(|(what, expression)| (capitalized(what), expression)),
+        )
+        .collect();
+    let fields: Vec<(&str, &caditor_expression::Expression)> = owned
+        .iter()
+        .map(|(caption, expression)| (caption.as_str(), *expression))
+        .collect();
     let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Primitive(primitive),
+            kind: FeatureKind::Primitive(primitive.clone()),
         },
     );
-    Some(document.carrying_owners(transaction, feature, []))
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn change(

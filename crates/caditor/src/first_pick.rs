@@ -2,7 +2,7 @@ use egui::Ui;
 
 use crate::{
     editing::{EditingCommand, SketchEditing},
-    hole_tools::{self, HoleStart},
+    hole_tools::{self, HoleStart, HoleStartError},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
     thread_tools::{self, ThreadToolError},
@@ -45,6 +45,8 @@ pub enum FirstPickRefusal {
     #[error("Click a face of the body")]
     NotAFace,
     #[error(transparent)]
+    Hole(HoleStartError),
+    #[error(transparent)]
     Thread(ThreadToolError),
 }
 
@@ -80,9 +82,8 @@ fn started(
             Ok(start @ (HoleStart::Face(_) | HoleStart::CurvedFace(_))) => {
                 Ok(hole_tools::create_actions(model, start))
             }
-            Ok(HoleStart::Sketch(_) | HoleStart::ChooseFace) | Err(_) => {
-                Err(FirstPickRefusal::NotAFace)
-            }
+            Ok(HoleStart::Sketch(_) | HoleStart::ChooseFace) => Err(FirstPickRefusal::NotAFace),
+            Err(error) => Err(FirstPickRefusal::Hole(error)),
         },
         FaceTool::Thread => thread_tools::selected_face(model, &picked)
             .map(|source| {

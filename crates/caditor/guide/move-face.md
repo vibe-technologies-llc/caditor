@@ -11,11 +11,12 @@ It has no ribbon button; use the Model menu or {command:palette}.
   and the arrow on the first chosen face, along the direction, drags it. A new move starts from
   the distance last used on one, kept between sessions.
 - **Direction** is what they shift along: square to the first flat face chosen (out of the body
-  for a positive distance), or an axis, a straight edge, a round face's axis or a sketch line, from
-  the list or with **Choose in the view**.
-- **Angle** tilts the faces about **Tilt about**, an axis or straight edge; tilt a wall about the edge
-  it stands on to lean it. A negative angle tilts the other way. The tilt comes first, then the shift. Once an axis is chosen
-  an arrow on the edge of the first chosen face turns the faces about it when dragged.
+  for a positive distance), or an axis, a straight edge, a round face's axis or a sketch line,
+  picked with the faces beforehand, from the list or with **Choose in the view**.
+- **Tilt about** chooses an axis, straight edge, round face's axis or sketch line to tilt the faces
+  about; once chosen, **Angle** appears to lean them (a negative angle tilts the other way). Tilt a
+  wall about the edge it stands on to lean it. The tilt comes first, then the shift, and an arrow on
+  the edge of the first chosen face turns the faces about it when dragged.
 
 To move a hole, choose its wall (and the floor of a blind one) and a direction across the face it is
 cut into, such as the X or Y axis; {command:select.hole} picks a whole hole. To move a boss, choose

@@ -13,6 +13,7 @@ use crate::{
     datum_tools,
     editing::{self, EditingCommand},
     field::{self, CheckError},
+    loft_panel,
     model::{Action, Model},
     projecting,
     queued::{self, Pending},
@@ -198,10 +199,38 @@ fn profile_picks(model: &Model, selection: &Selection) -> Vec<ProfilePick> {
     picks
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, LoftError> {
+pub fn source(
+    model: &Model,
+    selection: &Selection,
+    rows: &[FeatureId],
+) -> Result<LoftStart, LoftError> {
     let document = model.document();
     let index = document.bar_index();
-    let profiles = picks(model, selection);
+    let mut profiles = picks(model, selection);
+
+    for row in rows {
+        if !document
+            .feature_index(*row)
+            .is_some_and(|position| position < index)
+            || !document
+                .feature(*row)
+                .is_some_and(|feature| feature.kind.sketch().is_some())
+            || !has_regions(model.evaluation(), *row)
+        {
+            continue;
+        }
+
+        let known = profiles
+            .iter()
+            .any(|pick| matches!(pick, Pick::Sketch(existing) if existing.sketch == *row));
+        if !known {
+            profiles.push(Pick::Sketch(ProfilePick {
+                sketch: *row,
+                region: None,
+            }));
+        }
+    }
+
     let end = selection
         .in_pick_order()
         .into_iter()
@@ -295,13 +324,23 @@ pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
 
 pub fn edit(document: &Document, feature: FeatureId, loft: Loft) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let mut fields = Vec::new();
+
+    if let Some(weight) = &loft.square_start {
+        fields.push((loft_panel::START_WEIGHT, weight));
+    }
+    if let Some(weight) = &loft.square_end {
+        fields.push((loft_panel::END_WEIGHT, weight));
+    }
+
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Loft(loft),
+            kind: FeatureKind::Loft(loft.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn change(model: &Model, feature: FeatureId, loft: Loft) -> Result<Transaction, LoftError> {

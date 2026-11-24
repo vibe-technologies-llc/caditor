@@ -6,7 +6,7 @@ there. It works on any body, an [imported](imported-bodies) one with no history 
 wrong height or angle on a STEP part is corrected without remodelling it. Select the faces, and
 optionally the plane or face to replace them with, then choose Replace face; with only one body
 shown, it can be chosen first, the faces clicked after and the target chosen in the panel. It has no
-ribbon button; use the Model menu, the faces' right-click menu or {command:palette}.
+ribbon button; use the Modify group menu, the Model menu, the faces' right-click menu or {command:palette}.
 
 - **Faces to replace** are faces of one body. Several faces can go onto one target at once, such as
   the tops of two bosses brought to one height.

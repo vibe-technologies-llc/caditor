@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Hollows the body, opening the chosen faces";
+pub const THICKNESS: &str = "Thickness";
 pub const WALLS: &str = "Walls";
 pub const OWN_THICKNESS: &str = "Own thickness";
 pub const ADD_OWN_THICKNESS: &str = "Choose faces";
@@ -61,7 +62,7 @@ fn thickness_row(
         rule: Rule::AboveZero,
     };
     let drafting =
-        feature_fields::expression_row_drafting(ui, model, "Thickness", quantity, |thickness| {
+        feature_fields::expression_row_drafting(ui, model, THICKNESS, quantity, |thickness| {
             change(
                 model,
                 feature,
@@ -270,7 +271,7 @@ fn own_thickness_rows(
     let evaluation = model.evaluation();
     for (index, entry) in shell.faces.iter().enumerate() {
         let caption = described.get(index).map_or(GONE, String::as_str);
-        let owned_as = format!("Thickness of {caption}");
+        let owned_as = own_thickness_caption(index);
         let quantity = Quantity {
             feature: id,
             id: Id::unique(("shell-own-thickness", id, index)),

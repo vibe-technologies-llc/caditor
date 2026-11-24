@@ -67,24 +67,59 @@ pub enum MoveFaceError {
     Check(#[from] CheckError),
 }
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
-    offset_face_tools::faces_of_one_body(model, selection, FacePurpose::Move)
+#[derive(Clone, Debug, PartialEq)]
+pub struct MoveFaceSource {
+    pub faces: FaceSource,
+    pub direction: Option<AxisReference>,
+}
+
+pub fn selected_faces(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<MoveFaceSource, FaceToolError> {
+    let mut faces =
+        offset_face_tools::faces_of_one_body(model, selection, tree, FacePurpose::Move)?;
+    let index = model.document().bar_index();
+    let mut axes: Vec<AxisReference> = Vec::new();
+
+    for pickable in &faces.left_out {
+        if let Some(axis) = datum_tools::axis_reference(model, *pickable, index)
+            && !axes.contains(&axis)
+        {
+            axes.push(axis);
+        }
+    }
+
+    let direction = if let [only] = axes.as_slice() {
+        let chosen = only.clone();
+
+        faces.left_out.retain(|pickable| {
+            datum_tools::axis_reference(model, *pickable, index).as_ref() != Some(&chosen)
+        });
+        Some(chosen)
+    } else {
+        None
+    };
+    Ok(MoveFaceSource { faces, direction })
 }
 
 pub fn create(
     document: &Document,
     evaluation: &Evaluation,
-    source: &FaceSource,
+    source: &MoveFaceSource,
     starts: &Starts,
 ) -> Result<(Transaction, FeatureId), FaceToolError> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(FaceToolError::NoShape)?;
-    let faces: Vec<FaceReference> = source
+    let chosen = &source.faces;
+    let shown = bodies::shown(evaluation, chosen.body).ok_or(FaceToolError::NoShape)?;
+
+    let faces: Vec<FaceReference> = chosen
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
 
-    if faces.len() < source.faces.len() {
+    if faces.len() < chosen.faces.len() {
         return Err(FaceToolError::FacesGone);
     }
 
@@ -94,10 +129,10 @@ pub fn create(
     let feature = transaction.add_feature(
         name,
         FeatureKind::MoveFace(MoveFace {
-            body: source.body,
+            body: chosen.body,
             faces,
             distance: starts.length(Remembered::MoveFaceDistance, DEFAULT_DISTANCE),
-            direction: None,
+            direction: source.direction.clone(),
             angle: Expression::Measure(0.0, Unit::Degree),
             axis: None,
         }),
@@ -108,14 +143,14 @@ pub fn create(
 pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
-    source: &FaceSource,
+    source: &MoveFaceSource,
     starts: &Starts,
 ) -> Vec<Action> {
     match create(document, evaluation, source, starts) {
         Ok((transaction, feature)) => {
-            let told = body_selection::left_out_words(&source.left_out).map(|words| {
+            let told = body_selection::left_out_words(&source.faces.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(
-                    "{TITLE} takes faces to move only, so {words}."
+                    "{TITLE} takes faces to move and one direction, so {words}."
                 )))
             });
             [

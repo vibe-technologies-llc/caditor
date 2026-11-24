@@ -3,16 +3,18 @@ use caditor_document::{
     Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind,
     HelixResult, MAX_PITCH_ROWS, PitchRow, PointReference, Transaction, span_with_pitch,
 };
-use caditor_expression::{Dimension, Expression, Unit};
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
 use caditor_kernel::{HelixEnds, HelixPitch, PitchStop};
 
 use crate::{
+    coil_panel,
     coil_tools::{self, CoilStart, DEFAULT_AXIS, DEFAULT_DIAMETER},
     datum_tools,
     editing::{self, EditingCommand},
     feature_fields::ChoiceRefusal,
     field::{self, CheckError},
+    helix_panel,
     model::{Action, Model},
     reference_picking::{Picking, Slot},
     selection::Selection,
@@ -95,14 +97,58 @@ pub fn create_actions(model: &Model, start: &CoilStart, kind: HelixKind) -> Vec<
 
 pub fn edit(document: &Document, feature: FeatureId, helix: Helix) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
+    let flat = helix.is_flat();
+    let mut owned: Vec<(String, &Expression)> = vec![(
+        if flat {
+            helix_panel::INNER_DIAMETER
+        } else {
+            coil_panel::DIAMETER
+        }
+        .to_owned(),
+        &helix.diameter,
+    )];
+
+    for (caption, key, expression) in coil_panel::length_fields(&helix.length) {
+        let caption = if flat && key == "height" {
+            helix_panel::OUTER_DIAMETER
+        } else {
+            caption
+        };
+
+        owned.push((caption.to_owned(), expression));
+    }
+    if !flat {
+        owned.push((coil_panel::TAPER.to_owned(), &helix.taper));
+    }
+    if !helix.pitch_table.is_empty() {
+        for (index, row) in helix.pitch_table.iter().enumerate() {
+            owned.push((format!("Row {} at turn", index + 1), &row.turns));
+            owned.push((format!("Row {} pitch", index + 1), &row.pitch));
+        }
+    } else if let Some(last) = &helix.final_pitch {
+        owned.push((helix_panel::FINAL_PITCH.to_owned(), last));
+    }
+    if !flat && let Some(ends) = &helix.ends {
+        owned.push((helix_panel::END_TURNS.to_owned(), &ends.turns));
+        owned.push((helix_panel::END_PITCH.to_owned(), &ends.pitch));
+        owned.push((helix_panel::END_CHANGE.to_owned(), &ends.change));
+    }
+    if helix.start_point.is_none() {
+        owned.push((helix_panel::START_ANGLE.to_owned(), &helix.start));
+    }
+
+    let fields: Vec<(&str, &Expression)> = owned
+        .iter()
+        .map(|(caption, expression)| (caption.as_str(), *expression))
+        .collect();
     let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Helix(helix),
+            kind: FeatureKind::Helix(helix.clone()),
         },
     );
-    Some(document.carrying_owners(transaction, feature, []))
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn change(model: &Model, feature: FeatureId, helix: Helix) -> Result<Transaction, HelixError> {
@@ -180,10 +226,11 @@ pub fn with_closed_ends(helix: &Helix, closed: bool) -> Helix {
 }
 
 pub fn with_progression(model: &Model, helix: &Helix, progressive: bool) -> Helix {
+    let unit = model.length_unit();
     let final_pitch = progressive.then(|| {
         let start = coil_tools::evaluated_span(model, &helix.length)
             .map_or(DEFAULT_PITCH, |span| span.pitch);
-        Expression::measure(2.0 * start, Unit::Millimetre)
+        unit.measured(2.0 * start)
     });
     Helix {
         final_pitch,
@@ -193,6 +240,7 @@ pub fn with_progression(model: &Model, helix: &Helix, progressive: bool) -> Heli
 }
 
 pub fn with_pitch_table(model: &Model, helix: &Helix, tabled: bool) -> Helix {
+    let unit = model.length_unit();
     let pitch_table = if tabled {
         let start = coil_tools::evaluated_span(model, &helix.length)
             .map_or(DEFAULT_PITCH, |span| span.pitch);
@@ -200,11 +248,11 @@ pub fn with_pitch_table(model: &Model, helix: &Helix, tabled: bool) -> Helix {
         vec![
             PitchRow::new(
                 Expression::number((0.5 * turns * 100.0).round() / 100.0),
-                Expression::measure(start, Unit::Millimetre),
+                unit.measured(start),
             ),
             PitchRow::new(
                 Expression::number((turns * 100.0).round() / 100.0),
-                Expression::measure(2.0 * start, Unit::Millimetre),
+                unit.measured(2.0 * start),
             ),
         ]
     } else {
@@ -251,7 +299,7 @@ pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
         None => pitch_table.push(PitchRow::new(
             Expression::number(rounded_turns(0.5 * (after + turns.max(after)))),
             last.map_or_else(
-                || Expression::measure(DEFAULT_PITCH, Unit::Millimetre),
+                || model.length_unit().default_length(DEFAULT_PITCH),
                 |row| row.pitch.clone(),
             ),
         )),
@@ -298,7 +346,9 @@ fn row_before_last(model: &Model, helix: &Helix) -> Option<PitchRow> {
     let pitch = start.pitch + (end.pitch - start.pitch) * share;
     Some(PitchRow::new(
         Expression::number(turns),
-        Expression::measure((pitch / PITCH_STEP).round() * PITCH_STEP, Unit::Millimetre),
+        model
+            .length_unit()
+            .measured((pitch / PITCH_STEP).round() * PITCH_STEP),
     ))
 }
 

@@ -5,9 +5,10 @@ combine into (the target), then click the body to combine with it (the tool); th
 be chosen from the lists in the card at the end of the feature tree. Esc stops choosing. With one body
 selected, Combine takes it as the target and asks only for the tool.
 
-When two bodies are already selected (a face or edge of each, Shift or Ctrl adding the second) or
+When two or more bodies are already selected (a face or edge of each, Shift or Ctrl adding more) or
 chosen in the tree, Combine joins them straight away: the body picked first in the view is the
-target; with bodies chosen in the tree, the one earlier in the tree is.
+target and the rest are tool bodies; with bodies chosen in the tree, the earliest in the tree is the
+target.
 
 - **Operation**: Join adds the tool to the target, Cut takes it away, Intersect keeps what they
   share.

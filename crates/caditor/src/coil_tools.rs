@@ -3,12 +3,13 @@ use std::borrow::Cow;
 use caditor_document::{
     AxisReference, BodyOperation, Coil, CoilLength, CoilSizing, CoilSpan, CoilTurning,
     DEFAULT_PITCH, DEFAULT_TURNS, Document, Edit, FeatureId, FeatureKind, PrincipalAxis,
-    Transaction,
+    Transaction, capitalized, coil_size_name,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{CoilPlacement, CoilShape};
 
 use crate::{
+    coil_panel,
     commands::Reason,
     datum_tools,
     editing::{self, EditingCommand},
@@ -101,14 +102,25 @@ pub fn create_actions(model: &Model, start: &CoilStart) -> Vec<Action> {
 
 pub fn edit(document: &Document, feature: FeatureId, coil: Coil) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
+    let size_caption = capitalized(coil_size_name(coil.shape));
+    let mut fields: Vec<(&str, &Expression)> = vec![
+        (coil_panel::DIAMETER, &coil.diameter),
+        (size_caption.as_str(), &coil.size),
+        (coil_panel::TAPER, &coil.taper),
+    ];
+
+    for (caption, _, expression) in coil_panel::length_fields(&coil.length) {
+        fields.push((caption, expression));
+    }
+
     let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Coil(coil),
+            kind: FeatureKind::Coil(coil.clone()),
         },
     );
-    Some(document.carrying_owners(transaction, feature, []))
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn change(model: &Model, feature: FeatureId, coil: Coil) -> Result<Transaction, CoilError> {

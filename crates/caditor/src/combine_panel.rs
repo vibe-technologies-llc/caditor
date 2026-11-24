@@ -17,7 +17,6 @@ pub const DESCRIPTION: &str = "Combines bodies into one";
 pub const KEEP_TOOL: &str = "Keep tool";
 pub const ALSO_COMBINES: &str = "Also with";
 pub const ADD_TOOL_BODY: &str = "Add another tool body";
-const NOT_A_BODY: &str = "A body that is no longer there";
 pub const SWAP: &str = "Swap target and tool";
 const SWAP_HOVER: &str = "Make the tool body the target and the target the tool, in one change";
 const CHOOSING_DESCRIPTION: &str = "Click the body to combine into in the view, then the body to \
@@ -145,7 +144,8 @@ fn body_row(
     let current = role.current(combine);
     let taken = role.taken(combine);
     let current_name = document.body_label(current);
-    let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
+    let selected =
+        feature_fields::combo_text(ui, current_name.as_deref(), feature_fields::MISSING_BODY);
 
     let chosen = feature_fields::combo(ui, Id::unique((role.salt(), id)), selected, || {
         document
@@ -206,16 +206,19 @@ fn more_tool_rows(
             ui.label("");
         }
 
-        let name = feature_fields::feature_name(document, *tool);
-        let hover = format!("Stop using {}", name.unwrap_or("the missing body"));
+        let name = document.body_label(*tool);
+        let hover = format!(
+            "Stop using {}",
+            name.as_deref().unwrap_or("the missing body")
+        );
         let mut dropped = false;
 
         ui.horizontal(|ui| {
-            match name {
+            match &name {
                 Some(name) => {
                     ui.label(name);
                 }
-                None => feature_fields::missing(ui, NOT_A_BODY),
+                None => feature_fields::missing(ui, feature_fields::MISSING_BODY),
             }
             dropped = widgets::icon_button(ui, icons::REMOVE, &hover).clicked();
         });

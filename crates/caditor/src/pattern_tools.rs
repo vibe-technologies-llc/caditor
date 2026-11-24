@@ -17,7 +17,7 @@ use crate::{
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    move_tools,
+    move_tools, pattern_panel,
     queued::Pending,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
@@ -221,11 +221,12 @@ pub enum Reference {
 }
 
 fn last_body(model: &Model) -> Option<FeatureId> {
-    model
-        .document()
+    let document = model.document();
+    document
         .bodies_standing_in(model.evaluation())
-        .last()
-        .copied()
+        .into_iter()
+        .rev()
+        .find(|body| crate::visibility::is_shown(document, *body))
 }
 
 pub fn source(
@@ -431,13 +432,51 @@ pub fn create_actions(model: &Model, shape: Shape, source: &PatternSource) -> Ve
 
 pub fn edit(document: &Document, feature: FeatureId, pattern: Pattern) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let mut fields: Vec<(&str, &Expression)> = Vec::new();
+
+    match &pattern.kind {
+        PatternKind::Linear { first, second } => {
+            fn push<'a>(
+                fields: &mut Vec<(&'static str, &'a Expression)>,
+                direction: &'a LinearDirection,
+                captions: &pattern_panel::DirectionCaptions,
+            ) {
+                fields.push((captions.count, &direction.count));
+                fields.push((
+                    match direction.measured {
+                        LinearSpacing::BetweenCopies => captions.spacing,
+                        LinearSpacing::Total => captions.total,
+                    },
+                    &direction.spacing,
+                ));
+            }
+
+            push(&mut fields, first, &pattern_panel::FIRST);
+            if let Some(second) = second {
+                push(&mut fields, second, &pattern_panel::SECOND);
+            }
+        }
+        PatternKind::Circular(circular) => {
+            fields.push((pattern_panel::FIRST.count, &circular.count));
+            fields.push((pattern_panel::TOTAL_ANGLE, &circular.angle));
+        }
+        PatternKind::Curve(curve) => {
+            fields.push((pattern_panel::FIRST.count, &curve.count));
+            if curve.measured == caditor_document::CurveSpacing::Distance {
+                fields.push((pattern_panel::FIRST.spacing, &curve.spacing));
+            }
+        }
+        PatternKind::Points(_) => {}
+    }
+
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::from(pattern),
+            kind: FeatureKind::from(pattern.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub struct ClickedCopy {

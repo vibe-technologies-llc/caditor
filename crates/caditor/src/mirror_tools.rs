@@ -293,13 +293,15 @@ pub fn source(
         && selection.iter().all(|pickable| pickable.body().is_none());
 
     if nothing_named {
-        return match document.bodies_standing_in(model.evaluation()).is_empty() {
-            true => Err(MirrorToolError::from(
+        return match crate::body_selection::standing_bodies(model) {
+            crate::body_selection::Standing::None => Err(MirrorToolError::from(
                 move_tools::BodyChoiceError::Nothing {
                     instruction: NO_BODY,
                 },
             )),
-            false => Ok(MirrorStart::ChooseBodies),
+            crate::body_selection::Standing::Only(_) | crate::body_selection::Standing::Several => {
+                Ok(MirrorStart::ChooseBodies)
+            }
         };
     }
 

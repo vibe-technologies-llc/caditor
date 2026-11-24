@@ -127,44 +127,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · easy] Owned parameters are stranded across feature edits: `ShellFaceThickness` uses a
-  different `ParameterOwner.value` caption in `shell_panel.rs` and `value_gauges.rs`, locking its 3D
-  handle once named, and eleven feature tools (`pipe_tools.rs`, `coil_tools.rs`, `helix_tools.rs`,
-  `primitive_tools.rs`, `pattern_tools.rs`, `draft_tools.rs`, `shell_tools.rs`, `loft_tools.rs`,
-  `move_tools.rs`, `datum_tools.rs`, `thread_tools.rs`) do not pass `carrying_owners` (with caption
-  rename pairs) across mode switches.
-- [medium · easy] Small feature-panel regressions and unit/naming leaks: `Command::ReplaceFace` is
-  missing from `toolbar.rs` (`Group::Modify::sections`); `solid_panel.rs` (`selected_end`) drops
-  `.with_offset(offset)` on `ExtrudeEnd::up_to_surface`; `solid_panel.rs` (`other_body_rows`) and
-  `combine_panel.rs` (`Also with`) skip `document.body_label(*other)`; `helix_tools.rs` and
-  `hole_panel.rs` hardcode `Unit::Millimetre`/`"mm"` instead of `model.length_unit()`.
-- [medium · easy] Viewport picking and panel state inconsistencies across feature panels:
-  - Panel dropdowns and quick buttons (`feature_fields.rs`, `draft_panel.rs`, `mirror_panel.rs`,
-    `emboss_panel.rs`, `pattern_panel.rs`, `split_face_panel.rs`, `solid_panel.rs`,
-    `hole_panel.rs`, `scale_panel.rs`) do not emit `EditingCommand::StopPicking` when satisfying the
-    active picking slot; Enter cannot confirm while a multi-pick slot is active (`viewport.rs`).
-  - `reference_picking.rs` leaves `Slot::MirrorBodies` offering principals (`PrincipalSet::NONE`)
-    and `Slot::DatumRotation` missing `PrincipalSet::AXES`; `feature_tree.rs` does not wire
-    `MissingInput::SketchToEmboss`'s "Choose in the view" button to `Slot::EmbossSketch`.
-  - `datum_panel.rs` stops offering `Its centre` on circular edges after switching to `Along it` or
-    `Its middle`; `draft_panel.rs` checks only `draft.faces.is_empty()` instead of also
-    `draft.own.is_empty()` and `draft_tools.rs` (`own_angle_toggled`) skips `default_neutral` when
-    `neutral.is_none()`; `emboss_panel.rs` can show both `faces` and `regions` choosing rows active
-    at once and renders unset `Outlines` with warning styling instead of `Shown::NoneChosen`;
-    `move_face_panel.rs` puts `Angle` ahead of `Tilt about` and shows it with no axis chosen.
-  - `first_pick.rs` drops `HoleToolError`, `datum_tools.rs` conflates unsupported sketch entity
-    kinds with later sketches, and `primitive_tools.rs` conflates `DatumMadeLater` with
-    `DatumNotAPlane`.
-- [medium · easy] Pre-selected face queueing and visibility/tree-selection defaults:
-  - `shell_tools.rs`, `offset_face_tools.rs`, `replace_face_tools.rs`, `emboss_tools.rs`,
-    `split_face_tools.rs` and `thread_tools.rs` refuse pre-selected faces while their body is
-    mid-recompute instead of returning `NoShape` (`Pending::BodyShape`) to queue cleanly.
-  - Default target-body picking in `hole_tools.rs`, `pattern_tools.rs`, `sketch_pattern_tools.rs`,
-    `rib_tools.rs`, `mirror_tools.rs` and `feature_fields.rs` skips `visibility::is_shown`, silently
-    targeting hidden bodies; `solid_tools::guessed_sketch` takes `.last()` before filtering `unused`
-    sketches; `offers.rs` ignores tree-selected sketches/helices for Extrude, Revolve, Sweep, Loft,
-    Pipe, Hole and Emboss and tree-selected bodies for Shell, OffsetFace, DeleteFace, MoveFace,
-    Draft, ReplaceFace and SplitFace.
 - [medium · medium] Revolve handles, `body_reach.rs`, Leave out and Reverse direction gaps:
   - `turn_handles.rs` does not compute swing from the chosen regions/side (nor fall back to the
     farthest corner when the centroid lies on the axis), skips per-grip `per_point`, and omits
@@ -175,13 +137,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   - `leaving_out.rs` does not expand `EdgeGroup`s when leaving out a failing Blend edge and omits
     `shell.faces` (`Own thickness`) for Shell; `reversing.rs` (`Command::ReverseDirection`) omits
     `Draft`, `Emboss` and asymmetric/angle `Chamfer`.
-- [low · easy] Outdated hover/prompt microcopy and panel inconsistencies: `helix_panel.rs`
-  (`OPEN_ENDS_HOVER`), curved-face Hole prompts (`reference_picking.rs`, `hole_tools.rs`,
-  `hole_panel.rs`), Draft `Own angle` prompt, axis/direction prompts (`reference_picking.rs`,
-  `move_face_panel.rs`), Pattern/Mirror repeatable feature lists, Loft/Pipe/Scale hover text;
-  `split_panel.rs` and `split_face_panel.rs` not using `principal_combo`, `rib_panel.rs` `Body`
-  row order, `primitive_panel.rs` missing `description_row`, and duplicated `MISSING_BODY`
-  constants in `hole_panel.rs` and `combine_panel.rs`.
 
 ## Sketch solver
 

@@ -277,3 +277,42 @@ fn a_curved_face_s_own_thickness_arrow_stands_on_its_surface_and_drags() {
         "{own} to {after} with steps of {step}"
     );
 }
+
+#[test]
+fn a_named_own_thickness_keeps_its_handle_draggable_and_updates_the_parameter() {
+    let mut harness = Harness::new();
+
+    let shell = shell_with_an_own_thickness_bottom(&mut harness);
+
+    harness.type_into_field(
+        Id::unique(("shell-own-thickness", shell, 0_usize)),
+        "wall_a = 3 mm",
+    );
+    harness.settle();
+
+    assert_eq!(own_thickness(&harness, shell), 3.0);
+
+    let step = drag_value_arrow(&mut harness, Measured::ShellFaceThickness(0), 2.0);
+    let after = own_thickness(&harness, shell);
+
+    assert!(
+        (after - 5.0).abs() <= step,
+        "expected ~5.0, got {after} with steps of {step}"
+    );
+
+    let param = harness
+        .document()
+        .parameters()
+        .iter()
+        .find(|param| param.name == "wall_a")
+        .expect("wall_a parameter stays owned");
+
+    assert_eq!(
+        harness
+            .model
+            .parameters()
+            .value(param.id())
+            .map(|value| value.value),
+        Ok(after)
+    );
+}

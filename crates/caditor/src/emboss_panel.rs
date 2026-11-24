@@ -12,7 +12,7 @@ use crate::{
     emboss_tools,
     feature_fields::{self, Choice, ListChoosing, Picker, Quantity, Rule, Segment},
     feature_tree::count,
-    icons,
+    hole_panel, icons,
     model::{Action, Model},
     offset_face_panel,
     reference_picking::Slot,
@@ -28,7 +28,7 @@ pub const DESCRIPTION: &str = "Raises the closed outlines or text of a sketch fr
 const RAISE_HOVER: &str = "Add the outlines to the faces";
 const RECESS_HOVER: &str = "Cut the outlines into the faces";
 const PICK_HOVER: &str = "Emboss the outlines of the selected sketch instead";
-const MISSING_SKETCH: &str = "A sketch that is no longer there, or none chosen";
+const MISSING_SKETCH: &str = "Missing sketch";
 const ALL_REGIONS_HOVER: &str = "Emboss every closed outline of the sketch";
 const CHOSEN_REGIONS_HOVER: &str = "Emboss only the regions you choose in the view";
 const SELECT_ALL_REGIONS: &str = "Select all";
@@ -111,10 +111,16 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             }
         }
 
+        let prompt = match emboss.regions {
+            RegionChoice::All => "Click faces in the view to emboss them or leave them out again.",
+            RegionChoice::Chosen(_) => {
+                "Click faces or regions in the view to include or leave them out again."
+            }
+        };
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
-            "Click faces in the view to emboss them or leave them out again.",
+            prompt,
             "Show the body as it is with this feature so you can click faces",
         );
         match chosen {
@@ -148,11 +154,16 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
 
     widgets::caption(ui, "Outlines");
 
+    let editable = emboss.sketch.filter(|sketch| named(*sketch).is_some());
+    let mut edit_sketch = false;
+
     let chosen = ui
         .horizontal(|ui| {
-            let text =
-                feature_fields::combo_text(ui, emboss.sketch.and_then(named), MISSING_SKETCH);
-            feature_fields::combo(ui, Id::unique(("emboss-sketch", id)), text, || {
+            let text: egui::WidgetText = match emboss.sketch {
+                None => widgets::muted(feature_fields::NONE_CHOSEN, ui).into(),
+                Some(sketch) => feature_fields::combo_text(ui, named(sketch), MISSING_SKETCH),
+            };
+            let picked = feature_fields::combo(ui, Id::unique(("emboss-sketch", id)), text, || {
                 emboss_tools::sketches(model, id)
                     .into_iter()
                     .map(|sketch| Choice {
@@ -170,12 +181,25 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
                         .map(Action::Apply),
                     })
                     .collect()
-            })
+            });
+
+            if editable.is_some() {
+                let button = widgets::icon_button(ui, icons::EDIT, hole_panel::EDIT_SKETCH);
+
+                edit_sketch = button.on_hover_text("Show and edit this sketch").clicked();
+            }
+            picked
         })
         .inner;
 
     ui.end_row();
-    actions.extend(chosen);
+    if let Some(action) = chosen {
+        actions.push(action);
+        feature_fields::stop_picking_if_for(ui.ctx(), (id, Slot::EmbossSketch), actions);
+    }
+    if edit_sketch && let Some(sketch) = editable {
+        actions.push(Action::Editing(EditingCommand::Enter(sketch)));
+    }
     ui.label("");
 
     let picker = Picker {
@@ -274,21 +298,15 @@ fn regions_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
                 }
             }
         });
-        if !all {
+        if !all && !opened {
             let chosen = feature_fields::list_in_view(
                 ui,
-                opened,
+                false,
                 "Click regions in the view to include or leave them out.",
                 "Show the regions of the sketch so you can click them",
             );
-            match chosen {
-                Some(ListChoosing::Start) => {
-                    actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
-                }
-                Some(ListChoosing::Stop) => {
-                    actions.push(Action::Editing(EditingCommand::CloseSolid));
-                }
-                None => {}
+            if matches!(chosen, Some(ListChoosing::Start)) {
+                actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
             }
         }
     });

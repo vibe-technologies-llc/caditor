@@ -39,7 +39,6 @@ pub enum HolePanelError {
     Check(#[from] CheckError),
 }
 
-const NOT_A_BODY: &str = "A body that is no longer there";
 pub const CUSTOM_SIZE: &str = "Custom";
 pub const SIZED_BY_CIRCLES: &str = "Circles";
 const SIZED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diameter; holes at \
@@ -83,7 +82,8 @@ pub const PLACED_ON: &str = "Placed on";
 pub const EDIT_SKETCH: &str = "Edit the sketch";
 const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch holding the hole's points, to \
                                  dimension them or add more holes";
-const PLACE_HOVER: &str = "Drill the hole on the selected flat face instead, at its middle";
+const PLACE_HOVER: &str =
+    "Drill the hole on the selected flat or round face instead, at its middle";
 const NOT_ON_A_FACE: &str = "Not on a face";
 pub const MEASURED_FROM: &str = "Measured from";
 pub const EDGE_DISTANCE: &str = "Distance";
@@ -133,14 +133,20 @@ fn sizing_hover(sizing: HoleSizing) -> &'static str {
     }
 }
 
-fn insert_note(standard: HoleStandard) -> Option<String> {
+fn insert_note(standard: HoleStandard, units: crate::units::Units) -> Option<String> {
     let insert = standard.insert()?;
     Some(format!(
-        "For a standard {} heat-set insert {} mm long: make the hole at least that deep and \
-         leave at least {} mm of material around it",
+        "For a standard {} heat-set insert {} long: make the hole at least that deep and \
+         leave at least {} of material around it",
         standard.size.name(),
-        pitch_text(insert.length),
-        pitch_text(insert.wall)
+        units.show(caditor_expression::Quantity::new(
+            insert.length,
+            Dimension::LENGTH
+        )),
+        units.show(caditor_expression::Quantity::new(
+            insert.wall,
+            Dimension::LENGTH
+        )),
     ))
 }
 
@@ -231,7 +237,7 @@ impl Panel<'_> {
 
         self.actions.extend(chosen);
         self.pitch_row(ui, standard);
-        if let Some(note) = insert_note(standard) {
+        if let Some(note) = insert_note(standard, self.model.units()) {
             feature_fields::description_row(ui, &note);
         }
         if let Some(thread) = standard.thread() {
@@ -635,7 +641,18 @@ impl Panel<'_> {
                     .collect()
             });
 
-        self.actions.extend(chosen);
+        if let Some(action) = chosen {
+            let applied = matches!(action, Action::Apply(_));
+
+            self.actions.push(action);
+            if applied {
+                feature_fields::stop_picking_if_for(
+                    ui.ctx(),
+                    (self.id(), Slot::HoleTarget),
+                    self.actions,
+                );
+            }
+        }
         ui.end_row();
     }
 
@@ -791,7 +808,8 @@ impl Panel<'_> {
 
         let current = self.hole.body;
         let current_name = document.body_label(current);
-        let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
+        let selected =
+            feature_fields::combo_text(ui, current_name.as_deref(), feature_fields::MISSING_BODY);
 
         let chosen = feature_fields::combo(ui, Id::unique(("hole-body", id)), selected, || {
             document
@@ -1138,7 +1156,7 @@ impl Panel<'_> {
             .zip(self.millimetres_of(&self.hole.diameter))
             .map_or_else(
                 || unit.default_length(DEFAULT_STEP_DIAMETER),
-                |(wide, narrow)| hole_tools::millimetres(((wide + narrow) * 5.0).round() / 10.0),
+                |(wide, narrow)| unit.measured(((wide + narrow) * 5.0).round() / 10.0),
             );
         let depth = last.map_or_else(
             || unit.default_length(hole_tools::DEFAULT_STEP_DEPTH),

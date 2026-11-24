@@ -148,17 +148,32 @@ fn guessed_profile(
         .find(|sketch| solid_tools::has_unswept_regions(document, evaluation, *sketch))
 }
 
+pub fn path_curves_of(document: &Document, sketch: FeatureId) -> Vec<EntityId> {
+    editing::edited_sketch(document, sketch)
+        .map(|definition| {
+            definition
+                .entities()
+                .map(|(entity, _)| entity)
+                .filter(|entity| is_path_curve(document, sketch, *entity))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn source(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
+    rows: &[FeatureId],
 ) -> Result<SweepStart, SweepError> {
     let document = model.document();
     let evaluation = model.evaluation();
+    let bar = document.bar_index();
     let picked = selection.in_pick_order();
     let mut curve_sketches: Vec<FeatureId> = Vec::new();
     let mut region_sketch = None;
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
+    let mut row_helices: Vec<FeatureId> = Vec::new();
 
     for pickable in &picked {
         match *pickable {
@@ -175,6 +190,28 @@ pub fn source(
             _ => {}
         }
     }
+    if curve_sketches.is_empty() && region_sketch.is_none() && edges.is_empty() {
+        for row in rows {
+            if !document
+                .feature_index(*row)
+                .is_some_and(|position| position < bar)
+            {
+                continue;
+            }
+            if helix_tools::is_helix(document, *row) {
+                if !row_helices.contains(row) {
+                    row_helices.push(*row);
+                }
+            } else if document
+                .feature(*row)
+                .is_some_and(|feature| feature.kind.sketch().is_some())
+                && !path_curves_of(document, *row).is_empty()
+                && !curve_sketches.contains(row)
+            {
+                curve_sketches.push(*row);
+            }
+        }
+    }
 
     let chosen_profile = editing
         .feature()
@@ -184,7 +221,9 @@ pub fn source(
                 .iter()
                 .copied()
                 .find(|sketch| has_regions(evaluation, *sketch))
-                .filter(|_| curve_sketches.len() > 1 || !edges.is_empty())
+                .filter(|_| {
+                    curve_sketches.len() > 1 || !edges.is_empty() || !row_helices.is_empty()
+                })
         })
         .or_else(|| match curve_sketches.as_slice() {
             [only] if edges.is_empty() && has_regions(evaluation, *only) => Some(*only),
@@ -195,18 +234,21 @@ pub fn source(
         .copied()
         .filter(|sketch| Some(*sketch) != chosen_profile)
         .collect();
-    let helix = helix_path(
-        document,
-        selection,
-        !path_sketches.is_empty() || !edges.is_empty(),
-    )?;
+    let other_path = !path_sketches.is_empty() || !edges.is_empty();
+    let helix = match helix_path(document, selection, other_path)? {
+        Some(helix) => Some(helix),
+        None => match (row_helices.as_slice(), other_path) {
+            ([], _) => None,
+            ([_], true) | ([_, _, ..], _) => return Err(SweepError::HelixAndOthers),
+            ([helix], false) => Some(*helix),
+        },
+    };
     let path = match (path_sketches.as_slice(), edges.first()) {
         ([], None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
         ([_, ..], Some(_)) => return Err(SweepError::CurvesAndEdges),
         ([_, _, ..], None) => return Err(SweepError::SeveralPathSketches),
-        ([sketch], None) => PathPick::Curves {
-            sketch: *sketch,
-            curves: picked
+        ([sketch], None) => {
+            let picked_curves: Vec<EntityId> = picked
                 .iter()
                 .filter_map(|pickable| match *pickable {
                     Pickable::SketchEntity { feature, entity }
@@ -216,8 +258,17 @@ pub fn source(
                     }
                     _ => None,
                 })
-                .collect(),
-        },
+                .collect();
+            let curves = if picked_curves.is_empty() {
+                path_curves_of(document, *sketch)
+            } else {
+                picked_curves
+            };
+            PathPick::Curves {
+                sketch: *sketch,
+                curves,
+            }
+        }
         ([], Some((body, _))) => {
             if edges.iter().any(|(other, _)| other != body) {
                 return Err(SweepError::PathEdgesOfSeveralBodies);

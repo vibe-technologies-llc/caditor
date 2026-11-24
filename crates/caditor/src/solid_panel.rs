@@ -69,7 +69,7 @@ const PARALLEL_HOVER: &str =
     "Keep the profile parallel to its sketch, only moving it along the path";
 pub const TWIST: &str = "Twist";
 pub const END_SCALE: &str = "End scale";
-const FOLLOW_SELECTED_PATH: &str = "Follow the selected curves or edges instead";
+const FOLLOW_SELECTED_PATH: &str = "Follow the selected curves, edges or helix instead";
 const CLEAR_PATH: &str = "Clear the path";
 pub const END_OFFSET: &str = "Past the face";
 const FORWARD_END_OFFSET: &str = "Forward past face";
@@ -605,13 +605,17 @@ impl Panel<'_> {
         widgets::caption(ui, rows.end);
 
         let salt = format!("{}-end", rows.salt);
+        let slot = Slot::ExtrudeTarget(rows.side);
+        let before = self.actions.len();
 
         self.combo(ui, &salt, EndKind::of(end).label(), |panel| {
             panel.end_choices(extrude, end, rows.side, rebuild)
         });
+        if self.actions.len() > before && matches!(self.actions.last(), Some(Action::Apply(_))) {
+            feature_fields::stop_picking_if_for(ui.ctx(), (self.id(), slot), self.actions);
+        }
         ui.end_row();
 
-        let slot = Slot::ExtrudeTarget(rows.side);
         let kept_offset = end.offset().cloned();
         let picker = Picker {
             feature: self.id(),
@@ -886,6 +890,9 @@ impl Panel<'_> {
         let along = extrude.direction.as_deref();
 
         widgets::caption(ui, "Direction");
+
+        let before = self.actions.len();
+
         self.combo(
             ui,
             "direction",
@@ -915,6 +922,13 @@ impl Panel<'_> {
                 vec![square, chosen]
             },
         );
+        if self.actions.len() > before && matches!(self.actions.last(), Some(Action::Apply(_))) {
+            feature_fields::stop_picking_if_for(
+                ui.ctx(),
+                (id, Slot::ExtrudeDirection),
+                self.actions,
+            );
+        }
         ui.end_row();
 
         let shown = match along {
@@ -1077,6 +1091,7 @@ impl Panel<'_> {
         widgets::caption(ui, "Extent");
 
         let current = turn_name(&revolve.extent);
+        let before = self.actions.len();
 
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
@@ -1150,6 +1165,13 @@ impl Panel<'_> {
             });
             choices
         });
+        if self.actions.len() > before && matches!(self.actions.last(), Some(Action::Apply(_))) {
+            feature_fields::stop_picking_if_for(
+                ui.ctx(),
+                (self.id(), Slot::RevolveTarget),
+                self.actions,
+            );
+        }
         ui.end_row();
     }
 
@@ -1158,6 +1180,9 @@ impl Panel<'_> {
         let on_face = start.and_then(SolidStart::target);
 
         widgets::caption(ui, "Start");
+
+        let before = self.actions.len();
+
         self.combo(
             ui,
             "start-kind",
@@ -1189,6 +1214,13 @@ impl Panel<'_> {
                 vec![offset, face]
             },
         );
+        if self.actions.len() > before && matches!(self.actions.last(), Some(Action::Apply(_))) {
+            feature_fields::stop_picking_if_for(
+                ui.ctx(),
+                (self.id(), Slot::StartPlane),
+                self.actions,
+            );
+        }
         ui.end_row();
 
         let picker = Picker {
@@ -1602,6 +1634,7 @@ impl Panel<'_> {
         ui.horizontal(|ui| {
             let name = model.document().body_label(target);
             let text = feature_fields::combo_text(ui, name.as_deref(), MISSING_BODY);
+            let before = self.actions.len();
 
             self.combo(ui, "body", text, |panel| {
                 bodies
@@ -1621,6 +1654,13 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+            if self.actions.len() > before {
+                feature_fields::stop_picking_if_for(
+                    ui.ctx(),
+                    (self.id(), Slot::OperationBody),
+                    self.actions,
+                );
+            }
         });
         ui.end_row();
         ui.label("");
@@ -1676,14 +1716,17 @@ impl Panel<'_> {
                 ui.label("");
             }
 
-            let name = feature_fields::feature_name(self.document(), *other);
-            let hover = format!("Stop cutting {}", name.unwrap_or("the missing body"));
+            let name = self.document().body_label(*other);
+            let hover = format!(
+                "Stop cutting {}",
+                name.as_deref().unwrap_or("the missing body")
+            );
             let mut dropped = false;
 
             ui.horizontal(|ui| {
                 match &name {
                     Some(name) => {
-                        ui.label(*name);
+                        ui.label(name);
                     }
                     None => feature_fields::missing(ui, MISSING_BODY),
                 }
@@ -2110,9 +2153,8 @@ fn selected_end(
 ) -> Result<ExtrudeEnd, TargetError> {
     match selected_target(model, selection, feature) {
         Ok(target) => Ok(ExtrudeEnd::up_to_face(target).with_offset(offset)),
-        Err(flat) => {
-            selected_surface(model, selection, feature, flat).map(ExtrudeEnd::up_to_surface)
-        }
+        Err(flat) => selected_surface(model, selection, feature, flat)
+            .map(|surface| ExtrudeEnd::up_to_surface(surface).with_offset(offset)),
     }
 }
 

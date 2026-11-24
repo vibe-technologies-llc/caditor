@@ -131,6 +131,7 @@ fn the_other_titles_list_the_commands_that_have_no_button_of_their_own() {
     open(&mut harness, "Modify");
     for command in [
         Command::OffsetFace,
+        Command::ReplaceFace,
         Command::SplitFace,
         Command::CopyBody,
         Command::MirrorFaces,

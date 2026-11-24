@@ -381,3 +381,36 @@ fn a_combine_of_a_third_body_or_none_is_refused_with_what_to_select() {
             .all(|feature| feature.kind.combine().is_none())
     );
 }
+
+#[test]
+fn three_selected_bodies_combine_with_the_first_as_target_and_the_rest_as_tools() {
+    let mut harness = Harness::new();
+
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let post = add_post(&mut harness);
+    let peg_top = pickable_described(&mut harness, "Peg › Peg end face");
+    let post_top = pickable_described(&mut harness, "Post › Post end face");
+
+    harness.select([top, peg_top, post_top]);
+    harness.click("Combine");
+    harness.settle();
+
+    let combine = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the combine is open");
+    let definition = harness
+        .document()
+        .feature(combine)
+        .unwrap()
+        .kind
+        .combine()
+        .unwrap()
+        .clone();
+
+    assert_eq!(definition.body, plate);
+    assert_eq!(definition.tool, peg);
+    assert_eq!(definition.more_tools, vec![post]);
+}

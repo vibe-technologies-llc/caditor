@@ -289,12 +289,13 @@ pub fn source(model: &Model, selection: &Selection) -> Result<MateSource, MateEr
 
     let found = match picked.as_slice() {
         [first, second] => {
-            let body = first.body().ok_or(MateError::NoPair)?;
-
-            if second.body() == Some(body) {
-                return Err(MateError::SameBody);
-            }
-            one_pair(model, *first, *second, index)
+            let (moving, fixed) = match (first.body(), second.body()) {
+                (Some(body), other) if other == Some(body) => return Err(MateError::SameBody),
+                (Some(_), _) => (*first, *second),
+                (None, Some(_)) => (*second, *first),
+                (None, None) => return Err(MateError::NoPair),
+            };
+            one_pair(model, moving, fixed, index)
         }
         [first, _, _, _] => {
             let body = first.body().ok_or(MateError::NoPair)?;
@@ -315,13 +316,16 @@ pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, 
     let [first, second] = picked.as_slice() else {
         return Err(MateError::NoAnglePair);
     };
-    let body = first.body().ok_or(MateError::NoAnglePair)?;
 
-    if second.body() == Some(body) {
-        return Err(MateError::SameBody);
-    }
+    let (moving, fixed) = match (first.body(), second.body()) {
+        (Some(body), other) if other == Some(body) => return Err(MateError::SameBody),
+        (Some(_), _) => (*first, *second),
+        (None, Some(_)) => (*second, *first),
+        (None, None) => return Err(MateError::NoAnglePair),
+    };
+    let body = moving.body().ok_or(MateError::NoAnglePair)?;
 
-    let sides = match one_pair(model, *first, *second, index) {
+    let sides = match one_pair(model, moving, fixed, index) {
         Some((_, MatePair::Faces(faces))) => AngleSides::Faces(FacePair {
             face: faces.face,
             target: faces.target,

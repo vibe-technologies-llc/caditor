@@ -21,9 +21,9 @@ selected one would. It has no ribbon button; use the Model menu or {command:pale
   (the draft angle to start with) or the draft angle again, until Escape. Each listed face has its
   own angle field; its remove button gives it the draft angle again.
 - **Neutral plane** is where the faces keep their place: a principal plane, a datum plane or a flat
-  face of a body, from the list or with **Choose in the view**. To start with it is the flat face the
-  first chosen face stands on, such as the floor of a block or a pocket, or the plate a boss stands
-  on.
+  face of a body, selected with the faces beforehand, from the list or with **Choose in the view**.
+  Otherwise it starts from the flat face the first chosen face stands on, such as the floor of a
+  block or a pocket, or the plate a boss stands on.
 - **Pull direction** is the way the mould comes off, square to the neutral plane. The panel says
   which way it points; **Flip the pull direction** turns it round. Choosing a neutral plane points it
   at the faces again.

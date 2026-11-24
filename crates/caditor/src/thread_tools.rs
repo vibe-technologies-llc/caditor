@@ -116,7 +116,7 @@ pub fn selected_face(
         return Err(ThreadToolError::OneFaceOnly);
     }
 
-    let shown = bodies::shown(model.evaluation(), body).ok_or(ThreadToolError::ChooseFace)?;
+    let shown = bodies::shown(model.evaluation(), body).ok_or(ThreadToolError::NoShape)?;
     let id = bodies::find_face(shown, face).ok_or(ThreadToolError::ChooseFace)?;
 
     let round = shown
@@ -191,13 +191,18 @@ pub fn create_actions(
 
 pub fn edit(document: &Document, feature: FeatureId, thread: Thread) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let fields: Vec<(&str, &caditor_expression::Expression)> = match &thread.length {
+        ThreadLength::Full => Vec::new(),
+        ThreadLength::Depth(depth) => vec![("Depth", depth)],
+    };
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Thread(thread),
+            kind: FeatureKind::Thread(thread.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn face_change(

@@ -570,7 +570,16 @@ pub fn body_operation_rows<E: Display>(
     let document = model.document();
 
     let bodies = document.bodies_before_in(feature, model.evaluation());
-    let target = operation.target().or(bodies.last().copied());
+    let target = operation
+        .target()
+        .or_else(|| {
+            bodies
+                .iter()
+                .copied()
+                .rev()
+                .find(|body| crate::visibility::is_shown(document, *body))
+        })
+        .or_else(|| bodies.last().copied());
 
     widgets::caption(ui, "Result");
 
@@ -819,6 +828,16 @@ pub struct AxisRow<'a, E> {
     pub picker: Picker<'a, E>,
 }
 
+pub fn stop_picking_if_for(
+    ctx: &egui::Context,
+    (feature, slot): (FeatureId, Slot),
+    actions: &mut Vec<Action>,
+) {
+    if reference_picking::current(ctx).is_some_and(|picking| picking.is_for(feature, slot)) {
+        actions.push(Action::Editing(EditingCommand::StopPicking));
+    }
+}
+
 pub fn axis_row<E, L: Display>(
     ui: &mut Ui,
     model: &Model,
@@ -828,7 +847,8 @@ pub fn axis_row<E, L: Display>(
 ) {
     widgets::caption(ui, row.caption);
 
-    let id = Id::unique(("axis-row", row.caption, row.picker.feature));
+    let (feature, slot) = (row.picker.feature, row.picker.slot);
+    let id = Id::unique(("axis-row", row.caption, feature));
 
     ui.vertical(|ui| {
         match (listed, row.shown) {
@@ -838,7 +858,10 @@ pub fn axis_row<E, L: Display>(
                     None => widgets::muted(NONE_CHOSEN, ui).into(),
                 };
 
-                actions.extend(principal_combo(ui, (id, PrincipalSet::AXES), shown, listed));
+                if let Some(action) = principal_combo(ui, (id, PrincipalSet::AXES), shown, listed) {
+                    actions.push(action);
+                    stop_picking_if_for(ui.ctx(), (feature, slot), actions);
+                }
             }
             (None, Some(text)) => {
                 ui.add(Label::new(text).wrap());

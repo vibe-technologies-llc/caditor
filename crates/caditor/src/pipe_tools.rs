@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 
 use caditor_document::{
-    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Pipe, SweepPath, Transaction,
+    BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Pipe, SweepPath,
+    Transaction, capitalized, pipe_size_name,
 };
+use caditor_expression::Expression;
 use caditor_kernel::{EdgeName, PipeShape};
 use caditor_sketch::EntityId;
 
@@ -12,6 +14,7 @@ use crate::{
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model},
+    pipe_panel,
     queued::{self, Pending},
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
@@ -52,7 +55,11 @@ pub struct PipeStart {
     pub path: PathPick,
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeError> {
+pub fn source(
+    model: &Model,
+    selection: &Selection,
+    rows: &[FeatureId],
+) -> Result<PipeStart, PipeError> {
     let document = model.document();
     let mut curves: Vec<(FeatureId, EntityId)> = Vec::new();
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
@@ -72,7 +79,10 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeErr
     let helix =
         sweep_tools::helix_path(document, selection, !curves.is_empty() || !edges.is_empty())?;
     let path = match (curves.first(), edges.first()) {
-        (None, None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
+        (None, None) => match helix {
+            Some(helix) => PathPick::Helix { helix },
+            None => path_from_rows(document, rows)?,
+        },
         (Some(_), Some(_)) => return Err(SweepError::CurvesAndEdges.into()),
         (Some((sketch, _)), None) => {
             if curves.iter().any(|(other, _)| other != sketch) {
@@ -94,6 +104,43 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeErr
         }
     };
     Ok(PipeStart { path })
+}
+
+fn path_from_rows(document: &Document, rows: &[FeatureId]) -> Result<PathPick, PipeError> {
+    let bar = document.bar_index();
+    let mut helices: Vec<FeatureId> = Vec::new();
+    let mut sketches: Vec<FeatureId> = Vec::new();
+
+    for row in rows {
+        if !document
+            .feature_index(*row)
+            .is_some_and(|position| position < bar)
+        {
+            continue;
+        }
+        if crate::helix_tools::is_helix(document, *row) {
+            if !helices.contains(row) {
+                helices.push(*row);
+            }
+        } else if document
+            .feature(*row)
+            .is_some_and(|feature| feature.kind.sketch().is_some())
+            && !sweep_tools::path_curves_of(document, *row).is_empty()
+            && !sketches.contains(row)
+        {
+            sketches.push(*row);
+        }
+    }
+    match (helices.as_slice(), sketches.as_slice()) {
+        ([], []) => Ok(PathPick::Unchosen),
+        ([helix], []) => Ok(PathPick::Helix { helix: *helix }),
+        ([_, ..], _) => Err(SweepError::HelixAndOthers.into()),
+        ([], [sketch]) => Ok(PathPick::Curves {
+            sketch: *sketch,
+            curves: sweep_tools::path_curves_of(document, *sketch),
+        }),
+        ([], [_, _, ..]) => Err(SweepError::SeveralSketches.into()),
+    }
 }
 
 pub fn create(
@@ -149,14 +196,24 @@ pub fn create_actions(model: &Model, start: &PipeStart) -> Vec<Action> {
 
 pub fn edit(document: &Document, feature: FeatureId, pipe: Pipe) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
+    let size_caption = capitalized(pipe_size_name(pipe.shape));
+    let mut fields: Vec<(&str, &Expression)> = vec![
+        (size_caption.as_str(), &pipe.size),
+        (pipe_panel::BEND_RADIUS, &pipe.bend),
+    ];
+
+    if let Some(wall) = &pipe.wall {
+        fields.push((pipe_panel::WALL_THICKNESS, wall));
+    }
+
     let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Pipe(pipe),
+            kind: FeatureKind::Pipe(pipe.clone()),
         },
     );
-    Some(document.carrying_owners(transaction, feature, []))
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn change(model: &Model, feature: FeatureId, pipe: Pipe) -> Result<Transaction, PipeError> {

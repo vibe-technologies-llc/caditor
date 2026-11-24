@@ -46,7 +46,7 @@ const PROGRESSIVE_PITCH_HOVER: &str = "Change the pitch evenly from the pitch at
                                        final pitch at the end, as a progressive spring's";
 const OPEN_ENDS: &str = "Open";
 const CLOSED_ENDS: &str = "Closed";
-const OPEN_ENDS_HOVER: &str = "Wind at the same pitch from end to end";
+const OPEN_ENDS_HOVER: &str = "Leave both ends open, without closed spring turns at either end";
 const CLOSED_ENDS_HOVER: &str = "Close the ends as a compression spring's are: the end turns wind at \
                                  the end pitch, changing evenly to the pitch over the end change";
 const START_POINT_HOVER: &str =

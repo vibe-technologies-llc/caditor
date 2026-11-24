@@ -484,9 +484,9 @@ paths:
   through `Workspace::deferred_commands` as the context menu's are, so the same `Command` path as
   the button, palette and keys decides what happens (`ui_tests/group_menus.rs`).
 - The main ribbon's menus are named "<group> commands" (`Group::menu_name`) and listed by
-  `Group::sections` (Thread, the primitives, Offset face, Delete face, Emboss, Move face, Split face, Copy body, Mirror faces,
-  Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section plane, centres of
-  mass without buttons). `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
+  `Group::sections` (Thread, the primitives, Offset face, Delete face, Emboss, Move face, Draft,
+  Replace face, Split face, Copy body, Mirror faces, Split, Mates, Scale model, the face analyses,
+  the comb, isocurves, Add a section plane, centres of mass without buttons). `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
   flags mark the open panels. Analyse is where the analysis and inspection commands live: Measure,
   Check interference, the six face analyses, comb, isocurves, section view and centres of mass; no
   command of another group belongs to it, and it keeps two buttons because the ribbon already fills

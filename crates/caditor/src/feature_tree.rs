@@ -1472,7 +1472,15 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Loft(loft) => {
-            loft_panel::show(ui, model, row.selection, actions, feature, loft);
+            loft_panel::show(
+                ui,
+                model,
+                (row.selection, row.edited),
+                &mut state.reference_rows,
+                actions,
+                feature,
+                loft,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Coil(coil) => {
@@ -1501,7 +1509,8 @@ fn body(
             mirror_panel::show(
                 ui,
                 model,
-                (row.selection, &chosen),
+                (row.selection, &chosen, row.edited),
+                &mut state.reference_rows,
                 actions,
                 feature,
                 mirror,
@@ -3525,6 +3534,9 @@ fn waiting(
             MissingInput::SplitAlong { .. } => {
                 EditingCommand::Pick(Picking::new(id, Slot::SplitPlane))
             }
+            MissingInput::SketchToEmboss { .. } => {
+                EditingCommand::Pick(Picking::new(id, Slot::EmbossSketch))
+            }
             MissingInput::Regions { .. }
             | MissingInput::RegionsToEmboss { .. }
             | MissingInput::Edges { .. }
@@ -3533,7 +3545,6 @@ fn waiting(
             | MissingInput::FacesToReplace { .. }
             | MissingInput::FacesToDelete { .. }
             | MissingInput::FacesToEmboss { .. }
-            | MissingInput::SketchToEmboss { .. }
             | MissingInput::FacesToSplit { .. } => EditingCommand::OpenSolid(id),
         };
         let button =

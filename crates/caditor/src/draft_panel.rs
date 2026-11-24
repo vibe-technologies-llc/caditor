@@ -33,7 +33,7 @@ const NO_OWN_ANGLE: &str = "None: every face takes the draft angle";
 const DRAFTS_ANGLE: &str = "Give this face the draft angle";
 const GONE: &str = "A face that is no longer there";
 pub const ANGLE: &str = "Draft angle";
-const BEYOND: &str = "Angle beyond";
+pub const BEYOND: &str = "Angle beyond";
 const PICK_HOVER: &str = "Draft from the selected plane or flat face instead";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 const ALIGNED: f64 = 1.0 - 1e-9;
@@ -135,8 +135,13 @@ impl Panel<'_, '_> {
             .cloned()
             .collect();
         ui.vertical(|ui| {
-            if draft.faces.is_empty() {
+            if draft.faces.is_empty() && draft.own.is_empty() {
                 ui.label(widgets::muted("None: nothing is drafted", ui));
+            } else if draft.faces.is_empty() {
+                ui.label(widgets::muted(
+                    "None: every drafted face takes its own angle",
+                    ui,
+                ));
             } else {
                 ui.label(&listed.summary);
             }
@@ -260,7 +265,7 @@ impl Panel<'_, '_> {
         let evaluation = model.evaluation();
         for (index, own) in draft.own.iter().enumerate() {
             let caption = self.described.get(index).map_or(GONE, String::as_str);
-            let owned_as = own_angle_caption(caption);
+            let owned_as = own_angle_caption(index);
             let quantity = Quantity {
                 feature: id,
                 id: Id::unique(("draft-own-angle", id, index)),
@@ -325,21 +330,6 @@ impl Panel<'_, '_> {
         let document = model.document();
         let id = self.id();
 
-        widgets::caption(ui, "Neutral plane");
-
-        let chosen = plane_selector::combo(
-            ui,
-            Id::unique(("draft-neutral", id)),
-            document,
-            datum_tools::listed_planes(document, id),
-            Some(&draft.neutral),
-            |reference| draft_tools::neutral_change(model, id, draft, reference.clone()),
-        );
-
-        ui.end_row();
-        self.actions.extend(chosen.map(Action::Apply));
-        ui.label("");
-
         let picker = Picker {
             feature: id,
             slot: Slot::DraftNeutral,
@@ -352,11 +342,22 @@ impl Panel<'_, '_> {
             ),
             hover: PICK_HOVER,
         };
+        let row = plane_selector::Row {
+            caption: "Neutral plane",
+            id: Id::unique(("draft-neutral", id)),
+            planes: datum_tools::listed_planes(document, id),
+            current: Some(&draft.neutral),
+            picker,
+            remove: None,
+        };
 
-        ui.vertical(|ui| {
-            feature_fields::reference_picker(ui, model, picker, self.actions);
-        });
-        ui.end_row();
+        plane_selector::row(
+            ui,
+            model,
+            row,
+            |reference| draft_tools::neutral_change(model, id, draft, reference.clone()),
+            self.actions,
+        );
     }
 
     fn pull_rows(&mut self, ui: &mut Ui) {
@@ -416,8 +417,8 @@ impl Panel<'_, '_> {
     }
 }
 
-pub fn own_angle_caption(face: &str) -> String {
-    format!("Angle of {face}")
+pub fn own_angle_caption(index: usize) -> String {
+    format!("Angle of face {}", index + 1)
 }
 
 pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {

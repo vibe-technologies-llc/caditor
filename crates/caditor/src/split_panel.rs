@@ -2,12 +2,12 @@ use caditor_document::{Feature, FeatureId, Split};
 use egui::{Id, Ui};
 
 use crate::{
-    editing::EditingCommand,
     feature_fields::{self, Choice, Picker},
     model::{Action, Model},
-    reference_picking::{self, Slot},
+    reference_picking::Slot,
     selection::Selection,
     split_tools::{self, SplitError},
+    visibility::PrincipalSet,
     widgets,
 };
 
@@ -42,8 +42,11 @@ impl Panel<'_> {
 
         widgets::caption(ui, "Split along");
 
-        let chosen =
-            feature_fields::combo(ui, Id::unique(("split-plane", self.id())), current, || {
+        let chosen = feature_fields::principal_combo(
+            ui,
+            (Id::unique(("split-plane", self.id())), PrincipalSet::PLANES),
+            current,
+            || {
                 split_tools::choices(self.model, self.id(), self.split)
                     .into_iter()
                     .map(|along| Choice {
@@ -55,18 +58,18 @@ impl Panel<'_> {
                         }),
                     })
                     .collect()
-            });
+            },
+        );
 
         ui.end_row();
-
-        let choosing = reference_picking::current(ui.ctx())
-            .is_some_and(|picking| picking.is_for(self.id(), Slot::SplitPlane));
-
-        if chosen.is_some() && choosing {
-            self.actions
-                .push(Action::Editing(EditingCommand::StopPicking));
+        if let Some(action) = chosen {
+            self.actions.push(action);
+            feature_fields::stop_picking_if_for(
+                ui.ctx(),
+                (self.id(), Slot::SplitPlane),
+                self.actions,
+            );
         }
-        self.actions.extend(chosen);
         ui.label("");
 
         let picker = Picker {

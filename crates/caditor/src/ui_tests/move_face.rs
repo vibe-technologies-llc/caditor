@@ -350,3 +350,27 @@ fn the_move_face_angle_arrow_stands_only_with_a_tilt_axis_and_drags_the_angle() 
     assert!((angle - 10.0).abs() <= 5.0, "{angle}");
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
+
+#[test]
+fn move_face_uses_a_preselected_direction_and_hides_angle_without_a_tilt_axis() {
+    let mut harness = Harness::new();
+
+    let (plate, bore, _) = holed_plate(&mut harness);
+
+    harness.select([bore, Pickable::Axis(Axis::X)]);
+    harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+
+    let moving = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the move face is open");
+
+    assert_eq!(
+        move_face_of(&harness, moving).direction,
+        Some(AxisReference::Principal(PrincipalAxis::X))
+    );
+    assert!(!harness.shows(move_face_panel::ANGLE));
+    assert!((bore_centre_x(&harness, plate) - 21.0).abs() < 1e-9);
+}

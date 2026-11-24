@@ -16,12 +16,16 @@ pub const DESCRIPTION: &str = "Resizes the body by the factor, keeping the centr
 pub const CENTRE_IN: &str = "Centre in";
 pub const CENTRE_AT: &str = "Centre at";
 pub const BODY_CENTRE: &str = "Body centre";
-const CENTRE_HOVER: &str = "Scale about the selected corner, round edge, sphere, sketch point or \
-                            datum point";
+const CENTRE_HOVER: &str = "Scale about the selected corner, round edge, sphere, torus, sketch \
+                            point, datum point or origin";
 const BODY_CENTRE_HOVER: &str =
     "Scale about the middle of the body's box as it stands before this scale";
 pub const FRAME_DESCRIPTION: &str =
     "The centre is measured from the origin of the coordinate system, along its X, Y and Z axes";
+
+pub fn factor_field_id(feature: FeatureId) -> Id {
+    Id::unique(("scale-field", ("factor", 0usize), feature))
+}
 
 fn change(model: &Model, feature: FeatureId, scale: Scale) -> Result<Transaction, ScaleError> {
     let document = model.document();
@@ -90,6 +94,11 @@ impl Panel<'_> {
                     &self.feature.name,
                     scale_tools::body_centre_change(model, id, scale),
                 ));
+                feature_fields::stop_picking_if_for(
+                    ui.ctx(),
+                    (id, Slot::ScaleCentre),
+                    self.actions,
+                );
             }
         });
         ui.end_row();

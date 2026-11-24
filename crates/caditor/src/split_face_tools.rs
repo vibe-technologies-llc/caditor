@@ -24,8 +24,6 @@ pub const TITLE: &str = "Split face";
 
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum SplitFaceError {
-    #[error("Select the faces of a body to split")]
-    ChooseFaces,
     #[error(
         "Select the faces of a body to split; with one body shown, they can be clicked after the \
          tool is started"
@@ -96,7 +94,11 @@ fn without_faces(selection: &Selection) -> Selection {
     rest
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, SplitFaceError> {
+pub fn source(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<SplitFaceSource, SplitFaceError> {
     let mut body = None;
     let mut faces = Vec::new();
 
@@ -112,10 +114,10 @@ pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, S
 
     let body = match body {
         Some(body) => {
-            bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::ChooseFaces)?;
+            bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::NoShape { body })?;
             body
         }
-        None => only_body(model)?,
+        None => only_body(model, tree)?,
     };
 
     let rest = without_faces(selection);
@@ -144,8 +146,8 @@ pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, S
     })
 }
 
-fn only_body(model: &Model) -> Result<FeatureId, SplitFaceError> {
-    match body_selection::standing_bodies(model) {
+fn only_body(model: &Model, tree: &[FeatureId]) -> Result<FeatureId, SplitFaceError> {
+    match body_selection::tree_or_standing(model, tree) {
         Standing::Only(body) => {
             bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::NoShape { body })?;
             Ok(body)

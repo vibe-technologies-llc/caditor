@@ -1540,7 +1540,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let faces = pickables.iter().find_map(|pickable| {
         let selection = only(*pickable);
-        let source = shell_tools::selected_faces(&model.model, &selection).ok()?;
+        let source = shell_tools::selected_faces(&model.model, &selection, &[]).ok()?;
         shell_tools::create(
             model.document(),
             model.model.evaluation(),

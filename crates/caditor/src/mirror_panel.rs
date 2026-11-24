@@ -2,13 +2,14 @@ use caditor_document::{Feature, FeatureId, Mirror, MirrorOutcome, Transaction};
 use egui::{Id, RichText, Ui};
 
 use crate::{
-    datum_tools,
+    bodies, datum_tools,
     feature_fields::{self, Picker, Segment},
     icons,
     mirror_tools::{self, MirrorToolError},
     model::{Action, Model},
     offset_face_panel, pattern_tools, plane_selector,
     reference_picking::Slot,
+    reference_rows::RowCache,
     selection::Selection,
     widgets,
 };
@@ -51,9 +52,10 @@ const MIRROR_FACES_HINT: &str = "Select every face around a pocket or boss of th
                                  they bound instead";
 const STOP_MIRRORING_FACE: &str = "Stop mirroring this face";
 const FACE_NOT_FOUND: &str = "A face of a body that has no shape yet";
-const MIRROR_CHOSEN_HINT: &str = "Choose extrusions, revolves, holes or primitives of this body above the \
-                                  mirror in the tree (Ctrl+click), then mirror them instead of \
-                                  the whole body";
+const MIRROR_CHOSEN_HINT: &str = "Choose features of this body (extrusions, revolves, sweeps, \
+                                  lofts, pipes, coils, holes, fillets, chamfers, shells, embosses \
+                                  or primitives) above the mirror in the tree (Ctrl+click), then \
+                                  mirror them instead of the whole body";
 
 struct Panel<'a> {
     model: &'a Model,
@@ -61,6 +63,7 @@ struct Panel<'a> {
     chosen: &'a [FeatureId],
     feature: &'a Feature,
     mirror: &'a Mirror,
+    opened: bool,
     actions: &'a mut Vec<Action>,
 }
 
@@ -69,59 +72,56 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, mirror: Mirror) -> Result<Action, MirrorToolError> {
-        mirror_tools::change(self.model, self.id(), mirror).map(Action::Apply)
-    }
-
     fn plane_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
-
-        widgets::caption(ui, "Mirror across");
-
-        let chosen = plane_selector::combo(
-            ui,
-            Id::unique(("mirror-plane", self.id())),
-            document,
-            datum_tools::listed_planes(document, self.id()),
-            Some(&self.mirror.plane),
-            |reference| {
-                self.change(Mirror {
-                    plane: reference.clone(),
-                    ..self.mirror.clone()
-                })
-            },
-        );
-
-        ui.end_row();
-        self.actions.extend(chosen);
-        ui.label("");
-
+        let id = self.id();
         let picker = Picker {
-            feature: self.id(),
+            feature: id,
             slot: Slot::MirrorPlane,
             selected: feature_fields::offered_change(
                 ui.ctx(),
                 self.model,
                 self.selection,
-                (self.id(), Slot::MirrorPlane),
-                || mirror_tools::plane_change(self.model, self.selection, self.id(), self.mirror),
+                (id, Slot::MirrorPlane),
+                || mirror_tools::plane_change(self.model, self.selection, id, self.mirror),
             ),
             hover: PICK_HOVER,
         };
 
-        ui.vertical(|ui| {
-            feature_fields::reference_picker(ui, self.model, picker, self.actions);
-        });
-        ui.end_row();
+        let row = plane_selector::Row {
+            caption: "Mirror across",
+            id: Id::unique(("mirror-plane", id)),
+            planes: datum_tools::listed_planes(document, id),
+            current: Some(&self.mirror.plane),
+            picker,
+            remove: None,
+        };
+
+        plane_selector::row(
+            ui,
+            self.model,
+            row,
+            |reference| {
+                mirror_tools::change(
+                    self.model,
+                    id,
+                    Mirror {
+                        plane: reference.clone(),
+                        ..self.mirror.clone()
+                    },
+                )
+            },
+            self.actions,
+        );
     }
 
-    fn mirrors_rows(&mut self, ui: &mut Ui) {
+    fn mirrors_rows(&mut self, ui: &mut Ui, cache: &mut RowCache) {
         let document = self.model.document();
         let mirrored = self.mirror.mirrored.clone();
 
         widgets::caption(ui, MIRRORS);
         if self.mirror.mirrors_faces() {
-            self.face_rows(ui);
+            self.face_rows(ui, cache);
         } else if mirrored.is_empty() {
             ui.label(WHOLE_BODY);
             ui.end_row();
@@ -187,7 +187,7 @@ impl Panel<'_> {
         self.selected_faces_row(ui);
     }
 
-    fn face_rows(&mut self, ui: &mut Ui) {
+    fn face_rows(&mut self, ui: &mut Ui, cache: &mut RowCache) {
         let document = self.model.document();
         let seen = self
             .model
@@ -203,15 +203,34 @@ impl Panel<'_> {
             None => vec![FACE_NOT_FOUND.to_owned(); self.mirror.faces.len()],
         };
         let mut dropped = None;
+        let mut previewed = Vec::new();
 
         for (index, text) in rows.iter().enumerate() {
             if index > 0 {
                 ui.label("");
             }
-            if widgets::removable_row(ui, widgets::muted(text, ui), STOP_MIRRORING_FACE) {
+
+            let row =
+                widgets::removable_row_hovered(ui, widgets::muted(text, ui), STOP_MIRRORING_FACE);
+
+            if row.hovered && self.opened {
+                previewed = seen
+                    .map(|seen| {
+                        bodies::face_pickables(
+                            self.mirror.body,
+                            &seen.solid,
+                            self.mirror.resolutions(&seen.solid).get(index),
+                        )
+                    })
+                    .unwrap_or_default();
+            }
+            if row.removed {
                 dropped = Some(index);
             }
             ui.end_row();
+        }
+        if !previewed.is_empty() {
+            cache.preview(previewed);
         }
         if let Some(index) = dropped {
             let kept = self
@@ -363,7 +382,8 @@ impl Panel<'_> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
-    (selection, chosen): (&Selection, &[FeatureId]),
+    (selection, chosen, opened): (&Selection, &[FeatureId], bool),
+    cache: &mut RowCache,
     actions: &mut Vec<Action>,
     feature: &Feature,
     mirror: &Mirror,
@@ -374,6 +394,7 @@ pub fn show(
         chosen,
         feature,
         mirror,
+        opened,
         actions,
     };
 
@@ -388,7 +409,7 @@ pub fn show(
 
         feature_fields::description_row(ui, description);
         panel.plane_rows(ui);
-        panel.mirrors_rows(ui);
+        panel.mirrors_rows(ui, cache);
         panel.result_row(ui);
         if mirror.mirrors_whole_body() {
             panel.bodies_rows(ui);

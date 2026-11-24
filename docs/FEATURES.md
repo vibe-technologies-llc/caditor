@@ -16,14 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   refused. Delete face closes a gap only from the faces around it: not a face with several loops
   that are not whole loops of the faces around it (a hole breaking out through a side), a riser
   chosen with fillets along its foot, nor a gap that only faces further away could close.
-- [medium · easy] Feature creation defaults and panel/context-menu ergonomics: auto-enter
-  `Slot::ReplaceTarget` and `Slot::EmbossSketch` when starting ReplaceFace or Emboss with faces
-  selected; accept 3+ selected bodies in `Combine` (first = target, rest = tools); consume
-  pre-selected direction/axis in `MoveFace` and neutral plane in `Draft`; accept order-independent
-  `[FixedPlane/Axis, BodyFace/Axis]` in `Mate`; focus/`primary_typing` `Scale`'s `Factor` on open
-  and default its centre to the body's bounding-box centre; add `Edit the sketch` buttons on
-  Emboss, Rib, Pattern and Loft panels; highlight Loft profiles and Mirror faces on row hover; and
-  enrich `FACE_TOOLS`, `EDGE_TOOLS` and `SKETCH_TOOLS` in `view_menu.rs`.
 - [medium · medium] 3D manipulators, drag-snapping and on-model value coverage:
   - `reach_handles.rs`, `value_gauges.rs`, `value_handles.rs` and `manipulator.rs`: custom-direction
     `Extrude` drag arrows and fallback `primary_typing` on `ThroughAll`/`UpTo*`; 3D value handles

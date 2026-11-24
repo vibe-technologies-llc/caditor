@@ -6,7 +6,9 @@ use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
+    editing::EditingCommand,
     feature_fields::{self, Choice, MISSING_BODY, MISSING_SKETCH, Quantity, Rule, Segment},
+    hole_panel, icons,
     model::{Action, Model},
     rib_tools::{self, RibError},
     widgets,
@@ -90,37 +92,52 @@ impl Panel<'_> {
         widgets::caption(ui, SKETCH);
 
         let name = document.feature(current).map(|sketch| sketch.name.as_str());
+        let name_exists = name.is_some();
+        let mut edit_sketch = false;
+
         let chosen = ui
             .horizontal(|ui| {
                 let text = feature_fields::combo_text(ui, name, MISSING_SKETCH);
-                feature_fields::combo(ui, Id::unique(("rib-sketch", self.id())), text, || {
-                    document
-                        .features()
-                        .take(before)
-                        .filter(|feature| feature.kind.sketch().is_some())
-                        .map(|sketch| {
-                            let change =
-                                if rib_tools::qualifies(self.model.evaluation(), sketch.id()) {
-                                    self.change(Rib {
-                                        sketch: sketch.id(),
-                                        ..self.rib.clone()
-                                    })
-                                } else {
-                                    Err(RibError::PathClosed)
-                                };
-                            Choice {
-                                label: sketch.name.clone(),
-                                selected: sketch.id() == current,
-                                change: change.map(Action::Apply),
-                            }
-                        })
-                        .collect()
-                })
+                let picked =
+                    feature_fields::combo(ui, Id::unique(("rib-sketch", self.id())), text, || {
+                        document
+                            .features()
+                            .take(before)
+                            .filter(|feature| feature.kind.sketch().is_some())
+                            .map(|sketch| {
+                                let change =
+                                    if rib_tools::qualifies(self.model.evaluation(), sketch.id()) {
+                                        self.change(Rib {
+                                            sketch: sketch.id(),
+                                            ..self.rib.clone()
+                                        })
+                                    } else {
+                                        Err(RibError::PathClosed)
+                                    };
+                                Choice {
+                                    label: sketch.name.clone(),
+                                    selected: sketch.id() == current,
+                                    change: change.map(Action::Apply),
+                                }
+                            })
+                            .collect()
+                    });
+
+                if name_exists {
+                    let button = widgets::icon_button(ui, icons::EDIT, hole_panel::EDIT_SKETCH);
+
+                    edit_sketch = button.on_hover_text("Show and edit this sketch").clicked();
+                }
+                picked
             })
             .inner;
 
         ui.end_row();
         self.actions.extend(chosen);
+        if edit_sketch {
+            self.actions
+                .push(Action::Editing(EditingCommand::Enter(current)));
+        }
     }
 
     fn body_row(&mut self, ui: &mut Ui) {
@@ -282,12 +299,12 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
 
     widgets::properties(ui, ("rib-properties", feature.id()), |ui| {
         panel.sketch_row(ui);
-        panel.body_row(ui);
         panel.direction_row(ui);
         panel.thickness_row(ui);
         panel.side_row(ui);
         panel.draft_row(ui);
         panel.ends_row(ui);
         panel.reverse_row(ui);
+        panel.body_row(ui);
     });
 }

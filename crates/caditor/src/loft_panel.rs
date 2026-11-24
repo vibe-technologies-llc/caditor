@@ -4,12 +4,14 @@ use caditor_kernel::LoftSkin;
 use egui::{Id, Ui};
 
 use crate::{
+    editing::EditingCommand,
     feature_fields::{self, OperationRows, Picker, Quantity, Rule, Segment, Shown},
-    icons,
+    hole_panel, icons,
     loft_tools::{self, LoftError},
     model::{Action, Model},
     reference_picking::Slot,
-    selection::Selection,
+    reference_rows::RowCache,
+    selection::{Pickable, Selection},
     widgets,
 };
 
@@ -17,8 +19,8 @@ pub const PROFILES: &str = "Profiles";
 pub const ENDS_AT: &str = "Ends at";
 pub const SIDES: &str = "Sides";
 pub const LAST_PROFILE: &str = "Its last profile";
-const THROUGH_SELECTED: &str = "Loft through the selected regions or sketches instead, in the \
-                                order they were selected";
+const THROUGH_SELECTED: &str = "Loft through the selected regions, sketches or flat faces \
+                                instead, in the order they were selected";
 const END_AT_SELECTED: &str = "End at the selected point";
 const END_AT_LAST: &str = "End at the last profile instead of a point";
 const EARLIER: &str = "Move this profile earlier";
@@ -90,6 +92,7 @@ struct Panel<'a> {
     selection: &'a Selection,
     feature: &'a Feature,
     loft: &'a Loft,
+    opened: bool,
     actions: &'a mut Vec<Action>,
 }
 
@@ -109,7 +112,7 @@ impl Panel<'_> {
             .push(feature_fields::applied(&self.feature.name, change));
     }
 
-    fn profile_line(&mut self, ui: &mut Ui, index: usize) {
+    fn profile_line(&mut self, ui: &mut Ui, index: usize, cache: &mut RowCache) {
         let document = self.model.document();
         let Some(section) = self.loft.profiles.get(index) else {
             return;
@@ -118,44 +121,79 @@ impl Panel<'_> {
         let words = loft_tools::profile_words(document, section);
         let count = self.loft.profiles.len();
         let mut wanted = None;
+        let mut edit_sketch = false;
 
-        ui.horizontal_top(|ui| {
-            let text = match &words {
-                Some(words) => format!("{}. {words}", index + 1),
-                None => format!("{}. {MISSING_PROFILE}", index + 1),
-            };
+        let response = ui
+            .vertical(|ui| {
+                let text = match &words {
+                    Some(words) => format!("{}. {words}", index + 1),
+                    None => format!("{}. {MISSING_PROFILE}", index + 1),
+                };
 
-            widgets::label_before_icon_buttons(ui, &text, 3);
+                ui.label(&text);
+                ui.horizontal_wrapped(|ui| {
+                    if words.is_some() {
+                        let button = widgets::icon_button(ui, icons::EDIT, hole_panel::EDIT_SKETCH);
 
-            let earlier = ui
-                .add_enabled_ui(index > 0, |ui| {
-                    widgets::icon_button(ui, icons::MOVE_UP, EARLIER)
+                        edit_sketch = button.on_hover_text("Show and edit this sketch").clicked();
+                    }
+
+                    let earlier = ui
+                        .add_enabled_ui(index > 0, |ui| {
+                            widgets::icon_button(ui, icons::MOVE_UP, EARLIER)
+                        })
+                        .inner;
+
+                    if earlier.clicked() {
+                        wanted = loft_tools::moved(self.loft, index, true);
+                    }
+
+                    let later = ui
+                        .add_enabled_ui(index + 1 < count, |ui| {
+                            widgets::icon_button(ui, icons::MOVE_DOWN, LATER)
+                        })
+                        .inner;
+
+                    if later.clicked() {
+                        wanted = loft_tools::moved(self.loft, index, false);
+                    }
+                    if widgets::icon_button(ui, icons::REMOVE, LEAVE_OUT).clicked() {
+                        wanted = Some(loft_tools::without_profile(self.loft, index));
+                    }
+                });
+            })
+            .response;
+
+        if self.opened && ui.rect_contains_pointer(response.rect) {
+            let previewed: Vec<Pickable> = document
+                .feature(section.sketch)
+                .and_then(|feature| feature.kind.sketch())
+                .map(|sketch| {
+                    sketch
+                        .entities()
+                        .filter(|(_, entity)| !matches!(entity, caditor_sketch::Entity::Point(_)))
+                        .map(|(entity, _)| Pickable::SketchEntity {
+                            feature: section.sketch,
+                            entity,
+                        })
+                        .collect()
                 })
-                .inner;
+                .unwrap_or_default();
 
-            if earlier.clicked() {
-                wanted = loft_tools::moved(self.loft, index, true);
+            if !previewed.is_empty() {
+                cache.preview(previewed);
             }
-
-            let later = ui
-                .add_enabled_ui(index + 1 < count, |ui| {
-                    widgets::icon_button(ui, icons::MOVE_DOWN, LATER)
-                })
-                .inner;
-
-            if later.clicked() {
-                wanted = loft_tools::moved(self.loft, index, false);
-            }
-            if widgets::icon_button(ui, icons::REMOVE, LEAVE_OUT).clicked() {
-                wanted = Some(loft_tools::without_profile(self.loft, index));
-            }
-        });
+        }
+        if edit_sketch {
+            self.actions
+                .push(Action::Editing(EditingCommand::Enter(section.sketch)));
+        }
         if let Some(loft) = wanted {
             self.apply(loft);
         }
     }
 
-    fn profiles_row(&mut self, ui: &mut Ui) {
+    fn profiles_row(&mut self, ui: &mut Ui, cache: &mut RowCache) {
         let id = self.id();
 
         widgets::caption(ui, PROFILES);
@@ -164,7 +202,7 @@ impl Panel<'_> {
                 feature_fields::none_chosen(ui);
             }
             for index in 0..self.loft.profiles.len() {
-                self.profile_line(ui, index);
+                self.profile_line(ui, index, cache);
             }
 
             let picker = Picker {
@@ -311,7 +349,8 @@ impl Panel<'_> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    (selection, opened): (&Selection, bool),
+    cache: &mut RowCache,
     actions: &mut Vec<Action>,
     feature: &Feature,
     loft: &Loft,
@@ -321,11 +360,12 @@ pub fn show(
         selection,
         feature,
         loft,
+        opened,
         actions,
     };
 
     widgets::properties(ui, ("loft-properties", feature.id()), |ui| {
-        panel.profiles_row(ui);
+        panel.profiles_row(ui, cache);
         panel.closing_row(ui);
         if !loft.closed {
             panel.end_row(ui);

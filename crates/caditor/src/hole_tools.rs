@@ -50,17 +50,17 @@ const TIE: f64 = 1e-3;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum HoleStartError {
     #[error(
-        "Select a flat face of a body, or draw a sketch on one and place points where the holes go; a sketch already drilled or swept is not guessed"
+        "Select a face of a body, or draw a sketch on one and place points where the holes go; a sketch already drilled or swept is not guessed"
     )]
     NoSketch,
-    #[error("Select one flat face of a body to drill it, or the points of a sketch")]
+    #[error("Select one face of a body to drill it, or the points of a sketch")]
     NothingToDrill,
     #[error("Place points or circles in the sketch where the holes go")]
     NoPoints,
     #[error("Make a body to drill into first")]
     NoBody,
     #[error(
-        "Select a flat face of a body, or draw a sketch on one and place points where the holes \
+        "Select a face of a body, or draw a sketch on one and place points where the holes \
          go; with one body shown, its face can be clicked after the tool is started"
     )]
     NoSketchOfSeveral,
@@ -92,7 +92,7 @@ pub enum HoleToolError {
     Gone,
     #[error("The hole's sketch holds more than one free point; edit the sketch to move its points")]
     NotOnePoint,
-    #[error("Select one flat face of a body to drill the hole there")]
+    #[error("Select one flat or round face of a body to drill the hole there")]
     NoFace,
     #[error("The click missed the face's plane")]
     Missed,
@@ -267,6 +267,15 @@ pub fn start(
     selection: &Selection,
     editing: &SketchEditing,
 ) -> Result<HoleStart, HoleStartError> {
+    start_with_rows(model, selection, editing, &[])
+}
+
+pub fn start_with_rows(
+    model: &Model,
+    selection: &Selection,
+    editing: &SketchEditing,
+    rows: &[FeatureId],
+) -> Result<HoleStart, HoleStartError> {
     let sketch_chosen = selection
         .iter()
         .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
@@ -275,9 +284,9 @@ pub fn start(
     match face {
         Some(face) if sketch_placement::is_flat(model, face) => Ok(HoleStart::Face(face)),
         Some(face) => Ok(HoleStart::CurvedFace(face)),
-        None => match source(model, selection, editing) {
+        None => match source_with_rows(model, selection, editing, rows) {
             Err(HoleStartError::NoSketch | HoleStartError::NoPoints)
-                if selection.is_empty() && editing.feature().is_none() =>
+                if selection.is_empty() && rows.is_empty() && editing.feature().is_none() =>
             {
                 face_to_click(model)
             }
@@ -297,19 +306,21 @@ fn face_to_click(model: &Model) -> Result<HoleStart, HoleStartError> {
     }
 }
 
-pub fn source(
+fn source_with_rows(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
+    rows: &[FeatureId],
 ) -> Result<HoleSource, HoleStartError> {
     let document = model.document();
     let may_guess = selection.is_empty();
 
-    let swept = solid_tools::sweep_source(
+    let swept = solid_tools::sweep_source_with_rows(
         document,
         model.evaluation(),
         selection,
         editing,
+        rows,
         if may_guess {
             solid_tools::Guess::Drill
         } else {
@@ -337,8 +348,9 @@ pub fn source(
         .or_else(|| {
             document
                 .bodies_standing_in(model.evaluation())
-                .last()
-                .copied()
+                .into_iter()
+                .rev()
+                .find(|body| crate::visibility::is_shown(document, *body))
         })
         .ok_or(HoleStartError::NoBody)?;
     Ok(HoleSource { sketch, body })

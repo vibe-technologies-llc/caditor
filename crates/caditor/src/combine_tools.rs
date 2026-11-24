@@ -26,8 +26,6 @@ pub enum CombineError {
     NeedTwo,
     #[error("No other shown body to combine the selected one with")]
     NoOtherBody,
-    #[error("Select faces or edges of two bodies only, or two bodies in the tree")]
-    MoreThanTwo,
     #[error("Choose two different bodies to combine")]
     SameBody,
     #[error("{}", Pending::BodiesShape)]
@@ -44,13 +42,14 @@ impl Reason for CombineError {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BodyPair {
     pub target: FeatureId,
     pub tool: FeatureId,
+    pub more_tools: Vec<FeatureId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CombineStart {
     Pair(BodyPair),
     Choose(Option<FeatureId>),
@@ -85,7 +84,11 @@ pub fn pair(model: &Model, target: FeatureId, tool: FeatureId) -> Result<BodyPai
     if bodies::shown(evaluation, target).is_none() || bodies::shown(evaluation, tool).is_none() {
         return Err(CombineError::NoShape);
     }
-    Ok(BodyPair { target, tool })
+    Ok(BodyPair {
+        target,
+        tool,
+        more_tools: Vec::new(),
+    })
 }
 
 pub fn operation_hover(operation: CombineOperation) -> &'static str {
@@ -126,7 +129,17 @@ pub fn selected_bodies(
         }
     };
     match ordered.as_slice() {
-        [target, tool] => pair(model, *target, *tool).map(CombineStart::Pair),
+        [target, tool, more @ ..] => {
+            let mut bodies = pair(model, *target, *tool)?;
+
+            for extra in more {
+                if bodies::shown(model.evaluation(), *extra).is_none() {
+                    return Err(CombineError::NoShape);
+                }
+                bodies.more_tools.push(*extra);
+            }
+            Ok(CombineStart::Pair(bodies))
+        }
         [target] => {
             let others = choosable(model).into_iter().any(|body| body != *target);
             if bodies::shown(model.evaluation(), *target).is_none() {
@@ -139,7 +152,6 @@ pub fn selected_bodies(
         }
         [] if choosable(model).len() >= 2 => Ok(CombineStart::Choose(None)),
         [] => Err(CombineError::NeedTwo),
-        _ => Err(CombineError::MoreThanTwo),
     }
 }
 
@@ -155,11 +167,11 @@ pub fn start_actions(model: &Model, start: CombineStart) -> Vec<Action> {
 pub fn create(document: &Document, pair: BodyPair) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
+    let mut combine = Combine::new(pair.target, pair.tool, CombineOperation::Join);
 
-    let feature = transaction.add_feature(
-        name,
-        FeatureKind::Combine(Combine::new(pair.target, pair.tool, CombineOperation::Join)),
-    );
+    combine.more_tools = pair.more_tools;
+
+    let feature = transaction.add_feature(name, FeatureKind::Combine(combine));
     (transaction.finish(), feature)
 }
 

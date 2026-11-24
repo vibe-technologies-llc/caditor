@@ -174,6 +174,17 @@ pub fn sweep_source(
     editing: &SketchEditing,
     guess: Guess,
 ) -> Result<Option<SweepSource>, SweepSourceError> {
+    sweep_source_with_rows(document, evaluation, selection, editing, &[], guess)
+}
+
+pub fn sweep_source_with_rows(
+    document: &Document,
+    evaluation: &Evaluation,
+    selection: &Selection,
+    editing: &SketchEditing,
+    rows: &[FeatureId],
+    guess: Guess,
+) -> Result<Option<SweepSource>, SweepSourceError> {
     let picked = selection.in_pick_order();
     let mut selected: Vec<FeatureId> = Vec::new();
 
@@ -183,6 +194,22 @@ pub fn sweep_source(
             && !selected.contains(&feature)
         {
             selected.push(feature);
+        }
+    }
+    if selected.is_empty() {
+        let bar = document.bar_index();
+
+        for row in rows {
+            if document
+                .feature_index(*row)
+                .is_some_and(|position| position < bar)
+                && document
+                    .feature(*row)
+                    .is_some_and(|feature| feature.kind.sketch().is_some())
+                && !selected.contains(row)
+            {
+                selected.push(*row);
+            }
         }
     }
 
@@ -234,20 +261,20 @@ fn guessed_sketch(
         .and_then(|solid| document.feature(solid))
         .and_then(|feature| feature.kind.solid())
         .map(SolidFeature::sketch);
+    let unused = |sketch: &FeatureId| match guess {
+        Guess::Never => false,
+        Guess::Sweep => has_unswept_regions(document, evaluation, *sketch),
+        Guess::Drill => !is_drilled(document, *sketch),
+    };
     let last = || {
         document
             .active_features()
             .rev()
             .filter(|feature| feature.kind.sketch().is_some())
             .map(|feature| feature.id())
-            .find(|sketch| visibility::is_shown(document, *sketch))
+            .find(|sketch| visibility::is_shown(document, *sketch) && unused(sketch))
     };
-    let unused = |sketch: &FeatureId| match guess {
-        Guess::Never => false,
-        Guess::Sweep => has_unswept_regions(document, evaluation, *sketch),
-        Guess::Drill => !is_drilled(document, *sketch),
-    };
-    opened.or_else(last).filter(unused)
+    opened.filter(unused).or_else(last)
 }
 
 fn is_drilled(document: &Document, sketch: FeatureId) -> bool {

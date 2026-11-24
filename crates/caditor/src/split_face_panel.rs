@@ -13,7 +13,9 @@ use crate::{
     reference_picking::{self, Picking, Slot},
     reference_rows::{ReferenceRows, RowCache},
     selection::Selection,
-    split_face_tools, split_tools, widgets,
+    split_face_tools, split_tools,
+    visibility::PrincipalSet,
+    widgets,
 };
 
 pub const DESCRIPTION: &str = "Divides the chosen faces along a plane, a sketch's curves carried \
@@ -161,27 +163,28 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
 
     widgets::caption(ui, "Split along");
 
-    let chosen = feature_fields::combo(ui, Id::unique(("split-face-along", id)), current, || {
-        split_face_tools::choices(model, id, split)
-            .into_iter()
-            .map(|along| Choice {
-                label: split_tools::describe(document, &along),
-                selected: split.along == along,
-                change: split_face_tools::change(model, id, split.with_along(along))
-                    .map(Action::Apply),
-            })
-            .collect()
-    });
+    let chosen = feature_fields::principal_combo(
+        ui,
+        (Id::unique(("split-face-along", id)), PrincipalSet::PLANES),
+        current,
+        || {
+            split_face_tools::choices(model, id, split)
+                .into_iter()
+                .map(|along| Choice {
+                    label: split_tools::describe(document, &along),
+                    selected: split.along == along,
+                    change: split_face_tools::change(model, id, split.with_along(along))
+                        .map(Action::Apply),
+                })
+                .collect()
+        },
+    );
 
     ui.end_row();
-
-    let choosing = reference_picking::current(ui.ctx())
-        .is_some_and(|picking| picking.is_for(id, Slot::SplitPlane));
-
-    if chosen.is_some() && choosing {
-        actions.push(Action::Editing(EditingCommand::StopPicking));
+    if let Some(action) = chosen {
+        actions.push(action);
+        feature_fields::stop_picking_if_for(ui.ctx(), (id, Slot::SplitPlane), actions);
     }
-    actions.extend(chosen);
     ui.label("");
 
     let picker = Picker {
@@ -259,7 +262,14 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     });
 
     ui.end_row();
-    actions.extend(chosen);
+    if let Some(action) = chosen {
+        let applied = matches!(action, Action::Apply(_));
+
+        actions.push(action);
+        if applied {
+            feature_fields::stop_picking_if_for(ui.ctx(), (id, Slot::SplitDirection), actions);
+        }
+    }
 
     let picking = reference_picking::current(ui.ctx())
         .is_some_and(|picking| picking.is_for(id, Slot::SplitDirection));

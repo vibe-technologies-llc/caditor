@@ -56,7 +56,8 @@ fn a_circular_pattern_waits_for_an_axis_clicked_in_the_view_instead_of_choosing_
     harness.hold_still();
 
     let asked = picking_slot(&harness);
-    let prompted = harness.shows("Click an axis, straight edge or round face to turn about");
+    let prompted =
+        harness.shows("Click an axis, straight edge, round face or sketch line to turn about");
     let PatternKind::Circular(waiting) = &pattern_of(&harness, pattern).kind else {
         panic!("the pattern is circular");
     };
@@ -114,8 +115,8 @@ fn a_pattern_takes_its_second_direction_clicked_in_the_view_after_choose_in_the_
     harness.settle();
 
     let asked = picking_slot(&harness);
-    let prompted =
-        harness.shows("Click an axis, straight edge or round face to also repeat along.");
+    let prompted = harness
+        .shows("Click an axis, straight edge, round face or sketch line to also repeat along.");
 
     click_in_view(&mut harness, Pickable::Axis(Axis::Y));
 

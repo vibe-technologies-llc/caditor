@@ -16,6 +16,7 @@ use crate::{
     model::{Action, Model, Notice},
     queued::{self, Pending, Rerun},
     selection::{Pickable, Selection},
+    shell_panel,
 };
 
 pub const DEFAULT_THICKNESS: f64 = 1.0;
@@ -27,8 +28,6 @@ pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces o
 pub enum ShellError {
     #[error("Select faces of one body only")]
     SeveralBodies,
-    #[error("Select the faces of a body to leave open")]
-    NoFaces,
     #[error(
         "Select the faces of a body to leave open; with one body shown, they can be clicked \
          after the tool is started"
@@ -76,7 +75,11 @@ pub struct FaceSource {
     pub left_out: Vec<Pickable>,
 }
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, ShellError> {
+pub fn selected_faces(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<FaceSource, ShellError> {
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
@@ -95,7 +98,7 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
 
     let body = match body {
         Some(body) => body,
-        None => match body_selection::standing_bodies(model) {
+        None => match body_selection::tree_or_standing(model, tree) {
             Standing::Only(body) => {
                 bodies::shown(model.evaluation(), body).ok_or(ShellError::NoShape { body })?;
                 body
@@ -104,7 +107,7 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
             Standing::None => return Err(ShellError::NoBodyShown),
         },
     };
-    let shown = bodies::shown(model.evaluation(), body).ok_or(ShellError::NoFaces)?;
+    let shown = bodies::shown(model.evaluation(), body).ok_or(ShellError::NoShape { body })?;
     let openable = faces.iter().all(|face| {
         bodies::find_face(shown, *face).is_some_and(|face| openable_face(&shown.solid, face))
     });
@@ -178,14 +181,39 @@ pub fn create_actions(
     }
 }
 
-pub fn edit(document: &Document, feature: FeatureId, shell: Shell) -> Option<Transaction> {
-    let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
-        format!("Edit {name}"),
+fn finish_edit(
+    document: &Document,
+    feature: FeatureId,
+    label: String,
+    shell: Shell,
+) -> Transaction {
+    let owned: Vec<(String, &caditor_expression::Expression)> =
+        std::iter::once((shell_panel::THICKNESS.to_owned(), &shell.thickness))
+            .chain(shell.faces.iter().enumerate().map(|(index, entry)| {
+                (shell_panel::own_thickness_caption(index), &entry.thickness)
+            }))
+            .collect();
+    let fields: Vec<(&str, &caditor_expression::Expression)> = owned
+        .iter()
+        .map(|(caption, expression)| (caption.as_str(), *expression))
+        .collect();
+    let transaction = Transaction::single(
+        label,
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Shell(shell),
+            kind: FeatureKind::Shell(shell.clone()),
         },
+    );
+    document.carrying_owners(transaction, feature, fields)
+}
+
+pub fn edit(document: &Document, feature: FeatureId, shell: Shell) -> Option<Transaction> {
+    let name = &document.feature(feature)?.name;
+    Some(finish_edit(
+        document,
+        feature,
+        format!("Edit {name}"),
+        shell,
     ))
 }
 
@@ -242,13 +270,7 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     } else {
         format!("Close a face of {}", owner.name)
     };
-    Some(Transaction::single(
-        label,
-        Edit::SetFeatureKind {
-            id: feature,
-            kind: FeatureKind::Shell(changed),
-        },
-    ))
+    Some(finish_edit(document, feature, label, changed))
 }
 
 pub fn with_selected_faces(
@@ -256,7 +278,8 @@ pub fn with_selected_faces(
     feature: FeatureId,
     selection: &Selection,
 ) -> Option<Transaction> {
-    let owner = model.document().feature(feature)?;
+    let document = model.document();
+    let owner = document.feature(feature)?;
     let shell = owner.kind.shell()?;
     let input = bodies::input(model.evaluation(), feature)?;
     let solid = &input.solid;
@@ -286,12 +309,11 @@ pub fn with_selected_faces(
     }
     without_own_thickness(&mut changed, solid, &taken);
     (changed.open.len() > shell.open.len()).then(|| {
-        Transaction::single(
+        finish_edit(
+            document,
+            feature,
             format!("Open the selected faces of {}", owner.name),
-            Edit::SetFeatureKind {
-                id: feature,
-                kind: FeatureKind::Shell(changed),
-            },
+            changed,
         )
     })
 }
@@ -307,16 +329,15 @@ pub fn side_change(
         side,
         ..shell.clone()
     };
-    Some(Transaction::single(
+    Some(finish_edit(
+        document,
+        feature,
         format!(
             "Set the walls of {} to {}",
             owner.name,
             side.label().to_lowercase()
         ),
-        Edit::SetFeatureKind {
-            id: feature,
-            kind: FeatureKind::Shell(changed),
-        },
+        changed,
     ))
 }
 
@@ -354,22 +375,13 @@ fn own_thickness_toggled(
         changed.faces.push(FaceThickness {
             face: FaceReference::capture(solid, clicked)
                 .ok_or(ShellError::NoShape { body: shell.body })?,
-            thickness: shell.thickness.clone(),
+            thickness: field::copied_value(document, feature, &shell.thickness),
         });
         format!("Give a face of {} its own thickness", owner.name)
     } else {
         format!("Give a face of {} the shell's thickness", owner.name)
     };
-    field::checked(
-        document,
-        Transaction::single(
-            label,
-            Edit::SetFeatureKind {
-                id: feature,
-                kind: FeatureKind::Shell(changed),
-            },
-        ),
-    )
+    field::checked(document, finish_edit(document, feature, label, changed))
 }
 
 fn clicked_face(model: &Model, feature: FeatureId, pickable: Pickable) -> Option<FaceId> {

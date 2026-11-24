@@ -281,8 +281,9 @@ pub fn source(
         None if tree.is_empty() && holds_only_sketch_geometry(selection) => (
             document
                 .bodies_standing_in(model.evaluation())
-                .last()
-                .copied()
+                .into_iter()
+                .rev()
+                .find(|body| crate::visibility::is_shown(document, *body))
                 .ok_or(SketchSourceError::NoBody)?,
             Vec::new(),
         ),

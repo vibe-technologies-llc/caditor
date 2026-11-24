@@ -67,6 +67,8 @@ pub enum UnusableSelection {
     #[error("{}", self.text())]
     SketchPointLater,
     #[error("{}", self.text())]
+    SketchEntityUnsupported,
+    #[error("{}", self.text())]
     CoordinateSystemOrigin,
     #[error("{}", self.text())]
     AfterThisPoint,
@@ -96,6 +98,9 @@ impl UnusableSelection {
                 "The selected corner is not found where this datum sits in the tree"
             }
             Self::SketchPointLater => "Only sketch points made before this datum can place it",
+            Self::SketchEntityUnsupported => {
+                "Only sketch points and straight lines can place a datum"
+            }
             Self::CoordinateSystemOrigin => {
                 "Select one of the coordinate system's axes or planes rather than its origin"
             }
@@ -549,6 +554,16 @@ pub fn face_surface(
     Some(state.face(face.resolve(state).ok()?)?.surface().clone())
 }
 
+pub fn is_round_edge(model: &Model, body: FeatureId, edge: &EdgeReference, index: usize) -> bool {
+    let Ok(state) = sketch_placement::body_state_before(model, body, index) else {
+        return false;
+    };
+    let Ok(id) = edge.resolve(state) else {
+        return false;
+    };
+    PointReference::capture_centre(body, state, id).is_some()
+}
+
 fn face_tangent(model: &Model, selection: &Selection, index: usize) -> Option<FaceTangent> {
     let picked = selection.in_pick_order();
     let [first, second] = picked.as_slice() else {
@@ -658,7 +673,13 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<Unusa
             Some(error) => UnusableSelection::CornerState(error),
             None => UnusableSelection::CornerNotFound,
         }),
-        Pickable::SketchEntity { .. } => Some(UnusableSelection::SketchPointLater),
+        Pickable::SketchEntity { feature, .. } => {
+            Some(if comes_before(model.document(), feature, index) {
+                UnusableSelection::SketchEntityUnsupported
+            } else {
+                UnusableSelection::SketchPointLater
+            })
+        }
         Pickable::Datum(feature) if is_datum(model.document(), feature, DatumKind::Frame) => {
             Some(UnusableSelection::CoordinateSystemOrigin)
         }
@@ -967,11 +988,36 @@ pub fn create_actions(document: &Document, datum: Datum) -> Vec<Action> {
 
 pub fn edit(document: &Document, feature: FeatureId, datum: Datum) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let mut fields: Vec<(&str, &caditor_expression::Expression)> = Vec::new();
+
+    match &datum {
+        Datum::Plane(plane) => {
+            fields.push(("Offset", &plane.offset));
+            if let Some(rotation) = &plane.rotation {
+                fields.push(("Angle", &rotation.angle));
+            }
+        }
+        Datum::PlaneThrough(PlaneThrough::SquareToCurve(station))
+        | Datum::PointBy(PointBy::Along(station)) => {
+            fields.push(("Distance along", &station.distance));
+        }
+        Datum::Point(point) => {
+            for (caption, offset) in ["Offset X", "Offset Y", "Offset Z"]
+                .into_iter()
+                .zip(point.offset.iter())
+            {
+                fields.push((caption, offset));
+            }
+        }
+        Datum::PlaneThrough(_) | Datum::Axis(_) | Datum::PointBy(_) | Datum::Frame(_) => {}
+    }
+
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Datum(datum),
+            kind: FeatureKind::Datum(datum.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }

@@ -29,7 +29,7 @@ use crate::{
     pattern_tools::{self, Shape},
     pipe_tools, primitive_tools, queued, replace_face_tools, rib_tools,
     ribbon::{self, GroupMenu},
-    scale_tools,
+    scale_panel, scale_tools,
     section::SectionCommand,
     selection::Selection,
     shell_tools,
@@ -173,6 +173,7 @@ impl Group {
                     Command::Emboss,
                     Command::MoveFace,
                     Command::Draft,
+                    Command::ReplaceFace,
                     Command::SplitFace,
                     Command::Combine,
                 ],
@@ -558,11 +559,12 @@ fn solid_buttons(
             Sweep::Revolve => Command::Revolve,
         };
         let may_guess = solid_tools::may_guess_sketch(sweep, context.selection, lone_axis);
-        let source = solid_tools::sweep_source(
+        let source = solid_tools::sweep_source_with_rows(
             document,
             model.evaluation(),
             context.selection,
             context.editing,
+            &context.offers.tree_rows,
             solid_tools::Guess::sweep_when(may_guess),
         )
         .map(|source| {
@@ -1261,7 +1263,12 @@ fn scale_button(
     if (response.clicked() || invoked)
         && let Ok(body) = body
     {
-        actions.extend(scale_tools::create_actions(model, *body));
+        let created = scale_tools::create_actions(model, *body);
+
+        if let Some(feature) = solid_tools::opened_solid(&created) {
+            field::ask_focus(ui.ctx(), scale_panel::factor_field_id(feature));
+        }
+        actions.extend(created);
     }
 }
 
@@ -1297,7 +1304,7 @@ fn combine_button(
     if (response.clicked() || invoked)
         && let Ok(start) = start
     {
-        actions.extend(combine_tools::start_actions(model, *start));
+        actions.extend(combine_tools::start_actions(model, start.clone()));
     }
 }
 

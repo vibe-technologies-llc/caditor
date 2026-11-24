@@ -72,12 +72,20 @@ impl Reason for FaceToolError {
     }
 }
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
-    faces_of_one_body(model, selection, FacePurpose::Move)
+pub fn selected_faces(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<FaceSource, FaceToolError> {
+    faces_of_one_body(model, selection, tree, FacePurpose::Move)
 }
 
-pub fn only_body(model: &Model, purpose: FacePurpose) -> Result<FeatureId, FaceToolError> {
-    match body_selection::standing_bodies(model) {
+pub fn only_body(
+    model: &Model,
+    tree: &[FeatureId],
+    purpose: FacePurpose,
+) -> Result<FeatureId, FaceToolError> {
+    match body_selection::tree_or_standing(model, tree) {
         Standing::Only(body) => {
             bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoShape)?;
             Ok(body)
@@ -90,6 +98,7 @@ pub fn only_body(model: &Model, purpose: FacePurpose) -> Result<FeatureId, FaceT
 pub fn faces_of_one_body(
     model: &Model,
     selection: &Selection,
+    tree: &[FeatureId],
     purpose: FacePurpose,
 ) -> Result<FaceSource, FaceToolError> {
     let mut body = None;
@@ -110,10 +119,10 @@ pub fn faces_of_one_body(
 
     let body = match body {
         Some(body) => {
-            bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoFaces { purpose })?;
+            bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoShape)?;
             body
         }
-        None => only_body(model, purpose)?,
+        None => only_body(model, tree, purpose)?,
     };
     Ok(FaceSource {
         body,

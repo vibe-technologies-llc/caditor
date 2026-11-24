@@ -96,11 +96,16 @@ paths:
 
 # Modelling tools in the app
 
-Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Emboss, Move face, Draft, Replace face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Helix, Flat spiral, Scale model and Configurations. Sweep has a button in the Solid group
-and a Model menu row, and is in the right-click menu of selected sketch curves
-(`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
+Tools without a ribbon button (it stays one row) live in the Model menu, the ribbon group menus and
+the palette: Offset face, Delete face, Emboss, Move face, Draft, Replace face, Split face, the
+primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and
+Point pattern, Coordinate system, Helix, Flat spiral, Scale model and Configurations. Sweep has a
+button in the Solid group and a Model menu row. The 3D view's right-click menu offers the matching
+tools for selected sketch curves (`view_menu::SKETCH_TOOLS`: Extrude, Revolve, Sweep, Pipe, Loft,
+Rib, Hole, Emboss, Split face, Curve pattern, Point pattern), edges (`view_menu::EDGE_TOOLS`:
+Fillet, Chamfer, Sweep, Pipe, Curve pattern), and faces (`view_menu::FACE_TOOLS`: Extrude, Revolve,
+Loft, Hole, Fillet, Chamfer, Offset face, Delete face, Emboss, Move face, Draft, Replace face,
+Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
 
 ## Preview while open
@@ -164,11 +169,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   or axis the selection does not name. `Selection` keeps pick order beside its sorted set
   (`Selection::in_pick_order`; a bulk pick enters sorted).
 - A body is named by selected faces, edges or vertices (`body_selection::bodies_in`) or by rows chosen
-  in the tree (`body_selection::tree_bodies`: a body row, or a feature row's body). The later of the
+  in the tree (`body_selection::tree_bodies`: a body row, or a feature row's body;
+  `body_selection::tree_or_standing` falls back to the lone shown standing body). The later of the
   two wins, since choosing in the view clears the tree's (`move_tools::chosen_body`). Move, Copy,
-  Mirror, Split, Scale, Pattern, Combine (two tree bodies), Remove body, Rename body and Body colour
-  take it so; Measure and Interference take every chosen row's body. Offers carry the tree's bodies in
-  their basis.
+  Mirror, Split, Scale, Pattern, Combine (two or more tree bodies), Shell, Offset face, Delete face,
+  Move face, Draft, Replace face, Split face, Remove body, Rename body and Body colour take it so;
+  Extrude, Revolve, Sweep, Loft, Pipe, Hole and Emboss also take active sketches or helices chosen
+  in the tree (`Offers::tree_rows`); Measure and Interference take every chosen row's body. Offers
+  carry the tree's bodies and rows in their basis.
 - Several candidates for one slot (two planes, two axes, curves of two sketches, faces of two bodies)
   are refused naming the conflict (`datum_tools::only_plane`, `only_axis`, `chosen_plane`, answering `OneChoiceError`; the datum tools' `*_from_selection` answer
   `DatumFromSelectionError`, the selection commands `SelectionRefusal`),
@@ -256,12 +264,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   a change that drops the marker refuses as `NOT_NAMEABLE`. A field holding its own named value shows
   `name = expression` and previews that expression; `name = …` typed there renames or edits the
   parameter (one "Edit <name>" change), a plain expression unnames it (`Document::releasing`).
-- A mode switch keeps named values with their fields: `solid_tools::edit`, `blend_tools::edit`,
-  `hole_tools::edit` and `primitive_tools::edit` pass every change through `Document::carrying_owners`
-  with the new kind's captioned fields (`solid_panel::captioned`, `blend_panel::captioned` with
-  `size_caption`; none for holes and primitives, whose switches only drop values). A switch copying a
-  value into a second field (Two sides, Two distances) copies it unnamed (`field::copied_value`), so
-  only one field holds the name.
+- A mode switch keeps named values with their fields: every parameterized feature tool
+  (`solid_tools`, `blend_tools`, `hole_tools`, `primitive_tools`, `pipe_tools`, `coil_tools`,
+  `helix_tools`, `pattern_tools`, `draft_tools`, `shell_tools`, `loft_tools`, `move_tools`,
+  `datum_tools`, `thread_tools`) passes edits through `Document::carrying_owners` with the new
+  kind's captioned fields so named parameters follow renames and drop cleanly when a field goes away.
+  A switch copying a value into a second field (Two sides, Two distances, Own thickness, Own angle)
+  copies it unnamed (`field::copied_value`), so only one field holds the name.
 - `feature_fields.rs` holds the shared rows and `Rule` wordings; panels use them rather than their own
   spacing or text. An unset reference reads None chosen; a missing body or sketch reads Missing with
   the warning colour and icon; a refused change leaves the notice "<feature name> was not changed:
@@ -272,7 +281,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   signatures carry no editing state). While choosing, a click (or the activated keyboard highlight) is
   tried as the selection for that slot: it applies and stops, or leaves a warning notice with the
   reason. A datum axis keeps a first plane pending until a second crosses it. Escape stops choosing
-  before anything else; opening another feature or closing this one stops it too. While a slot is
+  before anything else; opening another feature, closing this one, or choosing a value from a panel
+  dropdown or quick button that satisfies the active slot (`feature_fields::stop_picking_if_for`)
+  stops it too; pressing Enter while a multi-pick (`Slot::keeps_choosing`) slot is active stops
+  choosing and closes the open feature keeping its changes. While a slot is
   being chosen its row shows the prompt and Stop choosing (`feature_fields::choosing_prompt`, shared
   by every reference row, the shell's Own thickness and the hole's anchors and Add another hole).
   Lists of regions, blend edges and shell, offset, delete and split faces use `feature_fields::list_in_view`:
@@ -714,15 +726,15 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   curves along both ways: the nearer side meeting the body), on creation and when Direction
   changes, reading the body as the rib sees it.
 - Panel (`rib_panel.rs`): Sketch (combo of the sketches above, those not `is_rib_path` refused in
-  words), Body (bodies before it), Direction (Parallel to sketch, Square to sketch, segmented),
-  Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side, Symmetric,
-  each hover saying which side for the direction), Draft (`DRAFT`, either direction, keyed
+  words, with an Edit the sketch icon button), Direction (Parallel to sketch, Square to sketch,
+  segmented), Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side,
+  Symmetric, each hover saying which side for the direction), Draft (`DRAFT`, either direction, keyed
   `("rib-field", feature, "draft")`, `Rule::RibDraft`: 0° up to below `MAX_RIB_DRAFT_DEGREES`),
   Free ends (`ENDS`: Straight on, Round the arc, segmented, `rib_tools::with_ends`, either
-  direction) and a reverse checkbox worded for the direction
-  (`REVERSE_FILL`, `REVERSE_DIRECTION`). It is not `modifies_body`, so the view shows the ribbed
-  body while it is open. Reverse direction flips `reversed`. Its value arrow is
-  `Measured::RibThickness` (`value_gauges.rs`, listed there).
+  direction), a reverse checkbox worded for the direction (`REVERSE_FILL`, `REVERSE_DIRECTION`),
+  and Body (bodies before it). It is not `modifies_body`, so the view shows the ribbed body while it
+  is open. Reverse direction flips `reversed`. Its value arrow is `Measured::RibThickness`
+  (`value_gauges.rs`, listed there).
 
 ## Fillets, chamfers and shells
 
@@ -797,7 +809,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A shell's panel runs Open faces, Thickness, Own thickness, Walls, Body. Walls is a `segmented`
   Inside, Outside or Both sides (`shell_tools::side_change`, "Set the walls of <shell> to <side>").
   Own thickness lists each face given a thickness of its own as a value row captioned with the face
-  (`feature_fields::expression_row_removable`, owned as "Thickness of <face>", a remove button giving
+  (`feature_fields::expression_row_removable`, owned as `shell_panel::own_thickness_caption`
+  ("Thickness of face N"), matching `Measured::ShellFaceThickness`, a remove button giving
   it the shell's thickness again); Choose faces starts `Slot::ShellOwnThickness`, which keeps
   choosing: each click on a face of the body (`shell_tools::own_thickness_click`, routed before other
   picking like `HoleAdd`) adds it at the shell's thickness or removes it, one undoable change each,
@@ -830,55 +843,61 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   leaves it out; faces keep their keys across the feature. A failed or pending one shows the body before
   it with every face pickable.
 - Move face (Alt+Shift+J) takes the selected faces of one body (`move_face_tools::selected_faces`,
-  through `offset_face_tools::faces_of_one_body`) and creates a `MoveFace` shifting 1 mm square to
-  the first flat face with no tilt, which opens: faces in words with Leave this face out, Distance,
-  Direction, Angle and Tilt about. Direction and Tilt about are axis rows
-  (`feature_fields::axis_row`): a combo of Square to a flat face (`SQUARE_TO_FACE`, the first flat
-  face chosen) or None: no tilt (`NO_TILT`) first, then the principal, datum and coordinate system
-  axes before it, with Use selected and Choose in the view on `Slot::MoveFaceDirection` and `Slot::MoveFaceAxis` (any axis,
-  straight edge, round face or sketch line, `move_face_tools::reference_change`). While open and
-  computed it shows the result as an offset face does (`FaceChoice::Moving`, the moved faces keep
-  their keys), a click moving a face or leaving it out (`move_face_tools::toggle_face`); failed or
-  pending, the body before it with every face pickable. Its value arrows are the Distance and the
-  Angle (Value handles).
+  through `offset_face_tools::faces_of_one_body`) and any unique pre-selected axis, straight edge,
+  round face or sketch line as its direction (`MoveFaceSource`), creating a `MoveFace` shifting 1 mm
+  along that direction (else square to the first flat face) with no tilt, which opens: faces in
+  words with Leave this face out, Distance, Direction, Tilt about, and (only while a tilt axis is
+  chosen) Angle. Direction and Tilt about are axis rows (`feature_fields::axis_row`): a combo of
+  Square to a flat face (`SQUARE_TO_FACE`, the first flat face chosen) or None: no tilt (`NO_TILT`)
+  first, then the principal, datum and coordinate system axes before it, with Use selected and
+  Choose in the view on `Slot::MoveFaceDirection` and `Slot::MoveFaceAxis` (any axis, straight edge,
+  round face or sketch line, `move_face_tools::reference_change`). While open and computed it shows
+  the result as an offset face does (`FaceChoice::Moving`, the moved faces keep their keys), a click
+  moving a face or leaving it out (`move_face_tools::toggle_face`); failed or pending, the body
+  before it with every face pickable. Its value arrows are the Distance and the Angle (Value
+  handles).
 - Draft (no default key; Model menu, palette, the right-click menu's face tools) takes the selected
   faces of one body (`draft_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`)
-  and creates a `Draft` of `DEFAULT_ANGLE` (3°) from `caditor_document::default_neutral` (the
-  floor beside the first face, pulling toward the faces), which opens: a description, Faces to draft
-  in words with Leave this face out, Draft angle, Own angle, Neutral plane (`plane_selector::combo`
-  of `datum_tools::listed_planes` with the picker on `Slot::DraftNeutral`, any plane or flat face
-  made before it, `draft_tools::plane_change`), Pull direction (the pull in words, `Toward +Z`
-  when along an axis, and Flip the pull direction), Draft the faces tangent to these too, Split
-  the faces at the neutral plane (adding Angle beyond, 3° to start) and Body. Choosing a neutral
-  plane points the pull at the faces again (`draft_tools::neutral_change`, `flipped_toward` on the
-  body before it). Fields are keyed `("draft-angle", caption, feature)`.
+  and any unique pre-selected neutral plane (`DraftSource`), creating a `Draft` of `DEFAULT_ANGLE`
+  (3°) from that neutral plane else `caditor_document::default_neutral` (the floor beside the first
+  face, pulling toward the faces), which opens: a description, Faces to draft in words with Leave
+  this face out (distinguishing nothing drafted from every drafted face taking its own angle), Draft
+  angle, Own angle, Neutral plane (`plane_selector::row` of `datum_tools::listed_planes` with the
+  picker on `Slot::DraftNeutral`, any plane or flat face made before it, `draft_tools::plane_change`),
+  Pull direction (the pull in words, `Toward +Z` when along an axis, and Flip the pull direction),
+  Draft the faces tangent to these too, Split the faces at the neutral plane (adding Angle beyond,
+  3° to start) and Body. Choosing a neutral plane points the pull at the faces again
+  (`draft_tools::neutral_change`, `flipped_toward` on the body before it). Fields are keyed
+  `("draft-angle", caption, feature)`.
 - Own angle lists each face given an angle of its own as a value row captioned with the face
-  (`feature_fields::expression_row_removable`, owned as `draft_panel::own_angle_caption`, keyed
-  `("draft-own-angle", feature, index)`; its remove button gives it the draft angle again, back
-  among the faces). Choose faces starts `Slot::DraftOwnAngle`, which keeps choosing: each click on
-  a flat, cylinder or cone face of the body (`draft_tools::own_angle_click`, routed before other
-  picking like the shell's own thickness, queued as `Rerun::OwnAngle` while the body has no shape)
-  gives it its own angle (the draft angle to start) or takes it back, one undoable change each,
-  another curved face refused in a notice. A face is in one list at a time: giving it its own angle takes it out of
+  (`feature_fields::expression_row_removable`, owned as `draft_panel::own_angle_caption` ("Angle of
+  face N"), keyed `("draft-own-angle", feature, index)`; its remove button gives it the draft angle
+  again, back among the faces). Choose faces starts `Slot::DraftOwnAngle`, which keeps choosing:
+  each click on a flat, cylinder or cone face of the body (`draft_tools::own_angle_click`, routed
+  before other picking like the shell's own thickness, queued as `Rerun::OwnAngle` while the body
+  has no shape) gives it its own angle (the draft angle to start, also setting `default_neutral`
+  when waiting for its first face) or takes it back, one undoable change each, another curved face
+  refused in a notice. A face is in one list at a time: giving it its own angle takes it out of
   the faces, and a click while the draft is open (`draft_tools::toggle_face`) leaves a face out of
   either list or adds it to the faces. While open and computed it shows the result as a move face
   does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
   colour, `draft_tools::drafted_faces`); failed or pending, the body before it. Its value arrow is
   the Draft angle (Value handles), standing on the first flat chosen face, or with only round faces
   on the plane tangent to the first at the middle of its first edge.
-- Replace face (no default key; Model menu, palette, the right-click menu's face tools) takes the
-  selected faces (`replace_face_tools::selected_faces`): the faces of the body picked first (or of
-  the body with several faces picked when another has one) are replaced, and one more pick, a
-  principal, datum or coordinate system plane or a face of another body (`replace_face_tools::
-  target_reference` at the bar, a flat face through `datum_tools::plane_reference`, a round one
-  through `sketch_placement::surface_at`), is the target; several such picks are `SeveralTargets`,
-  refused in words. It creates a `ReplaceFace` with that target, or none (the feature then waits for one,
-  whose callout starts `Slot::ReplaceTarget`), and opens: a description, Faces to replace in words
-  with Leave this face out, Replace with (`plane_selector::row` of `datum_tools::listed_planes`
-  with the picker on `Slot::ReplaceTarget`, any plane or face made before it, this body's included,
-  `replace_face_tools::plane_change`) and Body. While open and computed it shows the
-  result as a move face does (`FaceChoice::Moving`, the replaced faces in the selected colour,
-  `replace_face_tools::replaced_faces`), a click replacing a face or leaving it out
+- Replace face (no default key; Modify group menu, Model menu, palette, the right-click menu's face
+  tools) takes the selected faces (`replace_face_tools::selected_faces`): the faces of the body
+  picked first (or of the body with several faces picked when another has one) are replaced, and one
+  more pick, a principal, datum or coordinate system plane or a face of another body
+  (`replace_face_tools::target_reference` at the bar, a flat face through
+  `datum_tools::plane_reference`, a round one through `sketch_placement::surface_at`), is the
+  target; several such picks are `SeveralTargets`, refused in words. It creates a `ReplaceFace` with
+  that target, or none (the feature then waits for one, opens choosing `Slot::ReplaceTarget` when
+  faces are already chosen, and its callout starts `Slot::ReplaceTarget`), and opens: a description,
+  Faces to replace in words with Leave this face out, Replace with (`plane_selector::row` of
+  `datum_tools::listed_planes` with the picker on `Slot::ReplaceTarget`, any plane or face made
+  before it, this body's included, `replace_face_tools::plane_change`) and Body. While open and
+  computed it shows the result as a move face does (`FaceChoice::Moving`, the replaced faces in the
+  selected colour, `replace_face_tools::replaced_faces`), a click replacing a face or leaving it out
   (`replace_face_tools::toggle_face`); failed or pending, the body before it.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
@@ -889,20 +908,22 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   click on a see-through one keeps it (`delete_face_tools::toggle_face`). A failed or pending one shows
   the body before it with every face pickable, deleted ones in the selected colour.
 - Emboss (Alt+Shift+Y) takes the selected faces of one body and the outlines or text of one earlier
-  sketch, chosen by any of its selected curves, letters or regions (`emboss_tools::source`); with no
-  face selected it takes the face a selected sketch is drawn on (its `FaceAttachment`), so writing
-  text on a face and choosing Emboss is two steps. It creates an `Emboss` raising by the remembered
-  depth (`Remembered::EmbossDepth`, 0.5 mm at first) that opens: faces in words with Leave this face
-  out and Choose in the view, Outlines (a combo of the earlier sketches and Use selected on
-  `Slot::EmbossSketch`, `emboss_tools::sketch_change`, which takes every region again), Regions (All
-  closed or Chosen as an extrusion's, with the count, Select all, Clear and Choose in the view;
+  sketch, chosen by any of its selected curves, letters or regions or by a tree row
+  (`emboss_tools::source`); with no face selected it takes the face a selected sketch is drawn on
+  (its `FaceAttachment`), so writing text on a face and choosing Emboss is two steps; with faces
+  selected and no sketch it opens choosing `Slot::EmbossSketch`. It creates an `Emboss` raising by
+  the remembered depth (`Remembered::EmbossDepth`, 0.5 mm at first) that opens: faces in words with
+  Leave this face out and Choose in the view (showing a combined face/region prompt when open with
+  Chosen regions), Outlines (a combo of the earlier sketches, muted `None chosen` when unset, an
+  Edit the sketch icon button, and Use selected on `Slot::EmbossSketch`,
+  `emboss_tools::sketch_change`, which takes every region again), Regions (All closed or Chosen as
+  an extrusion's, with the count, Select all, Clear and Choose in the view when closed;
   `emboss_panel::regions_row`), Form (Raise or Recess, a segmented row), a Depth that takes units
   and expressions, a Draft angle (`Rule::EmbossDraft`, 0° up to below `MAX_EMBOSS_DRAFT_DEGREES`;
-  shown on flat and wrapped faces alike), and the
-  Body. A new emboss has no draft. Regions of the sketch selected when Emboss is chosen are the ones
-  chosen (`EmbossSource::regions`, else All). With none of the faces or the sketch chosen it waits
-  (`FacesToEmboss`, `SketchToEmboss`), and with no region chosen `RegionsToEmboss`; the tree row
-  offers to open it. While open and computed it shows the result as an offset face does
+  shown on flat and wrapped faces alike), and the Body. A new emboss has no draft. Regions of the
+  sketch selected when Emboss is chosen are the ones chosen (`EmbossSource::regions`, else All).
+  With none of the faces or the sketch chosen it waits (`FacesToEmboss`, `SketchToEmboss`), and with
+  no region chosen `RegionsToEmboss`; the tree row offers to start `Slot::EmbossSketch` or open it. While open and computed it shows the result as an offset face does
   (`FaceChoice::Embossing`, chosen faces in the selected colour), a click embossing a face or
   leaving it out (`emboss_tools::toggle_face`); failed or pending, the body before it with every
   face pickable. Only while Chosen, the regions of its sketch are drawn as fills over the faces
@@ -1305,10 +1326,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Combine
 
-- Combine (Alt+J) creates a Join at once when the selection touches faces, edges or vertices of exactly
-  two shown bodies, or two bodies are chosen in the tree. Picked in the view, the first picked is the
-  target and the other the tool (`Selection::in_pick_order` through `body_selection::bodies_in`); in
-  the tree, the earlier body is the target. With one body named (it becomes the target) or none, while
+- Combine (Alt+J) creates a Join at once when the selection touches faces, edges or vertices of two
+  or more shown bodies, or two or more bodies are chosen in the tree. Picked in the view, the first
+  picked is the target and the rest are the tools (`Selection::in_pick_order` through
+  `body_selection::bodies_in`); in the tree, the earliest body is the target and the rest are tools. With one body named (it becomes the target) or none, while
   two shown bodies stand (`combine_tools::choosable`), it enters choosing instead
   (`EditingCommand::ChooseCombined`, `SketchEditing::combining`), since a plain click replaces the
   selection and two bodies are hard to select: the view prompts for the target, then for the body to
@@ -1437,7 +1458,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   curved face, or an edge of another earlier body (`along_change`); Split face takes the same through
   `chosen_along`. While open both bodies show as previews.
 - Mate body takes picks in pick order (`mate_tools::source`), resolved at the bar, the first on the
-  body to move (which must be shown). Two picks make, tried in this order: a faces mate (a flat face of
+  body to move (which must be shown); when two picks have one fixed plane or axis and one movable
+  body face or axis, either pick order works (`ordered_pair`). Two picks make, tried in this order: a faces mate (a flat face of
   the body, then a flat face of another body or a plane, `datum_tools::plane_reference`); an axes mate
   (an axis of the body, a straight edge or round face, then any axis, `axis_reference`); a tangent mate
   (a cylindrical or spherical face of the body, `moving_round`, then a plane); a flat face resting on a
@@ -1452,10 +1474,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `MateMoving(MatePart)`, taking only the moving body's references, and `MateTarget(MatePart)`, only
   references off it; `MatePart::Axis` is the axis pair of a flush and concentric mate); an angle mate's
   Angle runs 0 to 180 deg.
-- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 about the origin. The
-  factor is a plain number above zero; Centre in (World, or a coordinate system above it, through
-  `feature_fields::frame_row`, shown once the model has one) measures the centre from that origin along
-  its axes; fields are expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 about the middle
+  of the body's bounding box (or the origin if unmeshed), focusing its Factor field on open
+  (`scale_panel::factor_field_id`). The factor is a plain number above zero; Centre in (World, or a
+  coordinate system above it, through `feature_fields::frame_row`, shown once the model has one)
+  measures the centre from that origin along its axes; fields are expressions (key `scale-field`,
+  `("factor", 0)` or `("center", axis index)`).
   Centre at: Use selected or Choose in the view (`Slot::ScaleCentre`, `scale_tools::centre_change`)
   writes the coordinates of the one selected point (`datum_tools::point_reference`: a corner, round edge
   or sphere centre placed on its body as it stands before the scale, `PointReference::on_body`, else a

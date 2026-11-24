@@ -165,9 +165,15 @@ fn chosen_body(
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
         .and_then(|attachment| attachment.body())
-        .filter(|body| standing.contains(body));
+        .filter(|body| standing.contains(body) && crate::visibility::is_shown(document, *body));
     attached
-        .or_else(|| standing.last().copied())
+        .or_else(|| {
+            standing
+                .iter()
+                .copied()
+                .rev()
+                .find(|body| crate::visibility::is_shown(document, *body))
+        })
         .ok_or(RibError::NoBody)
 }
 

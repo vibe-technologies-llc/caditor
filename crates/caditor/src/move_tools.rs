@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use caditor_document::{
-    AxisReference, AxisTurn, Document, Edit, FeatureId, FeatureKind, Move, PrincipalAxis,
+    AxisReference, AxisTurn, Document, Edit, FeatureId, FeatureKind, Move, MoveAxis, PrincipalAxis,
     Transaction, TurnCentre,
 };
 
@@ -14,6 +14,7 @@ use crate::{
     feature_fields::ChoiceRefusal,
     field::{self, CheckError},
     model::{Action, Model},
+    move_panel,
     queued::Pending,
     selection::{Pickable, Selection},
     solid_tools,
@@ -339,13 +340,41 @@ pub fn without_body(
 
 pub fn edit(document: &Document, feature: FeatureId, movement: Move) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
-    Some(Transaction::single(
+    let mut owned: Vec<(String, &caditor_expression::Expression)> = MoveAxis::ALL
+        .into_iter()
+        .map(|axis| {
+            (
+                move_panel::distance_caption(axis),
+                axis.of(&movement.offset),
+            )
+        })
+        .collect();
+
+    match &movement.about {
+        TurnCentre::Body | TurnCentre::Origin => {
+            owned.extend(
+                MoveAxis::ALL
+                    .into_iter()
+                    .map(|axis| (move_panel::turn_caption(axis), axis.of(&movement.turn))),
+            );
+        }
+        TurnCentre::Axis(turn) => {
+            owned.push((move_panel::ANGLE.to_owned(), &turn.angle));
+        }
+    }
+
+    let fields: Vec<(&str, &caditor_expression::Expression)> = owned
+        .iter()
+        .map(|(caption, expression)| (caption.as_str(), *expression))
+        .collect();
+    let transaction = Transaction::single(
         format!("Edit {name}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Move(movement),
+            kind: FeatureKind::Move(movement.clone()),
         },
-    ))
+    );
+    Some(document.carrying_owners(transaction, feature, fields))
 }
 
 pub fn checked_change(
