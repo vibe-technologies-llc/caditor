@@ -167,6 +167,7 @@ impl Guess {
     }
 }
 
+#[cfg(test)]
 pub fn sweep_source(
     document: &Document,
     evaluation: &Evaluation,

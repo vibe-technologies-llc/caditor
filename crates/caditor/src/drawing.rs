@@ -36,8 +36,11 @@ use crate::{
 
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
+const MOST_ALIGN_PULL: f64 = 12.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
 const NEARBY_LINES: usize = 6;
+const MIN_REFERENCED_LENGTH: f64 = 24.0;
+const NEARBY_REACH: f64 = 400.0;
 const EQUAL_LENGTH_TOLERANCE: f64 = 6.0;
 const EQUAL_LENGTH_WORDS: &str = "Equal length to";
 const HELD_TOLERANCE: f64 = 1e-9;
@@ -3518,6 +3521,12 @@ fn nearest_lines(
         let (Some(from), Some(to)) = (screen.to_screen(begin), screen.to_screen(finish)) else {
             continue;
         };
+        let continues = continued.is_some_and(|point| point == *first || point == *last);
+
+        if !continues && from.distance(to) < MIN_REFERENCED_LENGTH {
+            continue;
+        }
+
         let probes = std::iter::once(pointer).chain(start);
 
         if nearest.len() == NEARBY_LINES
@@ -3537,6 +3546,11 @@ fn nearest_lines(
         let distance = probes
             .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
             .fold(f64::INFINITY, f64::min);
+
+        if !continues && distance > NEARBY_REACH {
+            continue;
+        }
+
         let place = nearest.partition_point(|kept| kept.distance.total_cmp(&distance).is_le());
 
         if place >= NEARBY_LINES {
@@ -3555,7 +3569,7 @@ fn nearest_lines(
                 line,
                 along,
                 length: span.length(),
-                continued: continued.is_some_and(|point| point == *first || point == *last),
+                continued: continues,
             },
         );
         nearest.truncate(NEARBY_LINES);
@@ -3663,8 +3677,10 @@ fn alignments(
                 guide: *guide,
                 position,
             };
-            (offset <= ALIGN_TOLERANCE || angle <= max_angle)
-                .then_some((referenced, offset, aligned))
+
+            let close_enough =
+                offset <= ALIGN_TOLERANCE || (angle <= max_angle && offset <= MOST_ALIGN_PULL);
+            close_enough.then_some((referenced, offset, aligned))
         })
         .collect();
 
@@ -4707,17 +4723,21 @@ mod tests {
                 let along = (to - from).try_normalize()?;
                 let length = from.distance(to);
                 let (from, to) = (screen.to_screen(from)?, screen.to_screen(to)?);
+                let continues = continued.is_some_and(|point| point == *first || point == *last);
 
                 let distance = std::iter::once(pointer)
                     .chain(start)
                     .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
                     .fold(f64::INFINITY, f64::min);
-                Some(NearbyLine {
+                let referenced = continues
+                    || (from.distance(to) >= MIN_REFERENCED_LENGTH && distance <= NEARBY_REACH);
+
+                referenced.then_some(NearbyLine {
                     distance,
                     line,
                     along,
                     length,
-                    continued: continued.is_some_and(|point| point == *first || point == *last),
+                    continued: continues,
                 })
             })
             .collect();
@@ -4788,6 +4808,46 @@ mod tests {
             nearest_lines(&sketch, &screen, pointer, None, None);
         }
         eprintln!("nearest_lines: {:?} per call", started.elapsed() / REPEATS);
+    }
+
+    #[test]
+    fn a_tiny_or_far_line_on_screen_is_never_a_reference_for_a_direction() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+
+        let tiny = sketch.add_line(Point2::new(5.0, 2.0), Point2::new(6.0, 2.0));
+        let far = sketch.add_line(Point2::new(200.0, 0.0), Point2::new(260.0, 30.0));
+        let near = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(20.0, 18.0));
+        let screen = Scaled(10.0);
+        let pointer = screen.to_screen(Point2::new(5.0, 0.0)).unwrap();
+
+        let kept: Vec<EntityId> = nearest_lines(&sketch, &screen, pointer, None, None)
+            .iter()
+            .map(|nearby| nearby.line)
+            .collect();
+
+        assert_eq!(kept, vec![near]);
+        assert!(!kept.contains(&tiny));
+        assert!(!kept.contains(&far));
+    }
+
+    #[test]
+    fn a_long_line_turns_level_only_while_its_end_is_near_the_level_on_screen() {
+        let sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let start = Point2::new(10.0, 10.0);
+
+        let mut drawing = drawing_a_line(&sketch, Placement::free(start));
+
+        let close = hovered_at(&mut drawing, &sketch, Point2::new(55.0, 11.0)).unwrap();
+
+        assert_eq!(close.snap, Snap::Aligned(Direction::Horizontal));
+        assert_eq!(close.position, Point2::new(55.0, 10.0));
+
+        let two_degrees_off = Point2::new(55.0, 10.0 + 45.0 * 2.0_f64.to_radians().tan());
+
+        let away = hovered_at(&mut drawing, &sketch, two_degrees_off).unwrap();
+
+        assert_eq!(away.snap, Snap::Free);
+        assert_eq!(away.position, two_degrees_off);
     }
 
     #[test]
@@ -4989,7 +5049,21 @@ mod tests {
     }
 
     fn hovered_at(drawing: &mut Drawing, sketch: &Sketch, at: Point2) -> Option<Placement> {
-        drawing.hover(sketch, &Scaled(10.0), Some(pointer(at)));
+        hovered_on(drawing, sketch, &Scaled(10.0), at)
+    }
+
+    fn hovered_on(
+        drawing: &mut Drawing,
+        sketch: &Sketch,
+        screen: &Scaled,
+        at: Point2,
+    ) -> Option<Placement> {
+        let pointer = Pointer {
+            screen: screen.to_screen(at)?,
+            sketch: at,
+        };
+
+        drawing.hover(sketch, screen, Some(pointer));
         drawing.hover
     }
 
@@ -5120,8 +5194,9 @@ mod tests {
         let slanted = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(28.0, 74.0));
         let start = Point2::new(60.0, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(start));
+        let screen = Scaled(5.0);
 
-        let equal = hovered_at(&mut drawing, &sketch, Point2::new(81.07, 31.07)).unwrap();
+        let equal = hovered_on(&mut drawing, &sketch, &screen, Point2::new(81.07, 31.07)).unwrap();
 
         assert_eq!(equal.snap, Snap::Free);
         assert_eq!(equal.equal_to, Some(slanted));
@@ -5133,7 +5208,7 @@ mod tests {
         );
         assert_eq!(drawing.snap_entities(), vec![slanted]);
 
-        let shorter = hovered_at(&mut drawing, &sketch, Point2::new(80.0, 30.0)).unwrap();
+        let shorter = hovered_on(&mut drawing, &sketch, &screen, Point2::new(80.0, 30.0)).unwrap();
 
         assert_eq!(shorter.equal_to, None);
         assert_eq!(shorter.position, Point2::new(80.0, 30.0));
@@ -5148,8 +5223,9 @@ mod tests {
         let slanted = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(28.0, 74.0));
         let start = Point2::new(60.0, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(start));
+        let screen = Scaled(5.0);
 
-        let upright = hovered_at(&mut drawing, &sketch, Point2::new(60.4, 39.7)).unwrap();
+        let upright = hovered_on(&mut drawing, &sketch, &screen, Point2::new(60.4, 39.7)).unwrap();
 
         assert_eq!(upright.snap, Snap::Aligned(Direction::Vertical));
         assert_eq!(upright.equal_to, Some(slanted));
@@ -5159,7 +5235,7 @@ mod tests {
             Some(format!("Vertical, equal length to Line {slanted}"))
         );
 
-        let parallel = hovered_at(&mut drawing, &sketch, Point2::new(77.9, 33.9)).unwrap();
+        let parallel = hovered_on(&mut drawing, &sketch, &screen, Point2::new(77.9, 33.9)).unwrap();
 
         assert_eq!(parallel.snap, Snap::Aligned(Direction::Parallel(slanted)));
         assert_eq!(parallel.equal_to, Some(slanted));
@@ -5177,22 +5253,23 @@ mod tests {
     fn of_lines_about_as_long_the_one_nearest_on_screen_gives_the_length() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
 
-        let far = sketch.add_line(Point2::new(300.0, 300.0), Point2::new(330.2, 300.0));
+        let far = sketch.add_line(Point2::new(120.0, -40.0), Point2::new(150.2, -40.0));
         let near = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(28.0, 74.0));
         let start = Point2::new(60.0, 10.0);
         let mut drawing = drawing_a_line(&sketch, Placement::free(start));
         let drawn = start + Vector2::ONE.normalize() * 30.2;
+        let screen = Scaled(4.0);
 
-        let equal = hovered_at(&mut drawing, &sketch, drawn).unwrap();
+        let equal = hovered_on(&mut drawing, &sketch, &screen, drawn).unwrap();
 
         assert_eq!(equal.equal_to, Some(near));
         assert!((length_from(start, equal) - 30.0).abs() < 1e-9);
 
         let mut farther_only = Sketch::new(caditor_geometry::Plane::XY);
 
-        farther_only.add_line(Point2::new(300.0, 300.0), Point2::new(330.2, 300.0));
+        farther_only.add_line(Point2::new(120.0, -40.0), Point2::new(150.2, -40.0));
 
-        let alone = hovered_at(&mut drawing, &farther_only, drawn).unwrap();
+        let alone = hovered_on(&mut drawing, &farther_only, &screen, drawn).unwrap();
 
         assert_eq!(alone.equal_to, Some(far));
         assert!((length_from(start, alone) - 30.2).abs() < 1e-9);

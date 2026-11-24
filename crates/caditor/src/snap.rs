@@ -19,6 +19,8 @@ pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
 pub const HELD_POINT_PULL: f64 = 3.0 * POINT_TOLERANCE;
 pub const HELD_CURVE_PULL: f64 = 3.0 * CURVE_TOLERANCE;
+pub const POINT_PULL_ALONG_CURVE: f64 = 2.0 * POINT_TOLERANCE;
+const LYING_ON_CURVE: f64 = 0.5;
 pub const ON_THE_GRID: &str = "On the grid";
 pub const NOT_KEPT_THERE: &str = ", not kept there";
 const ON_CIRCLE_TOLERANCE: f64 = 1e-9;
@@ -462,12 +464,43 @@ pub fn resolve_inferring(
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
-            Accept::Anything => nearest(near_curves.to_vec(), CURVE_TOLERANCE).or_else(|| {
-                nearest(
-                    extensions(sketch, extended, pointer.sketch),
-                    CURVE_TOLERANCE,
-                )
-            }),
+            Accept::Anything => nearest(near_curves.to_vec(), CURVE_TOLERANCE)
+                .map(|on_curve| {
+                    let along = |candidates: Vec<Snapped>| {
+                        candidates
+                            .into_iter()
+                            .filter(|candidate| {
+                                screen.to_screen(candidate.position).is_some_and(|at| {
+                                    at.distance(pointer.screen) <= POINT_PULL_ALONG_CURVE
+                                }) && lies_on(sketch, screen, on_curve.target, candidate.position)
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    nearest(
+                        along(accepted_points(sketch, accept)),
+                        POINT_PULL_ALONG_CURVE,
+                    )
+                    .or_else(|| nearest(along(midpoints(sketch)), POINT_PULL_ALONG_CURVE))
+                    .or_else(|| {
+                        nearest(
+                            along(intersections(
+                                sketch,
+                                near_curves.as_slice(),
+                                screen,
+                                pointer,
+                            )),
+                            POINT_PULL_ALONG_CURVE,
+                        )
+                    })
+                    .or_else(|| nearest(along(quadrants(sketch)), POINT_PULL_ALONG_CURVE))
+                    .unwrap_or(on_curve)
+                })
+                .or_else(|| {
+                    nearest(
+                        extensions(sketch, extended, pointer.sketch),
+                        CURVE_TOLERANCE,
+                    )
+                }),
             Accept::Points => None,
             Accept::OnCircle { center, radius } => {
                 nearest(crossings(sketch, center, radius), CURVE_TOLERANCE)
@@ -1578,6 +1611,23 @@ pub fn extension_guide(sketch: &Sketch, line: EntityId, to: Point2) -> Option<[P
     Some([nearer, to])
 }
 
+fn lies_on(sketch: &Sketch, screen: &impl Screen, curve: Target, at: Point2) -> bool {
+    let Target::Curve(id) = curve else {
+        return false;
+    };
+    let foot = if id == EntityId::HORIZONTAL_AXIS {
+        Some(Point2::new(at.x, 0.0))
+    } else if id == EntityId::VERTICAL_AXIS {
+        Some(Point2::new(0.0, at.y))
+    } else {
+        sketch
+            .entity(id)
+            .and_then(|entity| closest_on(sketch, id, entity, at))
+    };
+    foot.and_then(|foot| Some(screen.to_screen(foot)?.distance(screen.to_screen(at)?)))
+        .is_some_and(|gap| gap <= LYING_ON_CURVE)
+}
+
 fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Option<Point2> {
     match entity {
         Entity::Line { .. } => {
@@ -1887,6 +1937,36 @@ pub mod tests {
             inferred: Inferences::default(),
         };
         held(sketch, &Scaled(10.0), pointer_at(at), lookup, grid)
+    }
+
+    #[test]
+    fn a_point_on_the_curve_under_the_pointer_pulls_from_twice_as_far_as_a_point_alone() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+        let lone = sketch.add_point(Point2::new(5.0, 11.1));
+        let end = point_of(&sketch, line, 1);
+
+        assert_eq!(
+            resolve_at(&sketch, Point2::new(1.2, 0.3)),
+            Some(Snapped {
+                position: Point2::ZERO,
+                target: Target::Point(EntityId::ORIGIN),
+            })
+        );
+        assert_eq!(
+            resolve_at(&sketch, Point2::new(2.0, 0.3)).map(|snapped| snapped.target),
+            Some(Target::Curve(EntityId::HORIZONTAL_AXIS))
+        );
+        assert_eq!(
+            resolve_at(&sketch, Point2::new(18.8, 10.2)).map(|snapped| snapped.target),
+            Some(Target::Point(end))
+        );
+
+        let beside = resolve_at(&sketch, Point2::new(5.5, 10.2)).map(|snapped| snapped.target);
+
+        assert_eq!(beside, Some(Target::Curve(line)));
+        assert_ne!(beside, Some(Target::Point(lone)));
     }
 
     #[test]

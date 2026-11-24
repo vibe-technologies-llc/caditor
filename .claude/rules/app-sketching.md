@@ -657,7 +657,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`,
   `Sketch::curve_crossings`), quadrants of a circle or arc (`Target::Quadrant`) and ellipse axis ends
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
-  projecting onto the curve. A snapped point gets a `Coincident` with its target (both curves at a
+  projecting onto the curve. A point, middle, crossing or quadrant lying on that curve (`lies_on`,
+  within `LYING_ON_CURVE` on screen) pulls from `POINT_PULL_ALONG_CURVE`, twice the point
+  tolerance, so sliding along an axis or line onto the origin or a line's end lands on it rather
+  than beside it. A snapped point gets a `Coincident` with its target (both curves at a
   crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre
   (a `Centroid` of the corners, or of the sides with an arc among them, for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
   A major axis end is held by a `Symmetric` of the axis point and the new point about the centre; a
@@ -687,11 +690,16 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   an arc's end takes points on its circle and where it crosses other curves
   (`Sketch::circle_crossings`) and the axes.
 - A line end (and the second point of either straight slot, of a three-point rectangle's first side
-  and of a polygon's side) within `ALIGN_ANGLE_DEGREES` or `ALIGN_TOLERANCE` of a direction from its
-  start takes it exactly (`Snap::Aligned`). Horizontal and vertical win whenever either applies;
+  and of a polygon's side) within `ALIGN_TOLERANCE` of a direction from its start on screen, or
+  within `ALIGN_ANGLE_DEGREES` while no further than `MOST_ALIGN_PULL`, takes it exactly
+  (`Snap::Aligned`), so a long line's end is never dragged further from the pointer than a point
+  snap reaches. Horizontal and vertical win whenever either applies;
   otherwise parallel or perpendicular to one of the `NEARBY_LINES` lines nearest on screen
   (construction included, `drawing::guides`, which keeps them in one pass over the sketch's lines
-  through a sorted list of that many, a tie kept to the earlier line, a line skipped once its screen box lies clearly farther than the last kept, `drawing::nearest_lines`). A line is never inferred parallel to a line through its
+  through a sorted list of that many, a tie kept to the earlier line, a line skipped once its screen box lies clearly farther than the last kept, `drawing::nearest_lines`).
+  A line shorter than `MIN_REFERENCED_LENGTH` on screen or further than `NEARBY_REACH` from both the
+  pointer and the start is never a reference (the line continued from always is), so a traced
+  outline of thousands of short pieces offers no direction to each of them. A line is never inferred parallel to a line through its
   start point; perpendicular is offered. An arc's start (and an arc slot's ends), a polygon's corner
   from its centre and each spline control point from the one before take horizontal or vertical the
   same way (`Drawing::levelled_from`, `LEVEL_AND_UPRIGHT` only, `Direction::between`).
