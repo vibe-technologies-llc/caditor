@@ -1510,3 +1510,94 @@ fn a_region_whose_arc_starts_a_rounding_error_off_its_line_still_triangulates() 
         );
     }
 }
+
+fn whole(entity: u64) -> PieceId {
+    PieceId::new(entity, PieceBound::Start, PieceBound::End)
+}
+
+fn crossed_disc() -> Vec<ProfileCurve> {
+    let radius = 10.0;
+    let (sine, cosine) = 0.5_f64.sin_cos_libm();
+
+    vec![
+        circle(1, (0.0, 0.0), radius),
+        line(2, (-radius, 0.0), (radius, 0.0)),
+        line(
+            3,
+            (-radius * cosine, -radius * sine),
+            (radius * cosine, radius * sine),
+        ),
+        circle(4, (0.0, 0.0), 4.0),
+    ]
+}
+
+#[test]
+fn a_disc_crossed_by_diameters_and_chosen_whole_is_bounded_by_its_whole_circle() {
+    let profile = profile(&crossed_disc());
+    let every: Vec<RegionKey> = profile.regions().iter().map(Region::key).collect();
+
+    assert_eq!(every.len(), 8);
+
+    let union = profile.select(&Selection::Regions(every)).unwrap();
+
+    assert_eq!(union.len(), 1);
+
+    assert_closed(&union[0]);
+
+    assert!(close(union[0].area(), PI * 100.0));
+    assert!(union[0].holes().is_empty());
+
+    let ids: Vec<&PieceId> = union[0].outer().pieces().iter().map(Piece::id).collect();
+
+    assert_eq!(ids, [&whole(1)]);
+}
+
+#[test]
+fn neighbouring_sectors_chosen_together_join_their_arcs_and_their_radii() {
+    let profile = profile(&[
+        circle(1, (0.0, 0.0), 10.0),
+        line(2, (-10.0, 0.0), (10.0, 0.0)),
+        line(3, (0.0, -10.0), (0.0, 10.0)),
+    ]);
+    let upper: Vec<RegionKey> = profile
+        .regions()
+        .iter()
+        .filter(|region| region.anchor().is_some_and(|anchor| anchor.y > 0.0))
+        .map(Region::key)
+        .collect();
+
+    assert_eq!(upper.len(), 2);
+
+    let half = profile.select(&Selection::Regions(upper)).unwrap();
+
+    assert_eq!(half.len(), 1);
+
+    assert_closed(&half[0]);
+
+    assert!(close(half[0].area(), PI * 50.0));
+
+    let pieces = half[0].outer().pieces();
+    let entities: BTreeSet<u64> = pieces.iter().map(Piece::entity).collect();
+
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(entities, BTreeSet::from([1, 2]));
+    assert!(pieces.iter().any(|piece| piece.id() == &whole(2)));
+}
+
+#[test]
+fn a_rectangle_divided_by_a_line_and_chosen_whole_keeps_its_four_sides_whole() {
+    let mut curves = rectangle(1, (0.0, 0.0), (10.0, 4.0));
+
+    curves.push(line(5, (3.0, 0.0), (5.0, 4.0)));
+
+    let profile = profile(&curves);
+    let union = profile.select(&Selection::EvenDepth).unwrap();
+
+    assert_eq!(union.len(), 1);
+
+    assert_closed(&union[0]);
+
+    let ids: BTreeSet<&PieceId> = union[0].pieces().map(Piece::id).collect();
+
+    assert_eq!(ids, (1..=4).map(whole).collect::<Vec<_>>().iter().collect());
+}

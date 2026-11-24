@@ -8,6 +8,7 @@ mod error;
 mod geometry;
 mod grading;
 mod intersect;
+mod joined;
 mod reference;
 mod region;
 mod section;
@@ -27,6 +28,7 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use self::{
     arrangement::Arrangement,
     culprits::culprits,
+    joined::joined,
     region::{base_keys, lumps, shared_keys, with_keys},
 };
 pub(crate) use self::{
@@ -583,9 +585,12 @@ impl Profile {
 
             faces.extend(region_faces.iter().copied());
         }
+
+        let tolerance = self.tolerance();
+
         Ok(with_keys(lumps(&self.arrangement, &faces), &self.ambiguous)
             .into_iter()
-            .map(|(region, _)| region)
+            .map(|(region, _)| joined(region, tolerance))
             .collect())
     }
 }

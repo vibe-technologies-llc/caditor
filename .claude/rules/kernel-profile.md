@@ -53,6 +53,12 @@ paths:
   regions as new regions keyed the same way, so adjacent regions sweep as one lump. A hole goes to
   its lump's outer loop through faces joined across pieces chosen on both sides (linear in loops);
   a probe point's containment decides only when a lump has several outer loops or none.
+- A union's loops join consecutive pieces of one curve (`joined.rs`): same entity and direction,
+  a line running on or the same curve continuing in parameter, at a joint no other piece of the
+  region starts from. The joined piece keeps the first's start bound and the last's end bound, and a
+  loop left one whole circle or ellipse is named and ranged as an uncut one, so a disc crossed by
+  diameters and chosen whole sweeps one side face, not one per sector. Keys are computed before
+  joining, so they stay those of the arrangement.
 - `Region::triangulate` samples each loop into a polygon merging consecutive points closer than
   `LINEAR_RESOLUTION` (an arc sampled from a crossing starts a rounding error off the line ending
   there; keeping both made the constrained triangulation refuse the region).
