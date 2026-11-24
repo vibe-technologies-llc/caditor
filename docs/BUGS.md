@@ -125,6 +125,64 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
+## Modelling
+
+- [medium · easy] Owned parameters are stranded across feature edits: `ShellFaceThickness` uses a
+  different `ParameterOwner.value` caption in `shell_panel.rs` and `value_gauges.rs`, locking its 3D
+  handle once named, and eleven feature tools (`pipe_tools.rs`, `coil_tools.rs`, `helix_tools.rs`,
+  `primitive_tools.rs`, `pattern_tools.rs`, `draft_tools.rs`, `shell_tools.rs`, `loft_tools.rs`,
+  `move_tools.rs`, `datum_tools.rs`, `thread_tools.rs`) do not pass `carrying_owners` (with caption
+  rename pairs) across mode switches.
+- [medium · easy] Small feature-panel regressions and unit/naming leaks: `Command::ReplaceFace` is
+  missing from `toolbar.rs` (`Group::Modify::sections`); `solid_panel.rs` (`selected_end`) drops
+  `.with_offset(offset)` on `ExtrudeEnd::up_to_surface`; `solid_panel.rs` (`other_body_rows`) and
+  `combine_panel.rs` (`Also with`) skip `document.body_label(*other)`; `helix_tools.rs` and
+  `hole_panel.rs` hardcode `Unit::Millimetre`/`"mm"` instead of `model.length_unit()`.
+- [medium · easy] Viewport picking and panel state inconsistencies across feature panels:
+  - Panel dropdowns and quick buttons (`feature_fields.rs`, `draft_panel.rs`, `mirror_panel.rs`,
+    `emboss_panel.rs`, `pattern_panel.rs`, `split_face_panel.rs`, `solid_panel.rs`,
+    `hole_panel.rs`, `scale_panel.rs`) do not emit `EditingCommand::StopPicking` when satisfying the
+    active picking slot; Enter cannot confirm while a multi-pick slot is active (`viewport.rs`).
+  - `reference_picking.rs` leaves `Slot::MirrorBodies` offering principals (`PrincipalSet::NONE`)
+    and `Slot::DatumRotation` missing `PrincipalSet::AXES`; `feature_tree.rs` does not wire
+    `MissingInput::SketchToEmboss`'s "Choose in the view" button to `Slot::EmbossSketch`.
+  - `datum_panel.rs` stops offering `Its centre` on circular edges after switching to `Along it` or
+    `Its middle`; `draft_panel.rs` checks only `draft.faces.is_empty()` instead of also
+    `draft.own.is_empty()` and `draft_tools.rs` (`own_angle_toggled`) skips `default_neutral` when
+    `neutral.is_none()`; `emboss_panel.rs` can show both `faces` and `regions` choosing rows active
+    at once and renders unset `Outlines` with warning styling instead of `Shown::NoneChosen`;
+    `move_face_panel.rs` puts `Angle` ahead of `Tilt about` and shows it with no axis chosen.
+  - `first_pick.rs` drops `HoleToolError`, `datum_tools.rs` conflates unsupported sketch entity
+    kinds with later sketches, and `primitive_tools.rs` conflates `DatumMadeLater` with
+    `DatumNotAPlane`.
+- [medium · easy] Pre-selected face queueing and visibility/tree-selection defaults:
+  - `shell_tools.rs`, `offset_face_tools.rs`, `replace_face_tools.rs`, `emboss_tools.rs`,
+    `split_face_tools.rs` and `thread_tools.rs` refuse pre-selected faces while their body is
+    mid-recompute instead of returning `NoShape` (`Pending::BodyShape`) to queue cleanly.
+  - Default target-body picking in `hole_tools.rs`, `pattern_tools.rs`, `sketch_pattern_tools.rs`,
+    `rib_tools.rs`, `mirror_tools.rs` and `feature_fields.rs` skips `visibility::is_shown`, silently
+    targeting hidden bodies; `solid_tools::guessed_sketch` takes `.last()` before filtering `unused`
+    sketches; `offers.rs` ignores tree-selected sketches/helices for Extrude, Revolve, Sweep, Loft,
+    Pipe, Hole and Emboss and tree-selected bodies for Shell, OffsetFace, DeleteFace, MoveFace,
+    Draft, ReplaceFace and SplitFace.
+- [medium · medium] Revolve handles, `body_reach.rs`, Leave out and Reverse direction gaps:
+  - `turn_handles.rs` does not compute swing from the chosen regions/side (nor fall back to the
+    farthest corner when the centroid lies on the axis), skips per-grip `per_point`, and omits
+    `END_ON` sight culling.
+  - `body_reach.rs` ignores partial revolves (`RevolveExtent::OneSide`/`Symmetric`/`TwoSides`,
+    checking only `Full`) and sweeps face-cut sketch pieces as their enclosing whole region instead
+    of resolving `solid.regions()` through `SketchResult::resolve_choice`.
+  - `leaving_out.rs` does not expand `EdgeGroup`s when leaving out a failing Blend edge and omits
+    `shell.faces` (`Own thickness`) for Shell; `reversing.rs` (`Command::ReverseDirection`) omits
+    `Draft`, `Emboss` and asymmetric/angle `Chamfer`.
+- [low · easy] Outdated hover/prompt microcopy and panel inconsistencies: `helix_panel.rs`
+  (`OPEN_ENDS_HOVER`), curved-face Hole prompts (`reference_picking.rs`, `hole_tools.rs`,
+  `hole_panel.rs`), Draft `Own angle` prompt, axis/direction prompts (`reference_picking.rs`,
+  `move_face_panel.rs`), Pattern/Mirror repeatable feature lists, Loft/Pipe/Scale hover text;
+  `split_panel.rs` and `split_face_panel.rs` not using `principal_combo`, `rib_panel.rs` `Body`
+  row order, `primitive_panel.rs` missing `description_row`, and duplicated `MISSING_BODY`
+  constants in `hole_panel.rs` and `combine_panel.rs`.
+
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when
@@ -208,12 +266,68 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · medium] At an interface scale of 200% the signed-in Home's service header
-  (`home.rs`, `cloud_header`) overlaps and clips: the "Fusion 360" title and its hub and account
+- [medium · easy] AI Assistant panel (`assistant_panel.rs`, `app.rs`, `guide.rs`) kit and
+  accessibility gaps: `Assistant` is not registered in `GuideBasis`/`guide::SidePanel` so `F1` does
+  not open `Page::Assistants`; the panel uses raw frames, `sunken` and bare numeric widths instead
+  of `widgets::card`, `surface_edge` and theme spacing tokens; provider/model combos lack AccessKit
+  labels; the composer footer overflows at 200%; shows duplicate Stop controls while busy; `Enter` is
+  not consumed when `!can_send`; disabled buttons lack `.on_disabled_hover_text(...)`; and
+  `CliState::Checking` does not use `Tone::Info`.
+- [medium · easy] Viewport overlays, selection modes, PickList, Saved views, Selection sets and
+  Status bar defects:
+  - `start_card::placement` and `viewport::clear_of` do not clear `display_area` (and nearby
+    viewport badges can overlap); `Pickable::ShellFace::describe` lacks `draft` and `replace_face`
+    branches; `viewport::open_command` ignores double-clicking `Pickable::Edge` and
+    `Pickable::SketchRegion`.
+  - Paint and Lasso selection are not mutually exclusive (posting misleading notices) and Paint,
+    Lasso and Select-through lack status-bar chips showing active state and one-click reset.
+  - `pick_list.rs` keeps stale hover focus after the pointer leaves, does not flip upward via
+    `widgets::menu_opening_down`, and has uneven caption spacing.
+  - `saved_views.rs` hardcodes `(0)` for the Isometric shortcut instead of reading `Keymap`, clips
+    input/button widths in `saved_views::saving` and `selection_sets::saving`, does not wrap
+    `isometric()` buttons or give `Reset` a disabled hover, and ignores clicks on row titles.
+  - `status_bar::notice` omits `NoticeAction` button width from `buttons_id` (clipping right-hand
+    buttons when notices wrap), displays `"Up to date"` beside `"Showing N of M bodies"`, and hides
+    failed-feature pills while bodies prepare.
+- [medium · easy] Feature tree and Bodies tree defects:
+  - `PanelState::forget_missing` (`panels.rs`) drops piece body IDs because it checks only
+    `document.feature(*id)` and not `document.body_maker(*id)`.
+  - Inline folder rename fields in `feature_groups.rs` and `body_groups.rs` do not render
+    `widgets::error_text` on validation failure.
+  - Feature tree drag-and-drop autoscroll (`feature_tree.rs`) rejects pointers outside
+    `visible.y_range()` before computing autoscroll, halting scroll when dragging past the clip edge.
+  - Hidden rows in `feature_tree.rs`, `bodies_tree.rs` and `principal_tree.rs` still apply faux
+    `.italics()` (`app-look.md`).
+- [medium · easy] Parameters, Completion popup, Configurations and Menu bar defects:
+  - Clicking `ParameterUser::Drawing(_)` in `parameter_table.rs` does nothing instead of opening the
+    Drawings panel; parameter expression `value_field`s skip `.problem(ui, document, enter)` live
+    validation, clipped expressions lack full-expression hover, `refusal_row` and `owner_row` do not
+    span the table width, and `delete_unused_button` stays shown on an empty filter.
+  - `completion.rs` opens downward off-screen near the bottom edge (notably in the bottom-docked
+    Parameters panel) and does not clamp width to `fitting_width`.
+  - `configurations.rs` lacks disabled hover text on `Configure a value`, and clicking a
+    configuration name does not activate it (double-click to rename).
+  - `menu_bar.rs` omits toggle checkmarks (`self.choice(...)`) on Measure, Interference, Face
+    analyses, Curvature comb, Isocurves, Drawings, Lighting, FullScreen and Assistant, and
+    duplicates `Command::Assistant`.
+- [medium · easy] Inspection panels and Technical Drawings defects:
+  - `section_panel.rs` and `analysis_panel.rs` omit `.on_disabled_hover_text(hover)` on disabled
+    `Use selected` and `Add a plane` buttons and do not apply valid `field.edited` values live while
+    scrubbing/stepping; `analysis_panel.rs` omits swatch borders, draws an empty properties grid for
+    `Chrome`, and shows `NO_BODIES` inconsistently.
+  - `measure_panel.rs` omits `masses.total` from `Copy all`, leaves `Copy all` enabled when empty,
+    and neither `measure_panel.rs` nor `interference_panel.rs` posts a confirmation notice on copy.
+  - `drawings_panel.rs` does not auto-focus/select-all on rename (and discards invalid text on
+    error), wheel-zooms around sheet centre instead of the pointer, lacks `set_focus_lock_filter`
+    for arrow-key panning, omits zoom `%` readout and bound disabling, does not disable
+    `New drawing` at `MAX_DRAWINGS` with hover text, and leaves empty-state labels unmuted.
+- [medium · medium] At an interface scale of 200% the signed-in Home (`home.rs`: `cloud_header`,
+  `signing_in`, `project_line`) overlaps and clips: the "Fusion 360" title and its hub and account
   detail run into the Refresh button, and "Sign out" is cut off at the page's right edge, because
-  `Sides` lays both groups on one line that does not wrap. Let the header wrap its buttons under the
-  title when the width runs out; the ignored `screenshots` test's `home-signed-in-dark-200.png`
-  shows it.
+  `Sides` lays both groups on one line that does not wrap; `HomeView` also needs
+  `preferences.onboarding.home` passed from `app.rs` so the footer reflects the current setting. Let
+  the header wrap its buttons under the title when the width runs out; the ignored `screenshots`
+  test's `home-signed-in-dark-200.png` shows it.
 - [low · medium] Two safe functions of the `unsafe` crates rest on their callers: the Wayland
   `DropTarget::attach` and `ToplevelExport::attach` wrap winit's `wl_display` and keep the window
   alive, but the connection belongs to winit's event loop, so their soundness rests on the drop

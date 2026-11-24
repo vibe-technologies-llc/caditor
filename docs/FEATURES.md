@@ -16,6 +16,25 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   refused. Delete face closes a gap only from the faces around it: not a face with several loops
   that are not whole loops of the faces around it (a hole breaking out through a side), a riser
   chosen with fillets along its foot, nor a gap that only faces further away could close.
+- [medium · easy] Feature creation defaults and panel/context-menu ergonomics: auto-enter
+  `Slot::ReplaceTarget` and `Slot::EmbossSketch` when starting ReplaceFace or Emboss with faces
+  selected; accept 3+ selected bodies in `Combine` (first = target, rest = tools); consume
+  pre-selected direction/axis in `MoveFace` and neutral plane in `Draft`; accept order-independent
+  `[FixedPlane/Axis, BodyFace/Axis]` in `Mate`; focus/`primary_typing` `Scale`'s `Factor` on open
+  and default its centre to the body's bounding-box centre; add `Edit the sketch` buttons on
+  Emboss, Rib, Pattern and Loft panels; highlight Loft profiles and Mirror faces on row hover; and
+  enrich `FACE_TOOLS`, `EDGE_TOOLS` and `SKETCH_TOOLS` in `view_menu.rs`.
+- [medium · medium] 3D manipulators, drag-snapping and on-model value coverage:
+  - `reach_handles.rs`, `value_gauges.rs`, `value_handles.rs` and `manipulator.rs`: custom-direction
+    `Extrude` drag arrows and fallback `primary_typing` on `ThroughAll`/`UpTo*`; 3D value handles
+    and `primary_typing` for `ThreadLength::Depth`, `Scale`, `Datum::PointBy(Along)`,
+    `Datum::PlaneThrough(SquareToCurve)` and per-face `Draft` `Own angle`; allow typing negative
+    values to flip direction wherever dragging the handle past zero already flips it.
+  - `handle_snap.rs`: extend `Probe::snap_to` to snap line guides to Principal, Datum and Frame
+    planes and point-snaps to the Origin, Datum points and visible sketch points.
+  - `feature_values.rs`: populate on-model editable dimensions for `Pipe`, `Coil`, `Helix`, `Rib`,
+    `Emboss`, `MoveFace`, `Draft`, `CurvePattern`, `Scale` and `Sweep`, and respect
+    `hole.sizing.by_circles()`.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -222,13 +241,30 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · easy] Workspace, tree, parameter, palette, inspection and assistant ergonomics:
+  - Status bar quick size/distance readout clickable to copy with hover tooltip (`status_bar.rs`).
+  - Feature tree rollback bar right-click menu and inline "Roll to end" button; inline `×` clear
+    button, `Escape`-to-clear, `"N of M"` match count and muted filter banner on feature and
+    parameter filters (`feature_tree.rs`, `parameter_table.rs`); `"⋯"` menu button on individual
+    body rows, hide/show-all eye toggle on the `Bodies` group header, and `Keymap` shortcut labels
+    in tree context menus (`bodies_tree.rs`, `feature_tree.rs`).
+  - Expression completion popup (`completion.rs`) listing built-in functions (`Function::ALL`) and
+    constants (`pi`, `tau`, `e`) after parameter matches; concise hover tooltip on scrubbable
+    captions (`field.rs`); custom `colour_selector` for configured body colours
+    (`configurations.rs`).
+  - Command palette (`palette.rs`) `Home`/`End` navigation, evaluated parameter values beside
+    expressions, and indexing renamed Bodies and Feature folders.
+  - Per-plane Reset and click-card-to-select-Current in `section_panel.rs`; one-click "Show Shaded
+    with edges" button in `analysis_panel.rs`'s hidden-faces callout; "Draw again" resume in
+    `isocurve_panel.rs` and `Clear` buttons plus 3D hover highlight in `comb_panel.rs` and
+    `isocurve_panel.rs`.
+  - AI Assistant (`assistant_panel.rs`) inline `**bold**` / `` `code` `` rendering, message Copy
+    buttons and sticky auto-scroll.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.
 - [low · medium] No isolate that only changes the view: showing one body alone hides the others
   through the document, as undoable changes, rather than for the session.
-- [low · medium] No selection filters inside a sketch (points only, curves only, constraints
-  only), as the model view has for faces, edges and bodies.
 - [low · medium] No zoom to a dragged box; the view zooms by the wheel, the keys and Fit only.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
