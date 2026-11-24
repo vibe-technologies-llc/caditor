@@ -979,6 +979,7 @@ fn suggest(
     let token = (caret == last && first == last)
         .then(|| completion::token_at(text, caret))
         .flatten();
+    let built_ins = token.as_ref().is_some_and(|token| !token.follows_number);
     let token_text = token.map(|token| token.text);
     let blocked = suggesting.dismissed.is_some() && suggesting.dismissed == token_text;
 
@@ -988,14 +989,11 @@ fn suggest(
 
     let shown: Vec<Candidate> = match (&token_text, completion::available(ctx)) {
         (Some(typed), Some(completions)) if !blocked => {
-            completions.matching(typed, editing_parameter, completion::MAX_SHOWN)
+            completions.matching(typed, editing_parameter, completion::MAX_SHOWN, built_ins)
         }
         _ => Vec::new(),
     };
-    let names: Vec<String> = shown
-        .iter()
-        .map(|candidate| candidate.name.clone())
-        .collect();
+    let names: Vec<String> = shown.iter().map(Candidate::inserted).collect();
 
     if names != suggesting.names {
         suggesting.selected = 0;

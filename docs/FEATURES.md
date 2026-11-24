@@ -222,12 +222,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Application
 
 - [medium · easy] Workspace, parameter, palette, inspection and assistant ergonomics:
-  - Expression completion popup (`completion.rs`) listing built-in functions (`Function::ALL`) and
-    constants (`pi`, `tau`, `e`) after parameter matches; concise hover tooltip on scrubbable
-    captions (`field.rs`); custom `colour_selector` for configured body colours
-    (`configurations.rs`).
-  - Command palette (`palette.rs`) `Home`/`End` navigation, evaluated parameter values beside
-    expressions, and indexing renamed Bodies and Feature folders.
+  - Concise hover tooltip on scrubbable captions (`field.rs`); custom `colour_selector` for
+    configured body colours (`configurations.rs`).
   - AI Assistant (`assistant_panel.rs`) inline `**bold**` / `` `code` `` rendering, message Copy
     buttons and sticky auto-scroll.
 - [low · small] An import's unit and scale are not remembered with its centring and plane

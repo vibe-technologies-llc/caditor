@@ -1,7 +1,10 @@
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{Harness, canonical, feature_named, run_from_palette, sample_document};
+use super::{
+    Harness, add_parameters, canonical, extruded_plate, feature_named, run_from_palette,
+    sample_document,
+};
 use crate::{
     commands::{Command, Offer, RecentSlot},
     editing::Tool,
@@ -256,7 +259,7 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
     let entries = harness.workspace.palette.entries(
         &harness.workspace.last_offers,
         &harness.workspace.preferences.keymap,
-        harness.model.document(),
+        crate::palette::Source::of(harness.model.document()),
         &ToggleStates::of(&harness.workspace.viewport, false),
     );
     let trim = entries
@@ -383,4 +386,91 @@ fn the_shortcut_list_opens_from_its_own_default_key() {
     harness.show_new_windows();
 
     assert!(harness.shows(crate::shortcut_editor::TITLE));
+}
+
+#[test]
+fn home_and_end_jump_to_the_first_and_last_entry() {
+    let mut harness = Harness::new();
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.key(Key::End, Modifiers::NONE);
+    harness.frame();
+
+    let at_end = harness.workspace.palette.highlighted();
+
+    harness.key(Key::Home, Modifiers::NONE);
+    harness.frame();
+
+    let at_start = harness.workspace.palette.highlighted();
+
+    harness.type_text("line");
+    harness.key(Key::End, Modifiers::COMMAND);
+    harness.frame();
+
+    let searched_end = harness.workspace.palette.highlighted();
+
+    assert!(at_end > 10);
+    assert_eq!(at_start, 0);
+    assert!(searched_end > 0);
+}
+
+#[test]
+fn the_palette_finds_renamed_bodies_and_feature_folders_and_shows_parameter_values() {
+    use caditor_document::{BodyAppearance, Edit, Transaction};
+
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let sketch = harness
+        .document()
+        .feature(plate)
+        .and_then(|feature| feature.kind.solid())
+        .map(|solid| solid.sketch())
+        .unwrap();
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Name the body",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: BodyAppearance {
+                name: Some("Lid".to_owned()),
+                ..BodyAppearance::default()
+            },
+        },
+    )));
+
+    let grouping = harness
+        .document()
+        .grouping(&[sketch, plate], "Base parts", "Group")
+        .unwrap();
+
+    harness.perform(Action::Apply(grouping));
+    add_parameters(&mut harness, &[("span", "40 mm"), ("half", "span / 2")]);
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("half");
+
+    let value_shown = harness.shows_containing("span / 2 = 20");
+
+    harness.replace_text("lid");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    let body_chosen = harness.workspace.panels.chosen();
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("base parts");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    let folder_chosen = harness.workspace.panels.chosen();
+
+    assert!(value_shown);
+    assert_eq!(body_chosen, [plate]);
+    assert_eq!(folder_chosen, [sketch, plate]);
 }

@@ -68,8 +68,10 @@ what an expression comes to below the field, and they apply as you type, with no
 ## Suggestions and clicking a dimension or a parameter
 
 While you type a name in a value field, a list under the field shows the parameters whose names
-start with what you typed (then those containing it), at most eight, each with its current value;
-measured parameters are listed like any other. Up and Down choose one, Tab inserts the first or the
+start with what you typed (then those containing it), then the constants and functions starting
+with it, at most eight, each with its current value; measured parameters are listed like any other,
+and a function goes in with its opening bracket. Right after a number only parameters are listed,
+since the word there is usually a unit. Up and Down choose one, Tab inserts the first or the
 chosen one, Enter inserts the one you chose with the arrows (Enter alone still keeps the value),
 Escape closes the list, and a click on a row inserts it. A name that would make the parameter being
 edited depend on itself is never listed. Up and Down step a number as before while no list is shown.

@@ -61,12 +61,16 @@ fn end_distance(harness: &Harness, extrude: FeatureId) -> Expression {
 
 fn suggestions(harness: &mut Harness) -> Vec<String> {
     harness.read_screen();
-    harness
+
+    let mut listed: Vec<(usize, String)> = harness
         .accessible
         .iter()
         .filter(|(_, node)| node.role() == Role::ListBoxOption)
-        .filter_map(|(_, node)| node.label().map(str::to_owned))
-        .collect()
+        .filter_map(|(_, node)| Some((node.position_in_set()?, node.label()?.to_owned())))
+        .collect();
+
+    listed.sort();
+    listed.into_iter().map(|(_, label)| label).collect()
 }
 
 #[test]
@@ -161,7 +165,7 @@ fn a_name_that_would_form_a_cycle_is_never_suggested() {
     harness.focus(width);
     harness.type_text("h");
 
-    assert_eq!(suggestions(&mut harness), ["hole, 5 mm"]);
+    assert_eq!(suggestions(&mut harness), ["hole, 5 mm", "hypot, function"]);
 
     let hole = Focus::ParameterValue(harness.parameter("hole"));
 
@@ -317,4 +321,48 @@ fn a_parameter_value_that_would_form_a_cycle_is_not_inserted() {
 
     assert_ne!(harness.focused(), Some(wall.field_id()));
     assert_eq!(harness.expression_text("hole"), "wall + 2 mm");
+}
+
+#[test]
+fn functions_and_constants_follow_the_parameters_and_a_function_is_inserted_with_its_bracket() {
+    let mut harness = Harness::new();
+
+    with_parameters(&mut harness);
+
+    let extrude = open_extrusion(&mut harness);
+
+    harness.draft_into_field(distance_field(extrude), "h");
+
+    assert_eq!(
+        suggestions(&mut harness),
+        [
+            "height, 20 mm",
+            "hole, 5 mm",
+            "width, 40 mm",
+            "hypot, function"
+        ]
+    );
+
+    harness.draft_into_field(distance_field(extrude), "p");
+
+    assert_eq!(suggestions(&mut harness), ["pi, 3.14159"]);
+
+    harness.draft_into_field(distance_field(extrude), "5 m");
+
+    assert!(suggestions(&mut harness).is_empty());
+
+    harness.draft_into_field(distance_field(extrude), "sq");
+    harness.key(Key::Tab, Modifiers::NONE);
+    harness.frame();
+    harness.type_text("hole * hole)");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(
+        harness
+            .document()
+            .expression_text(&end_distance(&harness, extrude)),
+        "sqrt(hole * hole)"
+    );
 }

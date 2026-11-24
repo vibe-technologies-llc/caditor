@@ -6,7 +6,9 @@ use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{Harness, extruded_plate, offer, run_from_palette, top_edge_along_x, vertex_at};
+use super::{
+    Harness, add_parameters, extruded_plate, offer, run_from_palette, top_edge_along_x, vertex_at,
+};
 use crate::{
     commands::Command,
     editing::EditingCommand,
@@ -46,26 +48,6 @@ fn notice(harness: &Harness) -> String {
 
 fn notice_kind(harness: &Harness) -> Option<NoticeKind> {
     harness.model.notice().map(|notice| notice.kind)
-}
-
-fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<ParameterId> {
-    let mut ids = Vec::new();
-
-    for (name, text) in rows {
-        let document = harness.document();
-        let expression = Expression::parse(text, &|name| {
-            document
-                .parameter_named(name)
-                .map(|parameter| parameter.id())
-        })
-        .unwrap();
-        let mut transaction = document.transaction(format!("Add {name}"));
-
-        ids.push(transaction.add_parameter(*name, expression));
-        harness.perform(Action::Apply(transaction.finish()));
-    }
-    harness.settle();
-    ids
 }
 
 #[test]

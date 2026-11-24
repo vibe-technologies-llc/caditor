@@ -2091,6 +2091,26 @@ fn drag_value_arrow(
     step
 }
 
+fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<ParameterId> {
+    let mut ids = Vec::new();
+
+    for (name, text) in rows {
+        let document = harness.document();
+        let expression = Expression::parse(text, &|name| {
+            document
+                .parameter_named(name)
+                .map(|parameter| parameter.id())
+        })
+        .unwrap();
+        let mut transaction = document.transaction(format!("Add {name}"));
+
+        ids.push(transaction.add_parameter(*name, expression));
+        harness.perform(Action::Apply(transaction.finish()));
+    }
+    harness.settle();
+    ids
+}
+
 fn length_value(harness: &Harness, expression: &caditor_expression::Expression) -> f64 {
     harness
         .model

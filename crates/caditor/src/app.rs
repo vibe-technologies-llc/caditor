@@ -77,7 +77,7 @@ use crate::{
     onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
     pair_reading::PairReading,
-    palette::Palette,
+    palette::{self, Palette},
     panels::{self, PanelState, TreeContext},
     parameter_table,
     preferences::{
@@ -791,6 +791,15 @@ pub fn show(
     triggered.extend(palette.take_chosen());
     if let Some(focus) = palette.take_focus() {
         panels.request_focus(focus);
+    }
+    if let Some((revealed, rows)) = palette.take_rows() {
+        let chosen = match rows {
+            palette::Rows::Body(body) => vec![body],
+            palette::Rows::Folder(first) => model.document().group_run(first),
+        };
+
+        panels.choose_all(&chosen);
+        panels.reveal(revealed);
     }
     if let Some(index) = palette.take_view() {
         actions.push(Action::Preferences(PreferencesCommand::GoToView(index)));
@@ -1584,7 +1593,10 @@ pub fn show(
             ui.ctx(),
             &offers,
             &preferences.keymap,
-            model.document(),
+            palette::Source {
+                document: model.document(),
+                values: Some((model.parameters(), model.units())),
+            },
             &toggles,
         );
         if let Some(reason) = palette.take_refusal() {

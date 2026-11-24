@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use caditor_document::{DependencyGraph, Document, ParameterValues};
-use caditor_expression::{Expression, ParameterId};
+use caditor_expression::{Constant, Expression, Function, ParameterId};
 use egui::{
     Area, Context, CornerRadius, Frame, Id, Key, Order, Rect, Response, Sense, Stroke, Ui, Vec2,
     accesskit::{HasPopup, Role},
@@ -17,7 +17,8 @@ use crate::{
 };
 
 pub const MAX_SHOWN: usize = 8;
-pub const LIST_NAME: &str = "Parameter suggestions";
+pub const LIST_NAME: &str = "Parameter and function suggestions";
+pub const FUNCTION_NOTE: &str = "function";
 
 const COMPLETIONS_KEY: &str = "completion-candidates";
 const OFFER_KEY: &str = "completion-offer";
@@ -27,16 +28,53 @@ const ROW_PADDING: Vec2 = vec2(SPACE_M, SPACE_XS);
 const COLUMN_GAP: f32 = SPACE_M * 2.0;
 const OFFER_LIFE: u64 = 2;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Parameter(ParameterId),
+    Function,
+    Constant,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
-    pub id: ParameterId,
+    pub source: Source,
     pub name: String,
     pub value: Option<String>,
+}
+
+impl Candidate {
+    pub fn inserted(&self) -> String {
+        match self.source {
+            Source::Function => format!("{}(", self.name),
+            Source::Parameter(_) | Source::Constant => self.name.clone(),
+        }
+    }
+
+    fn built_in() -> Vec<Self> {
+        let constants = [Constant::Pi, Constant::Tau, Constant::E]
+            .into_iter()
+            .map(|constant| Self {
+                source: Source::Constant,
+                name: constant.name().to_owned(),
+                value: Some(format!("{:.5}", constant.value().value)),
+            });
+        let functions = Function::ALL.into_iter().map(|function| Self {
+            source: Source::Function,
+            name: function.name().to_owned(),
+            value: Some(FUNCTION_NOTE.to_owned()),
+        });
+
+        let mut built_in: Vec<Self> = constants.chain(functions).collect();
+
+        built_in.sort_by(|a, b| a.name.cmp(&b.name));
+        built_in
+    }
 }
 
 #[derive(Clone)]
 pub struct Completions {
     candidates: Arc<[Candidate]>,
+    built_in: Arc<[Candidate]>,
     graph: Arc<DependencyGraph>,
 }
 
@@ -54,7 +92,7 @@ impl Completions {
             .parameters()
             .iter()
             .map(|parameter| Candidate {
-                id: parameter.id(),
+                source: Source::Parameter(parameter.id()),
                 name: parameter.name.clone(),
                 value: match parameters.get(parameter.id()) {
                     Some(Ok(value)) => Some(units.show(*value)),
@@ -66,6 +104,7 @@ impl Completions {
         candidates.sort_by_cached_key(|candidate| candidate.name.to_lowercase());
         Self {
             candidates: candidates.into(),
+            built_in: Candidate::built_in().into(),
             graph: Arc::new(DependencyGraph::of(document)),
         }
     }
@@ -83,11 +122,15 @@ impl Completions {
         typed: &str,
         editing: Option<ParameterId>,
         limit: usize,
+        built_ins: bool,
     ) -> Vec<Candidate> {
         let wanted = typed.to_lowercase();
         let usable = |candidate: &&Candidate| {
             candidate.name != typed
-                && editing.is_none_or(|target| !self.forms_cycle(target, candidate.id))
+                && match (editing, candidate.source) {
+                    (Some(target), Source::Parameter(id)) => !self.forms_cycle(target, id),
+                    _ => true,
+                }
         };
         let starting = self
             .candidates
@@ -97,8 +140,14 @@ impl Completions {
             let name = candidate.name.to_lowercase();
             !name.starts_with(&wanted) && name.contains(&wanted)
         });
+        let built_in = self
+            .built_in
+            .iter()
+            .filter(|candidate| built_ins && candidate.name.starts_with(&wanted));
+
         starting
             .chain(containing)
+            .chain(built_in)
             .filter(usable)
             .take(limit)
             .cloned()
@@ -215,6 +264,7 @@ pub struct Token {
     pub start: usize,
     pub end: usize,
     pub text: String,
+    pub follows_number: bool,
 }
 
 fn is_name_character(character: char) -> bool {
@@ -255,10 +305,17 @@ pub fn token_at(text: &str, caret: usize) -> Option<Token> {
     if names_a_value {
         return None;
     }
+
+    let follows_number = before.ends_with(char::is_whitespace)
+        && before
+            .trim_end()
+            .ends_with(|character: char| character.is_ascii_digit() || character == '.');
+
     Some(Token {
         start,
         end: caret,
         text: token,
+        follows_number,
     })
 }
 

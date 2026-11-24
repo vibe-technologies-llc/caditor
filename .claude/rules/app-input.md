@@ -151,7 +151,10 @@ paths:
   letter or `_`, so units glued to a number and the name in `name = …` are never completed) is
   matched case-insensitively, at most `MAX_SHOWN`, leaving out an exact match and, for a field
   editing a parameter (`completion::editing_parameter`), any name that is that parameter or would
-  depend on it (`DependencyGraph::cycle`). The list is an `Area` (`completion::list`, opening above the field when it would run past the
+  depend on it (`DependencyGraph::cycle`). After the parameters come the constants and built-in
+  functions starting with it (`completion::Source`; a function is inserted with its opening
+  bracket, `Candidate::inserted`), left out when the word follows a number and a space
+  (`Token::follows_number`), where it is a unit being typed. The list is an `Area` (`completion::list`, opening above the field when it would run past the
   window's bottom and there is room above, its width held to `widgets::fitting_width`), a `ListBox`
   named `LIST_NAME` of `ListBoxOption`s; the field keeps focus and carries `has_popup`, `expanded`
   and the active descendant. While open (known from last frame's `Suggesting`) Up and Down choose a
@@ -333,7 +336,11 @@ paths:
 
 - `palette.rs` lists this frame's offers, then the sketch commands that do not fit outside a sketch
   (muted, after all offers, `palette::absence`), and once something is typed: features
-  (`Focus::Feature`), parameters (`Focus::ParameterValue`), saved views (`Choice::View`,
+  (`Focus::Feature`), bodies with a name of their own and feature folders (`Choice::Rows`,
+  `Palette::take_rows`: the body's row, or the folder's run by `Document::group_run`, chosen in the
+  tree with the first feature revealed), parameters (`Focus::ParameterValue`, the note the
+  expression followed by its value when it is not a literal: `palette::Source` carries the model's
+  `ParameterValues` and units, `Source::of` a bare document for unit tests), saved views (`Choice::View`,
   `Palette::take_view`), selection sets (`Choice::SelectionSet`, `Palette::take_selection_set`) and
   configurations (`Choice::Configuration`, `Palette::take_configuration`); focus reaches the panels
   next frame (`Palette::take_focus`, `PanelState::request_focus`). Groups (Recent only while nothing
@@ -343,7 +350,9 @@ paths:
   triggered next frame. Enter or a click on an entry that is not ready closes the palette and posts
   its detail line as a warning notice (`Palette::take_refusal`), so the next key reaches the view or
   panel it was meant for. Up and Down move the highlight by a row, PageUp and PageDown by
-  `palette::rows_in_a_page` (the rows the list shows at its height), clamped to the list.
+  `palette::rows_in_a_page` (the rows the list shows at its height), clamped to the list; Ctrl+Home
+  and Ctrl+End jump to the first and last entry, and so do Home and End while the field is empty
+  (otherwise they move the caret).
 - Matching ranks a start of the title, then starts of words, then text inside, then other names
   (`Command::keywords`; a feature's kind words from `feature_tree::kind_words`), then scattered
   letters (`palette::fit_with_keywords`), so a synonym never outranks a title it also matches.

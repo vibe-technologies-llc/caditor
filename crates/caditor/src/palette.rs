@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use caditor_document::{ConfigurationId, Document};
+use caditor_document::{ConfigurationId, Document, FeatureId, Parameter, ParameterValues};
 use egui::{
     Align, CornerRadius, Key, Label, Layout, Modifiers, Rect, Response, RichText, ScrollArea,
     Sense, TextEdit, TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
@@ -9,9 +9,10 @@ use egui::{
 use crate::{
     appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{Command, Keymap, Offer, Scope},
-    feature_tree, icons,
+    feature_tree, field, icons,
     panels::Focus,
     toggles::{Shown, ToggleStates},
+    units::Units,
     widgets::{self, DialogWidth, ListHeight, Tone},
 };
 
@@ -59,10 +60,72 @@ impl Group {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Source<'a> {
+    pub document: &'a Document,
+    pub values: Option<(&'a ParameterValues, Units)>,
+}
+
+impl<'a> Source<'a> {
+    #[cfg(test)]
+    pub fn of(document: &'a Document) -> Self {
+        Self {
+            document,
+            values: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rows {
+    Body(FeatureId),
+    Folder(FeatureId),
+}
+
+fn parameter_note(source: Source<'_>, parameter: &Parameter) -> String {
+    let text = source.document.expression_text(&parameter.expression);
+    let value = source
+        .values
+        .and_then(|(values, units)| field::value_preview(values, &parameter.expression, units));
+
+    match value {
+        Some(value) => format!("{text} {value}"),
+        None => text,
+    }
+}
+
+fn renamed_bodies(document: &Document) -> Vec<(FeatureId, String)> {
+    document
+        .features()
+        .filter_map(|feature| {
+            let name = feature.appearance.name.as_ref()?;
+            (*name != feature.name).then(|| (feature.id(), name.clone()))
+        })
+        .collect()
+}
+
+fn feature_folders(document: &Document) -> Vec<(String, FeatureId)> {
+    let mut folders: Vec<(String, FeatureId)> = Vec::new();
+    let mut previous: Option<&str> = None;
+
+    for feature in document.features() {
+        let group = feature.group.as_deref();
+
+        if let Some(name) = group
+            && previous != Some(name)
+        {
+            folders.push((name.to_owned(), feature.id()));
+        }
+        previous = group;
+    }
+    folders
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Command(Command),
     Focus(Focus),
+    Rows { revealed: FeatureId, chosen: Rows },
     View(usize),
     SelectionSet(usize),
     Configuration(ConfigurationId),
@@ -115,6 +178,9 @@ impl Entry {
             (State::Ready, Choice::Focus(_)) => {
                 "Press Enter to select it in the feature tree.".to_owned()
             }
+            (State::Ready, Choice::Rows { .. }) => {
+                "Press Enter to choose it in the tree and light it in the view.".to_owned()
+            }
             (State::Ready, Choice::View(_)) => "Press Enter to go to this saved view.".to_owned(),
             (State::Ready, Choice::SelectionSet(_)) => {
                 "Press Enter to select what this set holds.".to_owned()
@@ -141,6 +207,7 @@ pub struct Palette {
     highlighted: usize,
     chosen: Option<Command>,
     focus: Option<Focus>,
+    rows: Option<(FeatureId, Rows)>,
     view: Option<usize>,
     selection_set: Option<usize>,
     configuration: Option<ConfigurationId>,
@@ -183,6 +250,10 @@ impl Palette {
         self.focus.take()
     }
 
+    pub fn take_rows(&mut self) -> Option<(FeatureId, Rows)> {
+        self.rows.take()
+    }
+
     pub fn take_view(&mut self) -> Option<usize> {
         self.view.take()
     }
@@ -214,6 +285,7 @@ impl Palette {
                 self.recent.truncate(RECENT_LIMIT);
             }
             Choice::Focus(focus) => self.focus = Some(focus),
+            Choice::Rows { revealed, chosen } => self.rows = Some((revealed, chosen)),
             Choice::View(index) => self.view = Some(index),
             Choice::SelectionSet(index) => self.selection_set = Some(index),
             Choice::Configuration(id) => self.configuration = Some(id),
@@ -231,9 +303,10 @@ impl Palette {
         &self,
         offers: &[Offer],
         keymap: &Keymap,
-        document: &Document,
+        source: Source<'_>,
         toggles: &ToggleStates,
     ) -> Vec<Entry> {
+        let document = source.document;
         let query = self.query.trim().to_lowercase();
         let searching = !query.is_empty();
 
@@ -313,6 +386,46 @@ impl Palette {
 
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
             }
+            for (order, (body, name)) in renamed_bodies(document).into_iter().enumerate() {
+                let Some((fit, length)) = matches(&name, &name, &["body"]) else {
+                    continue;
+                };
+                let entry = Entry {
+                    group: Group::Features,
+                    choice: Choice::Rows {
+                        revealed: body.maker(),
+                        chosen: Rows::Body(body),
+                    },
+                    title: name,
+                    glyph: icons::BODIES,
+                    note: Some("Body".to_owned()),
+                    keys: None,
+                    shown: None,
+                    state: State::Ready,
+                };
+
+                ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
+            }
+            for (order, (name, first)) in feature_folders(document).into_iter().enumerate() {
+                let Some((fit, length)) = matches(&name, &name, &["folder", "group"]) else {
+                    continue;
+                };
+                let entry = Entry {
+                    group: Group::Features,
+                    choice: Choice::Rows {
+                        revealed: first,
+                        chosen: Rows::Folder(first),
+                    },
+                    title: name,
+                    glyph: icons::FEATURE_GROUP,
+                    note: Some("Folder".to_owned()),
+                    keys: None,
+                    shown: None,
+                    state: State::Ready,
+                };
+
+                ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
+            }
             for (order, parameter) in document.parameters().iter().enumerate() {
                 let Some((fit, length)) = matches(&parameter.name, &parameter.name, &[]) else {
                     continue;
@@ -322,7 +435,7 @@ impl Palette {
                     choice: Choice::Focus(Focus::ParameterValue(parameter.id())),
                     title: parameter.name.clone(),
                     glyph: icons::UNIT,
-                    note: Some(document.expression_text(&parameter.expression)),
+                    note: Some(parameter_note(source, parameter)),
                     keys: None,
                     shown: None,
                     state: State::Ready,
@@ -448,13 +561,14 @@ impl Palette {
         ctx: &egui::Context,
         offers: &[Offer],
         keymap: &Keymap,
-        document: &Document,
+        source: Source<'_>,
         toggles: &ToggleStates,
     ) {
         if !self.open {
             return;
         }
 
+        let caret_free = self.query.is_empty();
         let (up, down, page_up, page_down, enter) = ctx.input_mut(|input| {
             (
                 input.consume_key(Modifiers::NONE, Key::ArrowUp),
@@ -463,6 +577,13 @@ impl Palette {
                 input.consume_key(Modifiers::NONE, Key::PageDown),
                 input.consume_key(Modifiers::NONE, Key::Enter),
             )
+        });
+        let (first, last_entry) = ctx.input_mut(|input| {
+            let mut jump = |key: Key| {
+                input.consume_key(Modifiers::COMMAND, key)
+                    || (caret_free && input.consume_key(Modifiers::NONE, key))
+            };
+            (jump(Key::Home), jump(Key::End))
         });
         let page = rows_in_a_page(ctx);
 
@@ -490,8 +611,15 @@ impl Palette {
             }
             field.request_focus();
 
-            let entries = self.entries(offers, keymap, document, toggles);
+            let entries = self.entries(offers, keymap, source, toggles);
             let last = entries.len().saturating_sub(1);
+
+            if first {
+                self.highlighted = 0;
+            }
+            if last_entry {
+                self.highlighted = last;
+            }
 
             if down {
                 self.highlighted = (self.highlighted + 1).min(last);
@@ -765,7 +893,12 @@ mod tests {
 
     fn found(palette: &Palette, offers: &[Offer]) -> Vec<Choice> {
         palette
-            .entries(offers, &Keymap::default(), &Document::default(), &toggles())
+            .entries(
+                offers,
+                &Keymap::default(),
+                Source::of(&Document::default()),
+                &toggles(),
+            )
             .iter()
             .filter(|entry| !matches!(entry.state, State::OutOfContext(_)))
             .map(|entry| entry.choice)
@@ -852,7 +985,12 @@ mod tests {
         let mut found = |query: &str| {
             palette.query = query.to_owned();
             palette
-                .entries(&offers, &Keymap::default(), &document, &toggles())
+                .entries(
+                    &offers,
+                    &Keymap::default(),
+                    Source::of(&document),
+                    &toggles(),
+                )
                 .iter()
                 .filter(|entry| !matches!(entry.state, State::OutOfContext(_)))
                 .map(|entry| entry.choice)
@@ -883,7 +1021,7 @@ mod tests {
         let entries = palette.entries(
             &offers,
             &Keymap::default(),
-            &Document::default(),
+            Source::of(&Document::default()),
             &toggles(),
         );
         let shown: Vec<Option<Shown>> = entries
@@ -910,7 +1048,7 @@ mod tests {
         let entries = palette.entries(
             &offers,
             &Keymap::default(),
-            &Document::default(),
+            Source::of(&Document::default()),
             &toggles(),
         );
         let line = entries
