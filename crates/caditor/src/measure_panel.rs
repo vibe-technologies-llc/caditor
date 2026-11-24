@@ -28,6 +28,15 @@ use crate::{
 pub const TITLE: &str = "Measure";
 pub const CLOSE: &str = "Close the measure panel";
 pub const COPY_ALL: &str = "Copy all";
+pub const COPY_ALL_HOVER: &str = "Copy every reading in the panel as text";
+pub const NOTHING_TO_COPY: &str = "There is no reading to copy yet. Select something to measure.";
+
+pub fn copied_cards(count: usize) -> String {
+    match count {
+        1 => "Copied 1 card as text.".to_owned(),
+        _ => format!("Copied {count} cards as text."),
+    }
+}
 pub const MEASURING: &str = "Measuring…";
 pub const MASS_TITLE: &str = "Mass properties";
 pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to measure it, or two of \
@@ -776,22 +785,31 @@ pub fn show(
     let mut chosen = None;
     let mut mass_work = None;
     let mut relative_to = tool.relative_to;
+    let mut copied = None;
+
     let header_actions = |ui: &mut Ui| {
-        let everything_text = cards
+        let everything: Vec<&Card> = cards
             .iter()
             .flat_map(|(_, cards, _)| cards)
+            .chain(&masses.total)
             .chain(&masses.cards)
-            .map(Card::text)
-            .collect::<Vec<_>>()
-            .join("\n");
+            .collect();
         let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
 
         if ui
-            .add(copy)
-            .on_hover_text("Copy every reading in the panel as text")
+            .add_enabled(!everything.is_empty(), copy)
+            .on_hover_text(COPY_ALL_HOVER)
+            .on_disabled_hover_text(NOTHING_TO_COPY)
             .clicked()
         {
-            ui.ctx().copy_text(everything_text);
+            let text = everything
+                .iter()
+                .map(|card| card.text())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            ui.ctx().copy_text(text);
+            copied = Some(everything.len());
         }
         if measuring && !context.selection.is_empty() {
             widgets::progress(MEASURING).show(ui);
@@ -825,6 +843,9 @@ pub fn show(
     });
 
     tool.relative_to = relative_to;
+    if let Some(count) = copied {
+        actions.push(Action::Inform(Notice::success(copied_cards(count))));
+    }
     if let Some(work) = mass_commands(&masses, commands).or(mass_work) {
         steer_masses(context, &masses, work);
     }

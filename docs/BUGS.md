@@ -208,17 +208,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Inspection panels and Technical Drawings defects:
-  - `section_panel.rs` and `analysis_panel.rs` omit `.on_disabled_hover_text(hover)` on disabled
-    `Use selected` and `Add a plane` buttons and do not apply valid `field.edited` values live while
-    scrubbing/stepping; `analysis_panel.rs` omits swatch borders, draws an empty properties grid for
-    `Chrome`, and shows `NO_BODIES` inconsistently.
-  - `measure_panel.rs` omits `masses.total` from `Copy all`, leaves `Copy all` enabled when empty,
-    and neither `measure_panel.rs` nor `interference_panel.rs` posts a confirmation notice on copy.
-  - `drawings_panel.rs` does not auto-focus/select-all on rename (and discards invalid text on
-    error), wheel-zooms around sheet centre instead of the pointer, lacks `set_focus_lock_filter`
-    for arrow-key panning, omits zoom `%` readout and bound disabling, does not disable
-    `New drawing` at `MAX_DRAWINGS` with hover text, and leaves empty-state labels unmuted.
 - [medium · medium] At an interface scale of 200% the signed-in Home (`home.rs`: `cloud_header`,
   `signing_in`, `project_line`) overlaps and clips: the "Fusion 360" title and its hub and account
   detail run into the Refresh button, and "Sign out" is cut off at the page's right edge, because

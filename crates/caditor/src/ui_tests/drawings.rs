@@ -1,6 +1,6 @@
 use caditor_document::{
-    DetailParent, DetailScale, DrawnView, Projection, ResolvedPlace, ScaleRatio, SectionPlace,
-    SectionPlane, StandardView,
+    DetailParent, DetailScale, DrawnView, MAX_DRAWINGS, Projection, ResolvedPlace, ScaleRatio,
+    SectionPlace, SectionPlane, StandardView,
 };
 use caditor_expression::Expression;
 use egui::{Key, Modifiers};
@@ -9,8 +9,8 @@ use tempfile::TempDir;
 use super::{Harness, extruded_plate, run_from_palette};
 use crate::{
     drawings_panel::{
-        ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_DETAILS, NO_SECTIONS,
-        NONE_YET, WORKING, ZOOM_IN, detail_field_id, offset_field_id,
+        ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NEW, NO_DETAILS, NO_SECTIONS,
+        NONE_YET, RENAME, WORKING, ZOOM_IN, detail_field_id, offset_field_id,
     },
     model::Action,
 };
@@ -453,4 +453,54 @@ fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and
     harness.frame();
 
     assert_eq!(details(&harness).len(), 1);
+}
+
+#[test]
+fn renaming_selects_the_name_keeps_a_refused_one_and_the_sheet_reads_its_zoom() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "Drawings");
+    harness.frame();
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    wait_for_views(&mut harness);
+
+    harness.click(RENAME);
+    harness.frame();
+    harness.type_text("drawing 2");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    let names: Vec<String> = harness
+        .document()
+        .drawings()
+        .drawings
+        .iter()
+        .map(|drawing| drawing.name.clone())
+        .collect();
+
+    assert_eq!(names, ["Drawing 1", "Drawing 2"]);
+    assert!(harness.shows("drawing 2"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.click(ZOOM_IN);
+    harness.frame();
+
+    assert!(harness.shows("125%"));
+
+    for _ in names.len()..MAX_DRAWINGS {
+        let (transaction, _) = harness.document().adding_drawing(Vec::new()).unwrap();
+
+        harness.perform(Action::Apply(transaction));
+    }
+    harness.frame();
+    harness.read_screen();
+
+    assert_eq!(harness.document().drawings().drawings.len(), MAX_DRAWINGS);
+    assert_eq!(harness.button_enabled(NEW), Some(false));
 }

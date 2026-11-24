@@ -1034,6 +1034,13 @@ impl Harness {
         ))
     }
 
+    fn button_enabled(&self, name: &str) -> Option<bool> {
+        self.accessible
+            .iter()
+            .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+            .map(|(_, node)| !node.is_disabled())
+    }
+
     fn has_button(&self, name: &str) -> bool {
         self.accessible
             .iter()

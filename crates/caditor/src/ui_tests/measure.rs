@@ -9,6 +9,7 @@ use super::{
     run_from_palette, vertex_at,
 };
 use crate::{
+    measure_panel,
     selection::{Pickable, PrincipalPlane},
     units::Units,
 };
@@ -394,4 +395,47 @@ fn working_out_mass_properties_can_be_cancelled_and_asked_for_again() {
 
     assert!(!harness.shows(&measure_panel::stopped_masses_text(1)));
     assert!(!harness.shows(measure_panel::WORKING_OUT_MASSES));
+}
+
+#[test]
+fn copy_all_is_disabled_with_nothing_to_copy_and_copies_the_total_card_with_a_notice() {
+    let mut harness = Harness::new();
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.read_screen();
+
+    let enabled_when_empty = harness.button_enabled(measure_panel::COPY_ALL);
+
+    add_block(
+        &mut harness,
+        "first",
+        [Point2::new(0.0, 0.0), Point2::new(10.0, 10.0)],
+        "10 mm",
+    );
+    add_block(
+        &mut harness,
+        "second",
+        [Point2::new(20.0, 0.0), Point2::new(30.0, 10.0)],
+        "10 mm",
+    );
+    harness.settle();
+    harness.read_screen();
+
+    let enabled_with_bodies = harness.button_enabled(measure_panel::COPY_ALL);
+
+    harness.click_button(measure_panel::COPY_ALL);
+    harness.frame();
+
+    let copied = harness.clipboard.clone().unwrap_or_default();
+    let notice = harness
+        .model
+        .notice()
+        .map(|notice| notice.text.clone())
+        .unwrap_or_default();
+
+    assert_eq!(enabled_when_empty, Some(false));
+    assert_eq!(enabled_with_bodies, Some(true));
+    assert!(copied.contains("All 2 bodies"), "{copied}");
+    assert_eq!(notice, measure_panel::copied_cards(3));
 }

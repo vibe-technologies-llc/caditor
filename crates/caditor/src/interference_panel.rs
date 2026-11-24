@@ -13,7 +13,7 @@ use crate::{
     interference::{Bodies, Finding, InterferenceTool, Pair, Report, Scope},
     layout::RightPanel,
     measure_panel::{self, Card, Row},
-    model::Model,
+    model::{Action, Model, Notice},
     selection::Selection,
     units::Units,
     widgets::{self, PanelTitle, Tone},
@@ -22,6 +22,7 @@ use crate::{
 pub const TITLE: &str = "Interference";
 pub const CLOSE: &str = "Close the interference panel";
 pub const COPY_ALL: &str = "Copy all";
+pub const NOTHING_TO_COPY: &str = "There is no finding to copy yet.";
 pub const SHOW_PLACE: &str = "Show where";
 pub const NONE_FOUND: &str = "No bodies overlap or touch.";
 pub const TOO_FEW: &str = "Interference is checked between two bodies or more; this model shows \
@@ -373,6 +374,7 @@ pub fn show(
     tool: &mut InterferenceTool,
     room: f32,
     commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
 ) -> Option<Point3> {
     let report = tool.report.as_ref()?;
     let listing = tool.listing.as_ref()?;
@@ -387,17 +389,23 @@ pub fn show(
     let mut stop = false;
     let mut again = false;
 
-    let actions = |ui: &mut Ui| {
+    let mut copied = None;
+
+    let header_actions = |ui: &mut Ui| {
+        let copyable = summary.is_some() || !cards.is_empty();
         let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+
         if ui
-            .add(copy)
+            .add_enabled(copyable, copy)
             .on_hover_text("Copy every finding in the panel as text")
+            .on_disabled_hover_text(NOTHING_TO_COPY)
             .clicked()
         {
             ui.ctx().copy_text(listing.everything());
+            copied = Some(cards.len());
         }
     };
-    let panel = widgets::side_panel(ui, room, PANEL, &HEADER, actions, |ui| {
+    let panel = widgets::side_panel(ui, room, PANEL, &HEADER, header_actions, |ui| {
         ui.label(widgets::muted(scope, ui));
         ui.add_space(SPACE_S);
         if report.is_checking() {
@@ -447,6 +455,14 @@ pub fn show(
     }
     if again {
         tool.forget();
+    }
+    if let Some(count) = copied {
+        let words = match count {
+            0 => "Copied the interference summary as text.".to_owned(),
+            _ => measure_panel::copied_cards(count),
+        };
+
+        actions.push(Action::Inform(Notice::success(words)));
     }
     if panel.closed {
         tool.toggle();

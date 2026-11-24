@@ -1,6 +1,7 @@
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point2, Vector3};
 use caditor_sketch::Sketch;
+use egui::{Id, Key, Modifiers};
 
 use super::{
     CAMERA_SETTLE, Harness, drag_screen, edit_base_sketch, extruded_plate, plate_on_screen,
@@ -158,4 +159,33 @@ fn a_box_over_sketch_curves_leaves_out_what_a_section_plane_cuts_away() {
 
     assert_eq!(whole, 4);
     assert_eq!(cut, 3);
+}
+
+#[test]
+fn a_section_offset_moves_the_plane_while_typed_and_goes_back_when_left_unentered() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run(&mut harness, "show or hide the section view");
+
+    let offset = Id::unique(("section", 0usize, "offset"));
+    let stored = harness.workspace.section.cuts[0].offset.clone();
+    let origin = |harness: &mut Harness| harness.built().scene.section[0].plane.origin().y;
+    let before = origin(&mut harness);
+
+    harness.focus_field(offset);
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.type_text("5 mm");
+    harness.frame();
+    harness.frame();
+
+    let while_typed = origin(&mut harness);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!((while_typed - before).abs() > 1e-6);
+    assert_eq!(harness.workspace.section.cuts[0].offset, stored);
+    assert!((origin(&mut harness) - before).abs() < 1e-9);
 }

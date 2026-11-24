@@ -422,3 +422,39 @@ fn analysing_a_large_body_can_be_cancelled_leaving_it_plain_until_analysed_again
     );
     assert_eq!(harness.model.revision(), revision);
 }
+
+#[test]
+fn a_typed_draft_limit_colours_the_faces_before_it_is_entered_and_an_empty_model_says_so() {
+    use crate::analysis::{Analysis, FaceAnalysis};
+
+    let mut harness = Harness::new();
+
+    run_from_palette(&mut harness, "show a chrome reflection");
+    harness.frame();
+
+    let empty_says_so = harness.shows(crate::analysis_panel::NO_BODIES);
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "analyse draft");
+    harness.frame();
+
+    let stored = harness.workspace.analysis.draft_limit.clone();
+    let limit = |harness: &Harness| match harness.workspace.analysis.analysis(&harness.model) {
+        Ok(Analysis::Faces(FaceAnalysis::Draft { limit, .. })) => Some(limit),
+        _ => None,
+    };
+
+    harness.focus_field(egui::Id::unique(("analysis-limit", "draft")));
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.type_text("45 deg");
+
+    let while_typed = limit(&harness);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert!(empty_says_so);
+    assert_eq!(while_typed, Some(45.0));
+    assert_eq!(harness.workspace.analysis.draft_limit, stored);
+    assert_ne!(limit(&harness), Some(45.0));
+}

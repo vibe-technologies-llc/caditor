@@ -12,7 +12,7 @@ use crate::{
     layout::RightPanel,
     model::Model,
     plane_selector,
-    section::{self, Cut, SectionTool},
+    section::{self, Cut, CutValue, SectionTool},
     selection::{Pickable, PrincipalPlane, Selection},
     widgets::{self, FIELD_WIDTH, PanelTitle, Tone},
 };
@@ -74,7 +74,14 @@ struct Value<'a> {
     dimension: Dimension,
 }
 
-fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Expression) -> bool {
+enum Edited {
+    Untouched,
+    Committed(Expression),
+    Drafted(Expression),
+    Left,
+}
+
+fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &Expression) -> Edited {
     widgets::caption(ui, value.caption);
 
     let document = model.document();
@@ -111,7 +118,12 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
 
     field.response.on_hover_text(value.hover);
 
-    let committed = field.committed.map(|parsed| *expression = parsed);
+    let edited = match (field.committed, field.left, field.edited) {
+        (Some(parsed), _, _) => Edited::Committed(parsed),
+        (None, true, _) => Edited::Left,
+        (None, false, Some(text)) => enter(&text).map_or(Edited::Untouched, Edited::Drafted),
+        (None, false, None) => Edited::Untouched,
+    };
 
     ui.end_row();
     if let Some(error) = field.error {
@@ -119,7 +131,7 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
     } else if let Some(problem) = problem {
         problem.row(ui);
     }
-    committed.is_some()
+    edited
 }
 
 fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut Cut) -> bool {
@@ -174,7 +186,8 @@ fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut 
 
     if ui
         .add_enabled(selected.is_ok(), button)
-        .on_hover_text(hover)
+        .on_hover_text(&hover)
+        .on_disabled_hover_text(hover)
         .clicked()
         && let Ok(base) = selected
     {
@@ -189,16 +202,16 @@ fn cut_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut C
     let model = context.model;
     let mut changed = base_rows(ui, context, index, cut);
 
-    for (caption, hover, slot, dimension, expression) in [
+    for (caption, hover, slot, dimension, which) in [
         (
             OFFSET,
             OFFSET_HOVER,
             "offset",
             Dimension::LENGTH,
-            &mut cut.offset,
+            CutValue::Offset,
         ),
-        (TILT, TILT_HOVER, "tilt", Dimension::ANGLE, &mut cut.tilt),
-        (TURN, TURN_HOVER, "turn", Dimension::ANGLE, &mut cut.turn),
+        (TILT, TILT_HOVER, "tilt", Dimension::ANGLE, CutValue::Tilt),
+        (TURN, TURN_HOVER, "turn", Dimension::ANGLE, CutValue::Turn),
     ] {
         let value = Value {
             caption,
@@ -206,8 +219,35 @@ fn cut_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut C
             id: Id::unique(("section", index, slot)),
             dimension,
         };
+        let stored = match which {
+            CutValue::Offset => &mut cut.offset,
+            CutValue::Tilt => &mut cut.tilt,
+            CutValue::Turn => &mut cut.turn,
+        };
+        let drafting_this = cut
+            .draft
+            .as_ref()
+            .is_some_and(|(drafted, _)| *drafted == which);
 
-        changed |= value_row(ui, model, &value, expression);
+        match value_row(ui, model, &value, stored) {
+            Edited::Untouched => {}
+            Edited::Committed(parsed) => {
+                *stored = parsed;
+                if drafting_this {
+                    cut.draft = None;
+                }
+                changed = true;
+            }
+            Edited::Drafted(parsed) => {
+                cut.draft = Some((which, parsed));
+                changed = true;
+            }
+            Edited::Left => {
+                if drafting_this {
+                    cut.draft = None;
+                }
+            }
+        }
     }
     if let Some(flipped) = feature_fields::reverse_row(ui, FLIP, cut.flipped) {
         cut.flipped = flipped;
@@ -313,7 +353,8 @@ fn body(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool) {
     let button = widgets::small_button(ui, icons::ADD_SECTION_PLANE, ADD);
     if ui
         .add_enabled(addable.is_ok(), button)
-        .on_hover_text(hover)
+        .on_hover_text(&hover)
+        .on_disabled_hover_text(hover)
         .clicked()
     {
         tool.add(context.model, context.centre);

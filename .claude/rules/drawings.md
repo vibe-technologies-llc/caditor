@@ -226,8 +226,15 @@ lines, never a picture of the 3D view.
   corner of its box (where lines meet), on the first drawn view. Deleting a section deletes the details enlarging it in the same
   transaction.
 - The sheet preview paints the plan in theme tokens (paper `raised`, lines `text`, hidden lines
-  and hatching `text_muted`, hidden dashed, cutting lines chained with thick ends): drag pans, `zoom_delta` (pinch, Ctrl and scroll) and the Zoom in, Zoom out
-  and Fit buttons zoom, arrow keys pan the focused sheet.
+  and hatching `text_muted`, hidden dashed, cutting lines chained with thick ends): drag pans,
+  `zoom_delta` (pinch, Ctrl and scroll) zooms about the pointer (`SheetCamera::zoom_about`), the
+  Zoom in, Zoom out and Fit buttons zoom about the middle, each zoom button disabled at its bound
+  (`LEAST_ZOOM`, `MOST_ZOOM`) and followed by a muted percentage; arrow keys pan the focused sheet,
+  which holds them through a focus lock filter.
+- Rename opens a name field focused with the name selected (once the click's release has passed,
+  since egui drops focus then); a refused name is said in a notice and stays in the field to be
+  corrected. New drawing is disabled at `MAX_DRAWINGS` with the refusal on hover, and the empty
+  Section views and Detail views lines are muted.
 - Export goes through `FileCommand::ExportSheet` with a `SheetJob` (plan plus each view's
   outcome), `Purpose::Sheet`, the drawing folder and the ordinary output confirmation, written on
   the file worker. The picker proposes the drawing's name in the format the last sheet was written

@@ -81,8 +81,8 @@ changes; the panel shows how many are done and the rest of caditor stays usable.
 cannot be drawn says why in the panel, and the other views are drawn as usual.
 
 The sheet below the settings is a preview: drag it to move it, pinch or hold Ctrl and scroll to
-zoom, or use **Zoom in**, **Zoom out** and **Fit the sheet**. With the sheet focused (Tab), the
-arrow keys move it.
+zoom about the pointer, or use **Zoom in**, **Zoom out** and **Fit the sheet**; the percentage beside
+them is how large the sheet is drawn. With the sheet focused (Tab), the arrow keys move it.
 
 ## Exporting
 

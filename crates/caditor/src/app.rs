@@ -1102,7 +1102,9 @@ pub fn show(
         };
 
         interference_panel::refresh(&context, interference);
-        if let Some(place) = interference_panel::show(ui, interference, room, &mut commands) {
+        if let Some(place) =
+            interference_panel::show(ui, interference, room, &mut commands, actions)
+        {
             viewport.show_place(place);
         }
         interference

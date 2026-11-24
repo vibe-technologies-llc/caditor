@@ -351,6 +351,10 @@ paths:
   the chosen system (`measure::Relative`, also `mass_cards`' centroids); distances, angles, the
   line and inertia stay world geometry. A gone system, or one with no result, reads as the world
   with a warning callout (`measure_panel::relative`).
+- Copy all in the panel's header joins the reading cards, the "All N bodies" card and the mass
+  cards; it is disabled with `NOTHING_TO_COPY` on hover when there are none, and a copy raises a
+  success notice counting the cards (`measure_panel::copied_cards`). Interference's Copy all is
+  disabled the same way and says what it copied.
 - Closest points are drawn on the front layer (`scene::add_measurement`) with a label in
   `Chrome::measure`.
 - Keep this measurement (`measurement_tools::KEEP`) is in the row menu of a Between them card's
@@ -422,7 +426,10 @@ paths:
   `caditor_render::Reflection`), worked out each frame by `AnalysisTool::analysis`, handed over with
   `ViewportState::set_analysis` and reaching the scene through `Sources::aids` and
   `Revisions::aids`. A limit that cannot be read or a pull that is gone shows a warning callout
-  (`Problem`) and nothing is coloured.
+  (`Problem`) and nothing is coloured. A limit typed, stepped or scrubbed colours the faces before it
+  is entered (`AnalysisTool::drafted_limit`, read in place of the kind's limit, dropped when the
+  field is left or the kind changes). With no body shown every kind says so in an info callout
+  (`NO_BODIES`); Chrome has no settings grid. Legend swatches are bordered in `field_border`.
 - Draft colours each triangle (mean of its corners' normals) by the angle between normal and pull:
   at or above the limit `Band::Drafted`, below minus the limit `Band::Undercut`, between
   `Band::TooLittleDraft` (the parting line). The pull is an axis or a direction from an axis,
@@ -531,7 +538,9 @@ paths:
   datum and coordinate system planes (`plane_selector::combo_showing`), and resolved again each frame
   (`section::base_plane`), so it follows edits; a gone base shows a warning callout and that plane
   cuts nothing. Offset moves it along the base normal into the side it keeps, Tilt and Turn turn it
-  about the base's own x then y axis (length and angle expressions), Cut away the other side
+  about the base's own x then y axis (length and angle expressions; a value typed, stepped or
+  scrubbed moves the plane before it is entered, held as `Cut::draft` and dropped when the field is
+  left without entering it), Cut away the other side
   (`SectionCommand::Flip`) flips the side, and Cut faces chooses hatched or filled
   (`caditor_render::CutFace`). The cut side is the base normal's: above XY, in front of XZ, right of
   YZ, outside a face.

@@ -114,6 +114,14 @@ pub struct Cut {
     pub turn: Expression,
     pub flipped: bool,
     pub cut_face: CutFace,
+    pub draft: Option<(CutValue, Expression)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CutValue {
+    Offset,
+    Tilt,
+    Turn,
 }
 
 impl Cut {
@@ -125,6 +133,18 @@ impl Cut {
             turn: Expression::measure(0.0, Unit::Degree),
             flipped: false,
             cut_face: CutFace::Hatched,
+            draft: None,
+        }
+    }
+
+    fn shown(&self, slot: CutValue) -> &Expression {
+        match &self.draft {
+            Some((drafted, expression)) if *drafted == slot => expression,
+            _ => match slot {
+                CutValue::Offset => &self.offset,
+                CutValue::Tilt => &self.tilt,
+                CutValue::Turn => &self.turn,
+            },
         }
     }
 
@@ -147,9 +167,9 @@ impl Cut {
 
     pub fn plane(&self, model: &Model) -> Result<SectionPlane, Problem> {
         let base = base_plane(model, self.base).ok_or(Problem::BaseGone)?;
-        let offset = value(model, &self.offset, Dimension::LENGTH)?;
-        let tilt = value(model, &self.tilt, Dimension::ANGLE)?;
-        let turn = value(model, &self.turn, Dimension::ANGLE)?;
+        let offset = value(model, self.shown(CutValue::Offset), Dimension::LENGTH)?;
+        let tilt = value(model, self.shown(CutValue::Tilt), Dimension::ANGLE)?;
+        let turn = value(model, self.shown(CutValue::Turn), Dimension::ANGLE)?;
 
         let tilted = Rotation3::from_axis_angle(base.x_axis(), tilt.to_radians());
         let x_axis = tilted * base.x_axis();

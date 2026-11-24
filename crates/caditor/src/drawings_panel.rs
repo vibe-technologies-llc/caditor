@@ -10,7 +10,10 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
 use caditor_kernel::{Curve2, ViewPiece, Visibility};
-use egui::{Align2, FontId, Id, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2, vec2};
+use egui::{
+    Align2, EventFilter, FontId, Id, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2,
+    vec2,
+};
 use thiserror::Error;
 
 use crate::{
@@ -31,6 +34,10 @@ use crate::{
 pub const TITLE: &str = "Drawings";
 pub const CLOSE: &str = "Close the drawings panel";
 pub const NEW: &str = "New drawing";
+pub const MOST_ZOOMED: &str = "The sheet is zoomed in as far as it goes";
+pub const LEAST_ZOOMED: &str = "The sheet is zoomed out as far as it goes";
+pub const ZOOM_READOUT_HOVER: &str =
+    "How large the sheet is drawn, against fitting it to the panel";
 pub const EXPORT: &str = "Export…";
 pub const RENAME: &str = "Rename";
 pub const DELETE: &str = "Delete";
@@ -126,6 +133,29 @@ impl SheetCamera {
     fn zoom_by(&mut self, factor: f32) {
         self.zoom = (self.zoom * factor).clamp(LEAST_ZOOM, MOST_ZOOM);
     }
+
+    fn zoom_about(&mut self, factor: f32, from_centre: Vec2, fit: f32) {
+        let before = fit * self.zoom;
+
+        self.zoom_by(factor);
+
+        let after = fit * self.zoom;
+        let kept = from_centre * (1.0 / before - 1.0 / after);
+
+        self.pan += vec2(kept.x, -kept.y);
+    }
+
+    fn can_zoom_in(&self) -> bool {
+        self.zoom < MOST_ZOOM
+    }
+
+    fn can_zoom_out(&self) -> bool {
+        self.zoom > LEAST_ZOOM
+    }
+
+    fn percent(&self) -> String {
+        format!("{:.0}%", self.zoom * 100.0)
+    }
 }
 
 #[derive(Default)]
@@ -136,6 +166,7 @@ pub struct DrawingsTool {
     sheet: SheetViews,
     camera: SheetCamera,
     renaming: Option<String>,
+    rename_focus_pending: bool,
     export_pending: bool,
 }
 
@@ -359,11 +390,20 @@ fn renaming_row(
     };
     let mut done = false;
     let mut cancelled = false;
+    let field_id = Id::unique(("drawing-name", id));
 
+    let pointer_busy = ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
+
+    if tool.rename_focus_pending && !pointer_busy {
+        tool.rename_focus_pending = false;
+        field::select_all(ui.ctx(), field_id, name);
+        ui.memory_mut(|memory| memory.request_focus(field_id));
+    }
     ui.horizontal(|ui| {
         let field = widgets::text_field(ui, |ui| {
             ui.add(
                 TextEdit::singleline(name)
+                    .id(field_id)
                     .char_limit(MAX_DRAWING_NAME_CHARS)
                     .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
             )
@@ -379,14 +419,23 @@ fn renaming_row(
         tool.renaming = None;
         return;
     }
-    if done && let Some(name) = tool.renaming.take() {
-        change(
-            model,
-            id,
-            "Rename drawing",
-            |drawing| drawing.name = name,
-            actions,
-        );
+    if done && let Some(name) = tool.renaming.clone() {
+        let renamed = model
+            .document()
+            .changing_drawing(id, "Rename drawing", |drawing| drawing.name = name);
+
+        match renamed {
+            Ok(transaction) => {
+                tool.renaming = None;
+                actions.push(Action::Apply(transaction));
+            }
+            Err(error) => {
+                tool.rename_focus_pending = true;
+                actions.push(Action::Inform(Notice::failure(format!(
+                    "The drawing was not renamed: {error}."
+                ))));
+            }
+        }
     }
 }
 
@@ -744,7 +793,7 @@ fn sections_rows(
     ui.add_space(SPACE_S);
     ui.label(widgets::section_title(SECTION_VIEWS));
     if drawing.sections.is_empty() {
-        ui.label(NO_SECTIONS);
+        ui.label(widgets::muted(NO_SECTIONS, ui));
     }
 
     let cuts = sheet.cuts();
@@ -1032,7 +1081,7 @@ fn details_rows(
     ui.add_space(SPACE_S);
     ui.label(widgets::section_title(DETAIL_VIEWS));
     if drawing.details.is_empty() {
-        ui.label(NO_DETAILS);
+        ui.label(widgets::muted(NO_DETAILS, ui));
     }
     for detail in &drawing.details {
         let letter = detail.letter;
@@ -1267,15 +1316,23 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
     let tokens = appearance::tokens(ui);
 
     ui.horizontal_wrapped(|ui| {
-        if small(ui, icons::ZOOM_IN, ZOOM_IN).clicked() {
+        if small_enabled(ui, tool.camera.can_zoom_in(), icons::ZOOM_IN, ZOOM_IN)
+            .on_disabled_hover_text(MOST_ZOOMED)
+            .clicked()
+        {
             tool.camera.zoom_by(ZOOM_STEP);
         }
-        if small(ui, icons::ZOOM_OUT, ZOOM_OUT).clicked() {
+        if small_enabled(ui, tool.camera.can_zoom_out(), icons::ZOOM_OUT, ZOOM_OUT)
+            .on_disabled_hover_text(LEAST_ZOOMED)
+            .clicked()
+        {
             tool.camera.zoom_by(1.0 / ZOOM_STEP);
         }
         if small(ui, icons::FIT_SHEET, FIT).clicked() {
             tool.camera = SheetCamera::default();
         }
+        ui.label(widgets::muted(tool.camera.percent(), ui))
+            .on_hover_text(ZOOM_READOUT_HOVER);
     });
     ui.add_space(SPACE_S);
 
@@ -1291,8 +1348,12 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
 
     if response.hovered() {
         let zoom = ui.input(|input| input.zoom_delta());
+        let from_centre = response
+            .hover_pos()
+            .map_or(Vec2::ZERO, |pointer| pointer - rect.center());
+
         if (zoom - 1.0).abs() > f32::EPSILON {
-            tool.camera.zoom_by(zoom);
+            tool.camera.zoom_about(zoom, from_centre, fit);
         }
     }
 
@@ -1304,6 +1365,17 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
         tool.camera.pan += vec2(-moved.x, moved.y);
     }
     if response.has_focus() {
+        ui.memory_mut(|memory| {
+            memory.set_focus_lock_filter(
+                response.id,
+                EventFilter {
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    ..EventFilter::default()
+                },
+            );
+        });
+
         let step = PAN_STEP * plan.width as f32 / tool.camera.zoom;
         let keys = [
             (Key::ArrowLeft, vec2(-step, 0.0)),
@@ -1458,12 +1530,18 @@ pub fn show(
                 tool.renaming = None;
             }
             ui.horizontal_wrapped(|ui| {
+                let room = document.drawings().drawings.len() < MAX_DRAWINGS;
+
                 ui.label(widgets::strong(drawing.name.as_str()));
-                if small(ui, icons::ADD, NEW).clicked() {
+                if small_enabled(ui, room, icons::ADD, NEW)
+                    .on_disabled_hover_text(SheetRefusal::TooMany.to_string())
+                    .clicked()
+                {
                     new_drawing(model, tool, context.selected, actions);
                 }
                 if small(ui, icons::RENAME, RENAME).clicked() {
                     tool.renaming = Some(drawing.name.clone());
+                    tool.rename_focus_pending = true;
                 }
                 if small(ui, icons::DELETE, DELETE)
                     .on_hover_text("Delete this drawing; Undo brings it back")

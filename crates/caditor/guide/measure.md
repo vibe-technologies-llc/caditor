@@ -36,7 +36,7 @@ directions along its axes instead of the world's, a body's centre of mass among 
 inertia stay along the model's axes.
 
 Values marked ≈ are approximate, with a note saying why. **Copy all** puts every reading on the
-clipboard as text.
+clipboard as text, the all-bodies card included, and says how many cards it copied.
 
 Each reading has a menu, on its "⋯" button or a right-click: **Copy value** copies that reading as
 shown, with its unit, and for a length, angle, area, volume or mass **New parameter from this

@@ -2,14 +2,14 @@ use std::{cell::OnceCell, sync::Arc};
 
 use caditor_expression::Dimension;
 use caditor_render::ShadedMesh;
-use egui::{Id, Label, Sense, Slider, TextWrapMode, Ui, vec2};
+use egui::{Id, Label, Sense, Slider, Stroke, StrokeKind, TextWrapMode, Ui, vec2};
 
 use crate::{
     analysis::{
         self, Analyses, Analysis, AnalysisTool, FaceAnalysis, Kind, MAX_STRIPES, MIN_STRIPES,
         Measure, Problem, Pull, Tally,
     },
-    appearance::{SPACE_M, SPACE_S},
+    appearance::{self, SPACE_M, SPACE_S},
     bodies::BodyMeshes,
     commands::{Command, CommandFrame},
     display_style::DisplayStyle,
@@ -71,6 +71,7 @@ const HEADER: PanelTitle<'static> = PanelTitle {
 };
 const SWATCH_SIDE: f32 = 14.0;
 const SWATCH_RADIUS: f32 = 3.0;
+const SWATCH_BORDER: f32 = 1.0;
 const APPROXIMATELY: &str = "≈ ";
 const AXES: [Axis; 3] = [Axis::X, Axis::Y, Axis::Z];
 
@@ -111,7 +112,10 @@ fn limit_row(
     ui: &mut Ui,
     model: &Model,
     (caption, id, dimension): (&str, &str, Dimension),
-    expression: &mut caditor_expression::Expression,
+    (expression, drafted): (
+        &mut caditor_expression::Expression,
+        &mut Option<caditor_expression::Expression>,
+    ),
     check: fn(f64) -> Result<(), Problem>,
 ) {
     widgets::caption(ui, caption);
@@ -150,8 +154,18 @@ fn limit_row(
     );
     let problem = field.problem(ui, document, enter);
 
-    if let Some(parsed) = field.committed {
-        *expression = parsed;
+    match (field.committed, field.left, field.edited) {
+        (Some(parsed), _, _) => {
+            *expression = parsed;
+            *drafted = None;
+        }
+        (None, true, _) => *drafted = None,
+        (None, false, Some(text)) => {
+            if let Ok(parsed) = enter(&text) {
+                *drafted = Some(parsed);
+            }
+        }
+        (None, false, None) => {}
     }
     ui.end_row();
     if let Some(error) = field.error {
@@ -208,7 +222,8 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
         };
         if ui
             .add_enabled(selected.is_ok(), button)
-            .on_hover_text(hover)
+            .on_hover_text(&hover)
+            .on_disabled_hover_text(hover)
             .clicked()
             && let Ok(pull) = selected
         {
@@ -231,15 +246,10 @@ fn legend(
     let palette = context.contrast.palette(context.canvas);
     let units: Units = context.model.units();
     let meshes = context.shown();
-
-    if meshes.is_empty() {
-        ui.label(widgets::muted(NO_BODIES, ui));
-        return;
-    }
-
     let Some(analysis) = context.analyses.prepare(Some(analysis), meshes) else {
         return;
     };
+
     let tally = Tally::of(context.analyses, meshes, analysis);
 
     widgets::card(ui, |ui| {
@@ -251,10 +261,12 @@ fn legend(
                 let (rect, _) =
                     ui.allocate_exact_size(vec2(SWATCH_SIDE, SWATCH_SIDE), Sense::hover());
 
-                ui.painter().rect_filled(
+                ui.painter().rect(
                     rect,
                     SWATCH_RADIUS,
                     scene_palette::color32(band.colour(palette)),
+                    Stroke::new(SWATCH_BORDER, appearance::tokens(ui).field_border),
+                    StrokeKind::Inside,
                 );
                 ui.add(
                     Label::new(format!("{}: {area}", band.title()))
@@ -312,6 +324,7 @@ fn kind_row(ui: &mut Ui, tool: &mut AnalysisTool) {
         && let Some(kind) = Kind::ALL.get(index)
     {
         tool.kind = *kind;
+        tool.drafted_limit = None;
     }
 }
 
@@ -386,6 +399,28 @@ fn body(
     ui.add_space(SPACE_S);
     ui.label(widgets::muted(about(tool.kind), ui));
     ui.add_space(SPACE_S);
+    if tool.kind != Kind::Chrome {
+        properties(ui, context, tool);
+        ui.add_space(SPACE_M);
+    }
+    if !context.style.shows_faces() || context.style.is_translucent() {
+        widgets::callout(ui, Tone::Info, |ui| ui.label(HIDDEN_STYLE));
+        ui.add_space(SPACE_S);
+    }
+    if context.shown().is_empty() {
+        widgets::callout(ui, Tone::Info, |ui| ui.label(NO_BODIES));
+        return;
+    }
+    match tool.analysis(context.model) {
+        Ok(Analysis::Faces(analysis)) => legend(ui, context, analysis, commands),
+        Ok(Analysis::Reflection(_)) => {}
+        Err(problem) => {
+            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
+        }
+    }
+}
+
+fn properties(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
     widgets::properties(ui, "analysis-properties", |ui| match tool.kind {
         Kind::Draft => {
             pull_rows(ui, context, tool);
@@ -393,7 +428,7 @@ fn body(
                 ui,
                 context.model,
                 ("Draft limit", "draft", Dimension::ANGLE),
-                &mut tool.draft_limit,
+                (&mut tool.draft_limit, &mut tool.drafted_limit),
                 analysis::check_draft_limit,
             );
         }
@@ -401,7 +436,7 @@ fn body(
             ui,
             context.model,
             ("Smallest radius", "radius", Dimension::LENGTH),
-            &mut tool.radius_limit,
+            (&mut tool.radius_limit, &mut tool.drafted_limit),
             analysis::check_radius_limit,
         ),
         Kind::Reach => pull_rows(ui, context, tool),
@@ -411,25 +446,13 @@ fn body(
                 ui,
                 context.model,
                 ("Reference radius", "reference", Dimension::LENGTH),
-                &mut tool.reference_radius,
+                (&mut tool.reference_radius, &mut tool.drafted_limit),
                 analysis::check_radius_limit,
             );
         }
         Kind::Zebra => stripe_rows(ui, tool),
         Kind::Chrome => {}
     });
-    ui.add_space(SPACE_M);
-    if !context.style.shows_faces() || context.style.is_translucent() {
-        widgets::callout(ui, Tone::Info, |ui| ui.label(HIDDEN_STYLE));
-        ui.add_space(SPACE_S);
-    }
-    match tool.analysis(context.model) {
-        Ok(Analysis::Faces(analysis)) => legend(ui, context, analysis, commands),
-        Ok(Analysis::Reflection(_)) => {}
-        Err(problem) => {
-            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
-        }
-    }
 }
 
 pub fn show(

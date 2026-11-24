@@ -981,6 +981,7 @@ pub struct AnalysisTool {
     pub reference_radius: Expression,
     pub stripes: u32,
     pub stripes_along: Axis,
+    pub drafted_limit: Option<Expression>,
 }
 
 impl Default for AnalysisTool {
@@ -996,6 +997,7 @@ impl Default for AnalysisTool {
             reference_radius: Expression::measure(DEFAULT_REFERENCE_RADIUS, Unit::Millimetre),
             stripes: DEFAULT_STRIPES,
             stripes_along: Axis::X,
+            drafted_limit: None,
         }
     }
 }
@@ -1047,7 +1049,11 @@ impl AnalysisTool {
     pub fn analysis(&self, model: &Model) -> Result<Analysis, Problem> {
         let faces = match self.kind {
             Kind::Draft => {
-                let limit = self.limit(model, &self.draft_limit, Dimension::ANGLE)?;
+                let limit = self.limit(
+                    model,
+                    self.drafted_limit.as_ref().unwrap_or(&self.draft_limit),
+                    Dimension::ANGLE,
+                )?;
 
                 check_draft_limit(limit)?;
 
@@ -1058,7 +1064,11 @@ impl AnalysisTool {
                 }
             }
             Kind::Radius => {
-                let limit = self.limit(model, &self.radius_limit, Dimension::LENGTH)?;
+                let limit = self.limit(
+                    model,
+                    self.drafted_limit.as_ref().unwrap_or(&self.radius_limit),
+                    Dimension::LENGTH,
+                )?;
 
                 check_radius_limit(limit)?;
                 FaceAnalysis::Radius { limit }
@@ -1071,7 +1081,13 @@ impl AnalysisTool {
                 }
             }
             Kind::Curvature => {
-                let radius = self.limit(model, &self.reference_radius, Dimension::LENGTH)?;
+                let radius = self.limit(
+                    model,
+                    self.drafted_limit
+                        .as_ref()
+                        .unwrap_or(&self.reference_radius),
+                    Dimension::LENGTH,
+                )?;
 
                 check_radius_limit(radius)?;
                 FaceAnalysis::Curvature {
