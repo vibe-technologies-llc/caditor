@@ -1336,6 +1336,7 @@ pub fn show(
             files,
             cloud,
             now: Timestamp::now(),
+            opens_at_start: preferences.onboarding.home,
         };
         let escaped = !dialog_open && ui.input(|input| input.key_pressed(egui::Key::Escape));
         let choices = home::show(ui.ctx(), area, &view);
@@ -1859,6 +1860,7 @@ fn home_chosen(
             | Choice::ManageCloud(_)
             | Choice::Preferences
             | Choice::TurnOffCloud
+            | Choice::ShowAtStart
     );
 
     match choice {
@@ -1891,6 +1893,14 @@ fn home_chosen(
             )));
             actions.push(Action::Inform(Notice::info(
                 "Home no longer opens when caditor starts. File › Home brings it back.",
+            )));
+        }
+        Choice::ShowAtStart => {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::ShowHome(true),
+            )));
+            actions.push(Action::Inform(Notice::info(
+                "Home opens again when caditor starts.",
             )));
         }
     }

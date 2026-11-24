@@ -495,6 +495,41 @@ fn the_mouse_wheel_scrolls_home_to_the_sign_in_button_at_200_percent() {
 }
 
 #[test]
+fn the_signed_in_header_wraps_at_200_percent_so_nothing_overlaps_or_is_cut() {
+    let dir = TempDir::new().unwrap();
+    let provider = fusion_provider(b"");
+
+    let mut harness = with_cloud(dir.path(), &provider);
+
+    harness.context.set_zoom_factor(2.0);
+    open_home(&mut harness);
+    sign_in(&mut harness);
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+    harness.tab_until_shown(home::SIGN_OUT);
+
+    let page = harness.context.content_rect();
+    let header = [
+        "Fusion 360",
+        "Studio · Ada Lovelace",
+        home::SIGN_OUT,
+        home::MANAGE,
+    ];
+
+    let shown: Vec<_> = super::large_interface::shown_within(&harness, page)
+        .into_iter()
+        .filter(|(text, _, _)| header.contains(text))
+        .collect();
+
+    assert!(harness.fully_shown(home::SIGN_OUT));
+    assert!(harness.fully_shown(home::MANAGE));
+    assert!(harness.fully_shown("Studio · Ada Lovelace"));
+    assert_eq!(
+        super::large_interface::overlaps(&shown),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
 fn signing_in_shows_history_first_then_each_fusion_project_as_a_line_of_designs() {
     let dir = TempDir::new().unwrap();
 
@@ -1874,6 +1909,18 @@ fn home_at_startup_is_a_preference_and_the_footer_turns_it_off() {
     harness.wait_until("the choice is saved", |_| {
         Settings::load(&config).flag("onboarding.home") == Some(false)
     });
+
+    open_home(&mut harness);
+
+    assert!(harness.shows(home::SHOW_AT_START));
+    assert!(!harness.shows(home::HIDE_AT_START));
+
+    harness.click(home::SHOW_AT_START);
+    harness.frame();
+
+    assert!(harness.workspace.preferences.onboarding.home);
+    assert!(harness.workspace.home.is_open());
+    assert!(harness.shows(home::HIDE_AT_START));
 }
 
 #[test]

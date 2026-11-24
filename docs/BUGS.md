@@ -208,13 +208,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · medium] At an interface scale of 200% the signed-in Home (`home.rs`: `cloud_header`,
-  `signing_in`, `project_line`) overlaps and clips: the "Fusion 360" title and its hub and account
-  detail run into the Refresh button, and "Sign out" is cut off at the page's right edge, because
-  `Sides` lays both groups on one line that does not wrap; `HomeView` also needs
-  `preferences.onboarding.home` passed from `app.rs` so the footer reflects the current setting. Let
-  the header wrap its buttons under the title when the width runs out; the ignored `screenshots`
-  test's `home-signed-in-dark-200.png` shows it.
 - [low · medium] Two safe functions of the `unsafe` crates rest on their callers: the Wayland
   `DropTarget::attach` and `ToplevelExport::attach` wrap winit's `wl_display` and keep the window
   alive, but the connection belongs to winit's event loop, so their soundness rests on the drop

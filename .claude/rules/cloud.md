@@ -26,7 +26,9 @@ paths:
   from the next start on, nothing else does (`Cloud::start_restoring` reads one small file).
   `cloud.on_home` keeps the cloud off Home while it stays in the manager and the palette.
 - Home itself is `onboarding.home` (Preferences › General › Starting and recent files, or Home's
-  footer), read leniently, on by default.
+  footer), read leniently, on by default. The footer follows it (`HomeView::opens_at_start`):
+  Don't show Home when caditor starts while on, Show Home when caditor starts (keeping Home open)
+  while off.
 
 ## `caditor-cloud`
 
@@ -401,7 +403,9 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   from `Files::recent`), Fusion 360, Onshape, samples, footer. Signed out, a service is an advert
   card: what it does, three honest lines about what it sends, Sign in (or the no-app callout); the
   first advert shown also holds Cloud projects… and Turn off cloud features. Signed in, a header
-  with hub and account (Sign out, Cloud projects…, Refresh) and a line per project,
+  with hub and account (Sign out, Cloud projects…, Refresh; beside the title while the page is at
+  least `HEADER_SIDE_BY_SIDE_WIDTH` points wide, else wrapping on a row under it, the account line
+  wrapping too) and a line per project,
   `PROJECT_ROWS_ON_HOME` of them, each loading its root only once drawn (`LoadProject`), with the
   newest designs as tiles (uploaded files are not shown on Home) that import on a click (the design's picture replaces the tile's icon once
   it arrives) and `N more…` going to the manager. Tiles are disabled while an import runs, and the

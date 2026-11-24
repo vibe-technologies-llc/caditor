@@ -68,6 +68,8 @@ pub const OPEN_PREFERENCES: &str = "Open preferences";
 pub const REFRESH: &str = "Refresh cloud projects";
 pub const SIGN_OUT: &str = "Sign out";
 pub const HIDE_AT_START: &str = "Don't show Home when caditor starts";
+pub const SHOW_AT_START: &str = "Show Home when caditor starts";
+const HEADER_SIDE_BY_SIDE_WIDTH: f32 = 560.0;
 pub const LOADING_PROJECTS: &str = "Loading your projects…";
 pub const LOADING_DESIGNS: &str = "Loading designs…";
 const START_HOVER: &str = "Sketch on the plane or flat face you click next, then extrude it";
@@ -191,12 +193,14 @@ pub enum Choice {
     Preferences,
     TurnOffCloud,
     HideAtStart,
+    ShowAtStart,
 }
 
 pub struct HomeView<'a> {
     pub files: &'a Files,
     pub cloud: &'a Cloud,
     pub now: Timestamp,
+    pub opens_at_start: bool,
 }
 
 pub fn page_id() -> Id {
@@ -263,7 +267,7 @@ fn sections(ui: &mut Ui, view: &HomeView<'_>, choices: &mut Vec<Choice>) {
     ui.add_space(SPACE_XL);
     samples(ui, choices);
     ui.add_space(SPACE_XL);
-    footer(ui, choices);
+    footer(ui, view.opens_at_start, choices);
     ui.add_space(SPACE_XL);
 }
 
@@ -451,20 +455,33 @@ fn samples(ui: &mut Ui, choices: &mut Vec<Choice>) {
     }
 }
 
-fn footer(ui: &mut Ui, choices: &mut Vec<Choice>) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label(widgets::muted(
+fn footer(ui: &mut Ui, opens_at_start: bool, choices: &mut Vec<Choice>) {
+    let (note, glyph, label, choice) = if opens_at_start {
+        (
             "Home opens when caditor starts and from File › Home.",
-            ui,
-        ));
+            icons::HIDE,
+            HIDE_AT_START,
+            Choice::HideAtStart,
+        )
+    } else {
+        (
+            "Home opens from File › Home.",
+            icons::SHOW,
+            SHOW_AT_START,
+            Choice::ShowAtStart,
+        )
+    };
 
-        let hide = widgets::small_button(ui, icons::HIDE, HIDE_AT_START);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(widgets::muted(note, ui));
+
+        let button = widgets::small_button(ui, glyph, label);
         if ui
-            .add(hide)
-            .on_hover_text("Turn this off in Preferences › General › Starting and recent files")
+            .add(button)
+            .on_hover_text("Also in Preferences › General › Starting and recent files")
             .clicked()
         {
-            choices.push(Choice::HideAtStart);
+            choices.push(choice);
         }
     });
 }
@@ -611,10 +628,13 @@ fn signing_in(ui: &mut Ui, service: Service, signing: &SigningIn, choices: &mut 
             choices.push(Choice::Cloud(CloudCommand::CancelSignIn(service)));
         }
         ui.add_space(SPACE_S);
-        ui.add(Label::new(widgets::muted(
-            "If no browser opened, copy the link into one yourself.",
-            ui,
-        )));
+        ui.add(
+            Label::new(widgets::muted(
+                "If no browser opened, copy the link into one yourself.",
+                ui,
+            ))
+            .wrap(),
+        );
         if let Some(url) = &signing.url {
             let copy = widgets::small_button(ui, icons::COPY, COPY_LINK);
             if ui.add(copy).clicked() {
@@ -681,45 +701,53 @@ fn linked_section(
 }
 
 fn cloud_header(ui: &mut Ui, service: Service, linked: &Linked, choices: &mut Vec<Choice>) {
-    let tokens = appearance::tokens(ui);
+    let hub = linked
+        .chosen_workspace()
+        .filter(|_| service.has_workspaces())
+        .map(|workspace| workspace.name.as_str());
+    let account = linked.account.ready().map(|account| account.name.as_str());
+    let detail = match (hub, account) {
+        (Some(hub), Some(account)) => format!("{hub} · {account}"),
+        (Some(text), None) | (None, Some(text)) => text.to_owned(),
+        (None, None) => String::new(),
+    };
+    let title = |ui: &mut Ui| {
+        let tokens = appearance::tokens(ui);
 
-    Sides::new().show(
-        ui,
-        |ui| {
-            widgets::icon_label(ui, icons::command(Command::Cloud), tokens.accent_text);
-            ui.label(widgets::section_title(wording(service).title));
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                widgets::icon_label(ui, icons::command(Command::Cloud), tokens.accent_text);
+                ui.label(widgets::section_title(wording(service).title));
+            });
+            ui.add(Label::new(widgets::muted(&detail, ui)).wrap());
+        });
+    };
+    let buttons = |ui: &mut Ui, choices: &mut Vec<Choice>| {
+        let out = widgets::small_button(ui, icons::command(sign_out_command(service)), SIGN_OUT);
 
-            let hub = linked
-                .chosen_workspace()
-                .filter(|_| service.has_workspaces())
-                .map(|workspace| workspace.name.as_str());
-            let account = linked.account.ready().map(|account| account.name.as_str());
-            let detail = match (hub, account) {
-                (Some(hub), Some(account)) => format!("{hub} · {account}"),
-                (Some(text), None) | (None, Some(text)) => text.to_owned(),
-                (None, None) => String::new(),
-            };
+        if ui.add(out).clicked() {
+            choices.push(Choice::Cloud(CloudCommand::SignOut(service)));
+        }
 
-            ui.label(widgets::muted(detail, ui));
-        },
-        |ui| {
-            let out =
-                widgets::small_button(ui, icons::command(sign_out_command(service)), SIGN_OUT);
+        let manage = widgets::small_button(ui, icons::command(Command::Cloud), MANAGE);
 
-            if ui.add(out).clicked() {
-                choices.push(Choice::Cloud(CloudCommand::SignOut(service)));
-            }
+        if ui.add(manage).clicked() {
+            choices.push(Choice::ManageCloud(None));
+        }
+        if widgets::icon_button(ui, icons::command(Command::CloudRefresh), REFRESH).clicked() {
+            choices.push(Choice::Cloud(CloudCommand::Refresh(service)));
+        }
+    };
 
-            let manage = widgets::small_button(ui, icons::command(Command::Cloud), MANAGE);
-
-            if ui.add(manage).clicked() {
-                choices.push(Choice::ManageCloud(None));
-            }
-            if widgets::icon_button(ui, icons::command(Command::CloudRefresh), REFRESH).clicked() {
-                choices.push(Choice::Cloud(CloudCommand::Refresh(service)));
-            }
-        },
-    );
+    if ui.available_width() >= HEADER_SIDE_BY_SIDE_WIDTH {
+        Sides::new()
+            .shrink_left()
+            .show(ui, title, |ui| buttons(ui, choices));
+    } else {
+        title(ui);
+        ui.add_space(SPACE_S);
+        ui.horizontal_wrapped(|ui| buttons(ui, choices));
+    }
 }
 
 fn project_line(
@@ -738,7 +766,7 @@ fn project_line(
             project.id.clone(),
         )));
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(widgets::strong(&project.name));
         if let Some(folder) = root.ready() {
             let count = folder.designs.len();
@@ -772,7 +800,7 @@ fn project_line(
                 format!("The designs are inside this project's {folders} folders.")
             };
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(widgets::muted(text, ui));
                 if folders > 0 && widgets::link(ui, "Browse them…", None).clicked() {
                     choices.push(Choice::ManageCloud(Some((service, project.id.clone()))));
