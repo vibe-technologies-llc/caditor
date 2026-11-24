@@ -198,6 +198,21 @@ fn isocurves_are_cancelled_from_the_palette() {
     assert!(!harness.shows(isocurve_panel::WORKING));
     assert!(!harness.workspace.isocurves.is_working());
     assert!(harness.workspace.isocurves.is_stopped());
+
+    hold.release();
+    harness.click(isocurve_panel::DRAW_AGAIN);
+    harness.wait_until("the isocurves are drawn again", |harness| {
+        !harness.workspace.isocurves.is_working() && !harness.shows(isocurve_panel::STOPPED)
+    });
+
+    assert!(!harness.workspace.isocurves.is_stopped());
+    assert!(harness.shows_containing("Plate"));
+
+    harness.click(isocurve_panel::CLEAR);
+    harness.frame();
+
+    assert!(harness.workspace.isocurves.faces().is_empty());
+    assert!(harness.shows_containing(isocurve_panel::NOTHING_CHOSEN));
 }
 
 #[test]

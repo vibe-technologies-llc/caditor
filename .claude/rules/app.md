@@ -429,7 +429,9 @@ paths:
   (`Problem`) and nothing is coloured. A limit typed, stepped or scrubbed colours the faces before it
   is entered (`AnalysisTool::drafted_limit`, read in place of the kind's limit, dropped when the
   field is left or the kind changes). With no body shown every kind says so in an info callout
-  (`NO_BODIES`); Chrome has no settings grid. Legend swatches are bordered in `field_border`.
+  (`NO_BODIES`); Chrome has no settings grid. Legend swatches are bordered in `field_border`. While
+  the display style hides faces the callout saying so has Show Shaded with edges, which the panel
+  hands back for the app to run as `Command::Style`.
 - Draft colours each triangle (mean of its corners' normals) by the angle between normal and pull:
   at or above the limit `Band::Drafted`, below minus the limit `Band::Undercut`, between
   `Band::TooLittleDraft` (the parting line). The pull is an axis or a direction from an axis,
@@ -499,7 +501,10 @@ paths:
 - Ends of two combed curves within `JOINT_GAP` make a `Joint`, judged from the tangents and
   curvature vectors (`Continuity`: a corner, tangent with a curvature jump, or curvature continuing
   within `CURVATURE_SLACK`); the envelope steps between their end tips. The panel lists each
-  curve's smallest radius and each joint's grade (G0, G1, G2) and radii in words.
+  curve's smallest radius and each joint's grade (G0, G1, G2) and radii in words. Hovering a
+  curve's line lights the curve in the view (`ViewportState::hover_from_tree`); Clear the comb
+  (`CombTool::clear`) drops the curves while keeping the selection it followed, so they are combed
+  again only when the selection changes.
 - The drawing (`CombDrawing`, rebuilt only when the comb or scale changes) goes into the overlay
   batch on the front layer: every segment first as a wider line in `ScenePalette::hole`, then teeth
   and envelope in `ScenePalette::comb`, holding 3:1 over bodies and canvas in both palettes.
@@ -519,7 +524,9 @@ paths:
   (`Basis`); a newer basis cancels the older through the kernel interrupt, the last finished lines
   stay drawn meanwhile, and the finished result wakes the app. A face that no longer resolves, or a
   panic in the thread, is a warning callout. The panel lists each face with its smallest U and V
-  line radius in words.
+  line radius in words; hovering a face's line lights it in the view. Cancelled work keeps its
+  basis as stopped until Draw again (`IsocurveTool::resume`); Clear the lines (`clear`) drops the
+  faces as the comb's Clear does.
 - The drawing (`IsocurveDrawing`) goes into the overlay batch on the front layer like the comb: each
   line over a wider `ScenePalette::hole` halo in `CombLook::isocurve`, then the comb's teeth and
   envelope (`CombDrawing::add_to`); the palette test holds the isocurve colour to 3:1 over the halo
@@ -547,8 +554,10 @@ paths:
 - Opening the view with no plane, and Add a plane (`SectionCommand::Add`), adds one through the
   centre of the model's bounds (offset rounded to 0.1 mm) on the first principal plane not in use
   (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; `SectionCommand::Remove` drops one. Commands act on the
-  current plane (added or edited last); removing a plane above it moves `current` down with it
-  (`SectionTool::remove`), removing the current one makes the next current.
+  current plane (added or edited last, or whose card was clicked: the card is a click-sensing scope
+  under its widgets); removing a plane above it moves `current` down with it
+  (`SectionTool::remove`), removing the current one makes the next current. Each card's Reset this
+  plane puts it back to `Cut::through` its base.
 - `SectionTool::planes` resolves the planes each frame into `ViewportState::set_section`;
   `ViewportState::shown_section` adds the sketch slice (`app-sketching.md`) and hands them to
   `SceneCache::set_section`, which sets `Scene::section` without rebuilding the cached scene and

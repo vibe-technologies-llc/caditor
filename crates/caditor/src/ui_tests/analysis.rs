@@ -279,6 +279,25 @@ fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
     assert!(harness.shows_containing(": straight"));
     assert_eq!(comb_lines(&mut harness, look.teeth), 0);
     assert!(comb_lines(&mut harness, look.envelope) > 0);
+
+    let row = harness
+        .texts
+        .iter()
+        .find(|(text, _)| text.ends_with(": straight"))
+        .map(|(text, _)| text.clone())
+        .expect("the combed edge is listed");
+
+    harness.hover(&row);
+
+    let lit = harness.workspace.viewport.hovered_in_tree();
+
+    harness.click(comb_panel::CLEAR);
+    harness.frame();
+
+    assert_eq!(lit, Some(edge));
+    assert!(harness.workspace.comb.curves().is_empty());
+    assert!(harness.shows_containing(comb_panel::NOTHING_CHOSEN));
+    assert_eq!(comb_lines(&mut harness, look.envelope), 0);
 }
 
 fn worked_out_isocurves(harness: &mut Harness) {
@@ -457,4 +476,30 @@ fn a_typed_draft_limit_colours_the_faces_before_it_is_entered_and_an_empty_model
     assert_eq!(while_typed, Some(45.0));
     assert_eq!(harness.workspace.analysis.draft_limit, stored);
     assert_ne!(limit(&harness), Some(45.0));
+}
+
+#[test]
+fn the_hidden_faces_callout_switches_to_shaded_with_edges_in_one_click() {
+    use crate::{analysis_panel, display_style::DisplayStyle};
+
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "wireframe");
+    harness.frame();
+    run_from_palette(&mut harness, "analyse draft");
+    harness.frame();
+
+    let hidden_said = harness.shows_containing("does not colour faces");
+
+    harness.click(analysis_panel::SHOW_SHADED);
+    harness.frame();
+    harness.frame();
+
+    assert!(hidden_said);
+    assert_eq!(
+        harness.workspace.viewport.style(),
+        DisplayStyle::ShadedWithEdges
+    );
+    assert!(!harness.shows_containing("does not colour faces"));
 }

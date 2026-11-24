@@ -443,6 +443,13 @@ impl CombTool {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.curves.clear();
+        self.left_out = 0;
+        self.combed = None;
+        self.drawn = None;
+    }
+
     pub fn forget(&mut self) {
         self.curves.clear();
         self.left_out = 0;

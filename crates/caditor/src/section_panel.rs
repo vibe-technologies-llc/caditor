@@ -1,7 +1,7 @@
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
 use caditor_render::{CutFace, MAX_SECTION_PLANES};
-use egui::{Id, Label, Sides, Ui};
+use egui::{Id, Label, Sense, Sides, Ui, UiBuilder};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -280,6 +280,12 @@ enum CardAction {
     Remove,
 }
 
+pub const RESET_PLANE: &str = "Reset this plane";
+pub const RESET_PLANE_HOVER: &str =
+    "Put this plane back through its base: no offset, tilt or turn, cutting the base normal's side";
+pub const CHOOSE_CURRENT_HOVER: &str =
+    "Click to make this the current plane, the one the section commands act on";
+
 fn cut_card(
     ui: &mut Ui,
     context: &SectionContext<'_>,
@@ -299,12 +305,25 @@ fn cut_card(
                         widgets::pill(ui, Tone::Info, CURRENT);
                     }
                 },
-                |ui| widgets::icon_button(ui, icons::DELETE, "Remove this section plane").clicked(),
+                |ui| {
+                    let remove =
+                        widgets::icon_button(ui, icons::DELETE, "Remove this section plane")
+                            .clicked();
+                    let reset = widgets::icon_button(ui, icons::RESET, RESET_PLANE)
+                        .on_hover_text(RESET_PLANE_HOVER)
+                        .clicked();
+                    (remove, reset)
+                },
             )
             .1;
+        let (remove, reset) = remove;
 
         if remove {
             return CardAction::Remove;
+        }
+        if reset {
+            *cut = Cut::through(cut.base);
+            return CardAction::Changed;
         }
 
         let changed = widgets::properties(ui, ("section-plane", index), |ui| {
@@ -333,7 +352,15 @@ fn body(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool) {
     let mut removed = None;
 
     for (index, cut) in tool.cuts.iter_mut().enumerate() {
-        match cut_card(ui, context, (index, index == tool.current), cut) {
+        let current = index == tool.current;
+        let card = ui.scope_builder(UiBuilder::new().sense(Sense::click()), |ui| {
+            cut_card(ui, context, (index, current), cut)
+        });
+
+        let chosen = !current && card.response.on_hover_text(CHOOSE_CURRENT_HOVER).clicked();
+
+        match card.inner {
+            CardAction::None if chosen => tool.current = index,
             CardAction::None => {}
             CardAction::Changed => tool.current = index,
             CardAction::Remove => removed = Some(index),

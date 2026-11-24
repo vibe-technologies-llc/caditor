@@ -391,6 +391,18 @@ impl IsocurveTool {
         self.stopped = None;
     }
 
+    pub fn clear(&mut self) {
+        self.cancel();
+        self.faces.clear();
+        self.left_out = 0;
+        self.shown = None;
+        self.drawn = None;
+    }
+
+    pub fn resume(&mut self) {
+        self.stopped = None;
+    }
+
     pub fn stop(&mut self) {
         if let Some(job) = self.job.take() {
             self.stopped = Some(job.basis.clone());

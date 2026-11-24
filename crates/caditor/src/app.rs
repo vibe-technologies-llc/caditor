@@ -1148,7 +1148,13 @@ pub fn show(
             shown: OnceCell::new(),
         };
 
-        analysis_panel::show(ui, &context, analysis, room, &mut commands);
+        deferred_commands.extend(analysis_panel::show(
+            ui,
+            &context,
+            analysis,
+            room,
+            &mut commands,
+        ));
 
         let analysing = analysis.analysis(model).ok();
         let shown = if analysing.and_then(Analysis::faces).is_some() {
@@ -1171,7 +1177,9 @@ pub fn show(
 
         let combed = comb.comb(model);
 
-        comb_panel::show(ui, model, comb, &combed, room);
+        if let Some(curve) = comb_panel::show(ui, model, comb, &combed, room) {
+            viewport.hover_from_tree(Some(curve));
+        }
         comb.open.then(|| comb.drawing(&combed))
     } else {
         None
@@ -1184,7 +1192,7 @@ pub fn show(
 
         let shown = isocurves.isocurves(model);
 
-        isocurve_panel::show(
+        let hovered = isocurve_panel::show(
             ui,
             model.units(),
             isocurves,
@@ -1192,6 +1200,10 @@ pub fn show(
             room,
             &mut commands,
         );
+
+        if let Some(face) = hovered {
+            viewport.hover_from_tree(Some(face));
+        }
         shown
             .filter(|_| isocurves.open)
             .map(|shown| isocurves.drawing(&shown))

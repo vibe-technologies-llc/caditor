@@ -1,5 +1,5 @@
 use caditor_kernel::Along;
-use egui::{Label, Slider, TextWrapMode, Ui};
+use egui::{Label, Response, Slider, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -9,6 +9,7 @@ use crate::{
     icons,
     isocurves::{self, Directions, FaceLines, IsocurveTool, Isocurves},
     layout::RightPanel,
+    selection::Pickable,
     units::Units,
     widgets::{self, PanelTitle, Tone},
 };
@@ -24,7 +25,11 @@ pub const NOTHING_CHOSEN: &str = "Select faces of bodies to draw their parameter
                                   follow the selection and stay when you select something \
                                   else.";
 pub const WORKING: &str = "Working out the lines…";
-pub const STOPPED: &str = "Stopped. Change a setting or the selected faces to draw the lines.";
+pub const STOPPED: &str = "Stopped. Draw again, or change a setting or the selected faces.";
+pub const DRAW_AGAIN: &str = "Draw again";
+pub const DRAW_AGAIN_HOVER: &str = "Draw the lines on these faces with these settings";
+pub const CLEAR: &str = "Clear the lines";
+pub const CLEAR_HOVER: &str = "Stop drawing lines on these faces; select others to draw theirs";
 const NOT_WORKING: &str = "No isocurves are being worked out";
 const STOP_HOVER: &str = "Stop working out the lines and draw none";
 pub const FAILED: &str = "The lines of the chosen faces could not be worked out. Select them \
@@ -51,12 +56,12 @@ fn direction_meaning(directions: Directions) -> &'static str {
     }
 }
 
-fn wrapped(ui: &mut Ui, text: impl Into<String>) {
+fn wrapped(ui: &mut Ui, text: impl Into<String>) -> Response {
     ui.add(
         Label::new(text.into())
             .wrap_mode(TextWrapMode::Wrap)
             .selectable(true),
-    );
+    )
 }
 
 fn settings(ui: &mut Ui, tool: &mut IsocurveTool) {
@@ -122,7 +127,7 @@ pub fn bend_text(units: Units, face: &FaceLines, along: Along) -> Option<String>
     })
 }
 
-fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves) {
+fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves, hovered: &mut Option<Pickable>) {
     widgets::card(ui, |ui| {
         for face in isocurves.faces.iter().take(MAX_LISTED) {
             let bends: Vec<String> = [Along::U, Along::V]
@@ -135,7 +140,9 @@ fn faces(ui: &mut Ui, units: Units, isocurves: &Isocurves) {
                 format!("{}: {}", face.name, bends.join(", "))
             };
 
-            wrapped(ui, text);
+            if wrapped(ui, text).hovered() {
+                *hovered = Some(face.pickable);
+            }
         }
         if isocurves.faces.len() > MAX_LISTED {
             ui.label(widgets::muted(
@@ -152,6 +159,7 @@ fn findings(
     tool: &mut IsocurveTool,
     shown: Option<&Isocurves>,
     commands: &mut CommandFrame<'_>,
+    hovered: &mut Option<Pickable>,
 ) {
     let working = tool.is_working().then_some(()).ok_or(NOT_WORKING);
     let mut stop = commands.invoke(Command::CancelIsocurves, &working);
@@ -167,7 +175,18 @@ fn findings(
         tool.stop();
     }
     if tool.is_stopped() {
-        widgets::callout(ui, Tone::Info, |ui| ui.label(STOPPED));
+        let mut again = false;
+
+        widgets::callout(ui, Tone::Info, |ui| {
+            ui.label(STOPPED);
+            again = ui
+                .add(widgets::button(DRAW_AGAIN))
+                .on_hover_text(DRAW_AGAIN_HOVER)
+                .clicked();
+        });
+        if again {
+            tool.resume();
+        }
         ui.add_space(SPACE_S);
     }
 
@@ -190,7 +209,7 @@ fn findings(
         ui.add_space(SPACE_S);
     }
     if !shown.faces.is_empty() {
-        faces(ui, units, shown);
+        faces(ui, units, shown, hovered);
     }
 }
 
@@ -201,7 +220,9 @@ pub fn show(
     shown: Option<&Isocurves>,
     room: f32,
     commands: &mut CommandFrame<'_>,
-) {
+) -> Option<Pickable> {
+    let mut hovered = None;
+
     let panel = widgets::side_panel(
         ui,
         room,
@@ -217,12 +238,21 @@ pub fn show(
                 widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
                 return;
             }
-            findings(ui, units, tool, shown, commands);
+            findings(ui, units, tool, shown, commands, &mut hovered);
+            ui.add_space(SPACE_M);
+
+            let clear = widgets::small_button(ui, icons::DELETE, CLEAR);
+
+            if ui.add(clear).on_hover_text(CLEAR_HOVER).clicked() {
+                tool.clear();
+            }
         },
     );
+
     if panel.closed {
         tool.toggle();
     }
+    hovered
 }
 
 pub fn gone_text(gone: usize) -> String {

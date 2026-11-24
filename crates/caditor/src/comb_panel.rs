@@ -1,4 +1,4 @@
-use egui::{Label, Slider, TextWrapMode, Ui};
+use egui::{Label, Response, Slider, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -7,6 +7,7 @@ use crate::{
     icons,
     layout::RightPanel,
     model::Model,
+    selection::Pickable,
     units::Units,
     widgets::{self, PanelTitle, Tone},
 };
@@ -23,6 +24,8 @@ pub const NOTHING_CHOSEN: &str = "Select edges of bodies or sketch curves to com
 pub const TEETH: &str = "Teeth per curve";
 pub const SCALE: &str = "Scale";
 pub const JOINTS: &str = "Where curves meet";
+pub const CLEAR: &str = "Clear the comb";
+pub const CLEAR_HOVER: &str = "Stop combing these curves; select others to comb them";
 const PANEL: RightPanel = RightPanel {
     id: "curvature-comb",
 };
@@ -47,12 +50,12 @@ fn bend_text(units: Units, curvature: f64) -> String {
     }
 }
 
-fn wrapped(ui: &mut Ui, text: impl Into<String>) {
+fn wrapped(ui: &mut Ui, text: impl Into<String>) -> Response {
     ui.add(
         Label::new(text.into())
             .wrap_mode(TextWrapMode::Wrap)
             .selectable(true),
-    );
+    )
 }
 
 fn more(ui: &mut Ui, total: usize) {
@@ -88,7 +91,7 @@ fn settings(ui: &mut Ui, tool: &mut CombTool) {
     });
 }
 
-fn curves(ui: &mut Ui, units: Units, comb: &Comb) {
+fn curves(ui: &mut Ui, units: Units, comb: &Comb, hovered: &mut Option<Pickable>) {
     widgets::card(ui, |ui| {
         for curve in comb.curves.iter().take(MAX_LISTED) {
             let bend = match curve.smallest_radius() {
@@ -99,7 +102,9 @@ fn curves(ui: &mut Ui, units: Units, comb: &Comb) {
                 None => "straight".to_owned(),
             };
 
-            wrapped(ui, format!("{}: {bend}", curve.name));
+            if wrapped(ui, format!("{}: {bend}", curve.name)).hovered() {
+                *hovered = Some(curve.pickable);
+            }
         }
         more(ui, comb.curves.len());
     });
@@ -152,8 +157,16 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
     });
 }
 
-pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: f32) {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut CombTool,
+    comb: &Comb,
+    room: f32,
+) -> Option<Pickable> {
     let units = model.units();
+    let mut hovered = None;
+
     let panel = widgets::side_panel(
         ui,
         room,
@@ -182,14 +195,23 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: 
                 ui.add_space(SPACE_S);
             }
             if !comb.curves.is_empty() {
-                curves(ui, units, comb);
+                curves(ui, units, comb, &mut hovered);
             }
             joints(ui, units, comb);
+            ui.add_space(SPACE_M);
+
+            let clear = widgets::small_button(ui, icons::DELETE, CLEAR);
+
+            if ui.add(clear).on_hover_text(CLEAR_HOVER).clicked() {
+                tool.clear();
+            }
         },
     );
+
     if panel.closed {
         tool.toggle();
     }
+    hovered
 }
 
 pub fn gone_text(gone: usize) -> String {

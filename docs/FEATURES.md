@@ -228,10 +228,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     (`configurations.rs`).
   - Command palette (`palette.rs`) `Home`/`End` navigation, evaluated parameter values beside
     expressions, and indexing renamed Bodies and Feature folders.
-  - Per-plane Reset and click-card-to-select-Current in `section_panel.rs`; one-click "Show Shaded
-    with edges" button in `analysis_panel.rs`'s hidden-faces callout; "Draw again" resume in
-    `isocurve_panel.rs` and `Clear` buttons plus 3D hover highlight in `comb_panel.rs` and
-    `isocurve_panel.rs`.
   - AI Assistant (`assistant_panel.rs`) inline `**bold**` / `` `code` `` rendering, message Copy
     buttons and sticky auto-scroll.
 - [low · small] An import's unit and scale are not remembered with its centring and plane

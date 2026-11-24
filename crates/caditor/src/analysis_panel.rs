@@ -37,6 +37,7 @@ const NOT_ANALYSING: &str = "No faces are being analysed";
 const NOT_STOPPED: &str = "The face analysis was not stopped";
 const STOP_HOVER: &str = "Stop working out the faces and show the bodies left uncoloured";
 const ANALYSE_AGAIN_HOVER: &str = "Work out the faces of the bodies left";
+pub const SHOW_SHADED: &str = "Show Shaded with edges";
 pub const HIDDEN_STYLE: &str = "This display style does not colour faces. Choose a shaded style \
                                 to see the analysis.";
 pub const DRAFT_ABOUT: &str = "Faces are coloured by the angle between their surface and the \
@@ -394,6 +395,7 @@ fn body(
     context: &AnalysisContext<'_>,
     tool: &mut AnalysisTool,
     commands: &mut CommandFrame<'_>,
+    asked: &mut Option<Command>,
 ) {
     kind_row(ui, tool);
     ui.add_space(SPACE_S);
@@ -404,7 +406,16 @@ fn body(
         ui.add_space(SPACE_M);
     }
     if !context.style.shows_faces() || context.style.is_translucent() {
-        widgets::callout(ui, Tone::Info, |ui| ui.label(HIDDEN_STYLE));
+        widgets::callout(ui, Tone::Info, |ui| {
+            ui.label(HIDDEN_STYLE);
+
+            let style = Command::Style(DisplayStyle::ShadedWithEdges);
+            let button = widgets::small_button(ui, icons::command(style), SHOW_SHADED);
+
+            if ui.add(button).clicked() {
+                *asked = Some(style);
+            }
+        });
         ui.add_space(SPACE_S);
     }
     if context.shown().is_empty() {
@@ -461,16 +472,20 @@ pub fn show(
     tool: &mut AnalysisTool,
     room: f32,
     commands: &mut CommandFrame<'_>,
-) {
+) -> Option<Command> {
+    let mut asked = None;
+
     let shown = widgets::side_panel(
         ui,
         room,
         PANEL,
         &HEADER,
         |_| {},
-        |ui| body(ui, context, tool, commands),
+        |ui| body(ui, context, tool, commands, &mut asked),
     );
+
     if shown.closed {
         tool.open = false;
     }
+    asked
 }

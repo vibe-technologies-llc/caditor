@@ -9,6 +9,8 @@ combed, so you can select a point and drag it to watch the comb change.
 
 - **Teeth per curve** sets how many teeth; **Scale** how long they are.
 - The panel lists each curve's smallest radius, and where two combed curves meet, the joint's grade:
-  G0 (a corner), G1 (tangent) or G2 (bending alike).
+  G0 (a corner), G1 (tangent) or G2 (bending alike). Pointing at a curve in the list lights it in
+  the view.
+- **Clear the comb** takes the comb away until you select other curves.
 
 See also [isocurves](isocurves) and [face analysis](face-analysis).

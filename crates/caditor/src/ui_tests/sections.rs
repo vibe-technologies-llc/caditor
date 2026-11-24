@@ -189,3 +189,36 @@ fn a_section_offset_moves_the_plane_while_typed_and_goes_back_when_left_unentere
     assert_eq!(harness.workspace.section.cuts[0].offset, stored);
     assert!((origin(&mut harness) - before).abs() < 1e-9);
 }
+
+#[test]
+fn clicking_a_plane_card_makes_it_current_and_reset_puts_it_back_through_its_base() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run(&mut harness, "show or hide the section view");
+    run(&mut harness, "add a section plane");
+
+    let base = harness.workspace.section.cuts[0].base;
+
+    harness.workspace.section.cuts[0].tilt =
+        caditor_expression::Expression::measure(30.0, caditor_expression::Unit::Degree);
+    harness.workspace.section.cuts[0].flipped = true;
+    harness.frame();
+
+    let current_before = harness.workspace.section.current;
+
+    harness.click("Plane 1");
+    harness.frame();
+
+    let current_after = harness.workspace.section.current;
+
+    harness.click_topmost_button(section_panel::RESET_PLANE);
+    harness.frame();
+
+    assert_eq!(current_before, 1);
+    assert_eq!(current_after, 0);
+    assert_eq!(
+        harness.workspace.section.cuts[0],
+        crate::section::Cut::through(base)
+    );
+}
