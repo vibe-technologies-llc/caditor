@@ -275,7 +275,10 @@ fn guessed_sketch(
             .map(|feature| feature.id())
             .find(|sketch| visibility::is_shown(document, *sketch) && unused(sketch))
     };
-    opened.filter(unused).or_else(last)
+    match opened {
+        Some(sketch) => Some(sketch).filter(unused),
+        None => last(),
+    }
 }
 
 fn is_drilled(document: &Document, sketch: FeatureId) -> bool {
