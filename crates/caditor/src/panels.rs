@@ -245,7 +245,7 @@ impl PanelState {
         let remaining: Vec<FeatureId> = chosen
             .iter()
             .copied()
-            .filter(|id| document.feature(*id).is_some())
+            .filter(|id| document.feature(*id).is_some() || document.body_maker(*id).is_some())
             .collect();
         if remaining.len() != chosen.len() {
             self.choose_all(&remaining);
@@ -445,15 +445,23 @@ fn user_acted(input: &InputState) -> bool {
     })
 }
 
+pub struct TreeContext<'a> {
+    pub selection: &'a Selection,
+    pub editing: &'a SketchEditing,
+    pub keymap: &'a crate::commands::Keymap,
+    pub isolated: &'a BTreeSet<FeatureId>,
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     model: &Model,
-    selection: &Selection,
-    editing: &SketchEditing,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     room: f32,
     actions: &mut Vec<Action>,
 ) {
+    let editing = context.editing;
+
     state.begin_frame(ui.input(user_acted));
 
     let pointer_held =
@@ -497,7 +505,7 @@ pub fn show(
             };
 
             widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
-                feature_tree::show(ui, model, selection, editing, state, actions);
+                feature_tree::show(ui, model, context, state, actions);
             });
             ui.add_space(SPACE_L);
 

@@ -511,6 +511,11 @@ pub fn header(
             });
         }
         Name::Renaming(field) => {
+            if let Some(error) = &field.error {
+                tree_row::indented(ui, |ui| {
+                    widgets::error_text(ui, error);
+                });
+            }
             if let Some(transaction) = field.committed {
                 actions.push(Action::Apply(transaction));
             }

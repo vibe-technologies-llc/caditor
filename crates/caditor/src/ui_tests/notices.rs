@@ -306,3 +306,30 @@ fn delete_with_nothing_to_delete_names_the_tools_that_take_faces_and_bodies_away
         "{notice:?}"
     );
 }
+
+#[test]
+fn clicking_the_status_bar_size_readout_copies_it_with_a_notice() {
+    let mut harness = Harness::new();
+
+    let (_, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.frame();
+    harness.frame();
+
+    let readout = harness
+        .texts
+        .iter()
+        .find(|(text, _)| text.contains("mm²"))
+        .map(|(text, rect)| (text.clone(), rect.center()))
+        .expect("the status bar shows the selected face's size");
+
+    harness.click_screen(readout.1);
+    harness.frame();
+
+    assert_eq!(harness.clipboard.as_deref(), Some(readout.0.as_str()));
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some(format!("Copied {}.", readout.0).as_str())
+    );
+}

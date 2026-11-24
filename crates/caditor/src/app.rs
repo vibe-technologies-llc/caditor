@@ -1,6 +1,6 @@
 use std::{
     cell::OnceCell,
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     panic::{self, AssertUnwindSafe},
     path::PathBuf,
     sync::Arc,
@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use caditor_cloud::Service;
+use caditor_document::{Document, FeatureId};
 use caditor_render::{
     Background, FrameStart, ImageError, ImageRequest, PickPoll, Renderer, SurfaceSize,
     ViewportFrame, Wake, WindowTarget,
@@ -77,7 +78,7 @@ use crate::{
     overlay::Overlay,
     pair_reading::PairReading,
     palette::Palette,
-    panels::{self, PanelState},
+    panels::{self, PanelState, TreeContext},
     parameter_table,
     preferences::{
         self, Appearance, AssistantPrefsView, ExportMemory, PreferenceChange, Preferences,
@@ -927,6 +928,30 @@ pub fn show(
         &mut commands,
     );
 
+    let isolate_target = if bodies_to_export.is_empty() {
+        Err("Select a body in the view or the tree first")
+    } else {
+        Ok(())
+    };
+
+    if commands.invoke(Command::IsolateBody, &isolate_target) {
+        let target: BTreeSet<FeatureId> = bodies_to_export.iter().copied().collect();
+        if target == *viewport.isolated() {
+            actions.push(Action::ExitIsolate);
+        } else {
+            actions.push(Action::Isolate(bodies_to_export.clone()));
+        }
+    }
+
+    let exit_isolate = (!viewport.isolated().is_empty())
+        .then_some(())
+        .ok_or("No body is isolated");
+
+    if commands.invoke(Command::ExitIsolate, &exit_isolate) {
+        actions.push(Action::ExitIsolate);
+    }
+
+    let isolated_chip = isolated_label(model.document(), viewport.isolated());
     let status = StatusContext {
         uploading: viewport.is_uploading(),
         upload_stopped: viewport.is_upload_stopped(),
@@ -945,6 +970,10 @@ pub fn show(
         } else {
             SketchSelectionFilter::Everything
         },
+        lasso: viewport.lasso(),
+        paint: viewport.paint(),
+        select_through: viewport.select_through(),
+        isolated: isolated_chip.as_deref(),
     };
 
     status_bar::show(ui, model, &status, panels, &mut commands, actions);
@@ -983,15 +1012,15 @@ pub fn show(
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
 
     layout::share_right_width(ui.ctx(), panels.layout().right_width);
-    panels::show(
-        ui,
-        model,
-        viewport.selection(),
+
+    let tree_context = TreeContext {
+        selection: viewport.selection(),
         editing,
-        panels,
-        room,
-        actions,
-    );
+        keymap: &preferences.keymap,
+        isolated: viewport.isolated(),
+    };
+
+    panels::show(ui, model, &tree_context, panels, room, actions);
     preferences.panels = panels.layout();
     deferred_commands.append(&mut panels.requested);
     if guide.open {
@@ -1571,7 +1600,8 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::CloseScaleModel));
         }
         if let Some(draft) = saved_views
-            && let Some(outcome) = saved_views::dialog(ui.ctx(), model.document(), draft)
+            && let Some(outcome) =
+                saved_views::dialog(ui.ctx(), model.document(), &preferences.keymap, draft)
         {
             match outcome {
                 saved_views::Outcome::Close => {
@@ -2145,6 +2175,26 @@ pub fn perform(
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
             Action::SketchFilter(filter) => workspace.viewport.set_sketch_filter(filter),
+            Action::SetLasso(on) => workspace.viewport.set_lasso(on),
+            Action::SetPaint(on) => workspace.viewport.set_paint(on),
+            Action::SetSelectThrough(on) => workspace.viewport.set_select_through(on),
+            Action::Isolate(bodies) => {
+                let target: BTreeSet<FeatureId> = bodies.into_iter().collect();
+                if target.is_empty() {
+                    workspace.viewport.exit_isolate();
+                } else {
+                    let message = isolated_notice(model.document(), &target);
+
+                    workspace.viewport.isolate(target);
+                    model.show_passing(Notice::info(message));
+                }
+            }
+            Action::ExitIsolate => {
+                if !workspace.viewport.isolated().is_empty() {
+                    workspace.viewport.exit_isolate();
+                    model.show_passing(Notice::info("Showing all bodies."));
+                }
+            }
             Action::Select(chosen) => workspace.viewport.select_exactly(chosen),
             Action::StopUploading => workspace.viewport.request_upload(UploadRequest::Stop),
             Action::ResumeUploading => workspace.viewport.request_upload(UploadRequest::Resume),
@@ -2215,6 +2265,36 @@ pub fn perform(
         .announce_switch(model, notice_before.as_ref());
     settle_principal_view(model, workspace);
     rerun
+}
+
+fn isolated_label(document: &Document, isolated: &BTreeSet<FeatureId>) -> Option<String> {
+    let mut bodies = isolated.iter().copied();
+
+    let first = bodies.next()?;
+    if bodies.next().is_none() {
+        let name = document
+            .body_label(first)
+            .unwrap_or_else(|| "body".to_owned());
+        Some(format!("Isolated: {name} · Show all"))
+    } else {
+        Some(format!("Isolated: {} bodies · Show all", isolated.len()))
+    }
+}
+
+fn isolated_notice(document: &Document, isolated: &BTreeSet<FeatureId>) -> String {
+    let mut bodies = isolated.iter().copied();
+
+    let Some(first) = bodies.next() else {
+        return "Showing all bodies.".to_owned();
+    };
+    if bodies.next().is_none() {
+        match document.body_label(first) {
+            Some(name) => format!("Isolated {name} for this session."),
+            None => "Isolated the selected body for this session.".to_owned(),
+        }
+    } else {
+        format!("Isolated {} bodies for this session.", isolated.len())
+    }
 }
 
 fn settle_principal_view(model: &mut Model, workspace: &Workspace) {

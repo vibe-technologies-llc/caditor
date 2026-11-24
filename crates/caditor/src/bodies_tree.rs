@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use caditor_document::{Feature, FeatureId};
-use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState, vec2};
+use egui::{Id, Label, Popup, RichText, Ui, collapsing_header::CollapsingState, vec2};
 
 use crate::{
     appearance::{self, SPACE_S},
@@ -13,16 +13,15 @@ use crate::{
     icons,
     model::{Action, Model, Notice},
     move_tools,
-    panels::{Painting, PanelState},
+    panels::{Painting, PanelState, TreeContext},
     preferences::DoubleClick,
-    removal,
-    selection::Selection,
-    split_tools,
+    removal, split_tools,
     tree_row::{self, CHILD_INDENT, GROUP_INDENT, Item, Look, NESTED_LEVEL, TOP_LEVEL},
     visibility, widgets,
 };
 
 pub const GROUP_TITLE: &str = "Bodies";
+const MORE_HINT: &str = "Rename, isolate, copy, split or remove (also on right-click)";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 enum PaintedBodyError {
@@ -55,7 +54,7 @@ pub fn listed(model: &Model) -> Vec<FeatureId> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
@@ -105,6 +104,8 @@ pub fn show(
 
     let muted = appearance::tokens(ui).text_muted;
     let open = collapsing.is_open();
+    let any_shown = bodies.iter().any(|body| !document.body_hidden(*body));
+    let toggle_all = visibility::toggle_bodies(document, &bodies, "every body");
 
     let row = tree_row::show(
         ui,
@@ -130,11 +131,23 @@ pub fn show(
         },
         |ui| {
             tree_row::empty_slot(ui);
+
+            let toggled_all = tree_row::slot(ui, |ui| match &toggle_all {
+                Ok(transaction) => eye(ui, any_shown, transaction.label()),
+                Err(_) => false,
+            });
+
             tree_row::empty_slot(ui);
+            toggled_all
         },
     );
     let (toggled, name) = row.leading;
 
+    if row.trailing
+        && let Ok(transaction) = toggle_all
+    {
+        actions.push(Action::Apply(transaction));
+    }
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
@@ -148,14 +161,7 @@ pub fn show(
     };
 
     collapsing.show_body_unindented(ui, |ui| {
-        rows(
-            ui,
-            model,
-            selection,
-            state,
-            actions,
-            (&entries, 0, &listing),
-        );
+        rows(ui, model, context, state, actions, (&entries, 0, &listing));
     });
     collapsing.store(ui.ctx());
 }
@@ -163,7 +169,7 @@ pub fn show(
 fn rows(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     (entries, depth, listing): (&[Entry], usize, &Listing<'_>),
@@ -176,14 +182,7 @@ fn rows(
                     continue;
                 }
 
-                let shown = item(
-                    ui,
-                    model,
-                    selection,
-                    state,
-                    actions,
-                    (*body, depth, listing),
-                );
+                let shown = item(ui, model, context, state, actions, (*body, depth, listing));
                 if let Some(height) = shown.filter(|_| is_plain(ui, state, *body)) {
                     state.plain_body_row_height = Some(height);
                 }
@@ -193,7 +192,7 @@ fn rows(
                     rows(
                         ui,
                         model,
-                        selection,
+                        context,
                         state,
                         actions,
                         (&group.entries, depth + 1, listing),
@@ -221,7 +220,7 @@ fn row_id(body: FeatureId) -> Id {
 fn item(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     (body, depth, listing): (FeatureId, usize, &Listing<'_>),
@@ -264,10 +263,16 @@ fn item(
                 Ok(transaction) => eye(ui, shown, transaction.label()),
                 Err(_) => false,
             });
-            (paint, eye)
+            let more = tree_row::slot(ui, |ui| {
+                widgets::named(
+                    widgets::icon_button(ui, icons::MORE, MORE_HINT),
+                    &format!("More actions for {name}"),
+                )
+            });
+            (paint, eye, more)
         },
     );
-    let (paint, eye) = row.trailing;
+    let (paint, eye, more) = row.trailing;
     let row_name = row.leading;
 
     if row_name.has_focus() {
@@ -297,9 +302,14 @@ fn item(
             DoubleClick::Edit => feature_tree::open_made_by(model.document(), body, actions),
         }
     }
+    Popup::menu(&more).show(|ui| {
+        widgets::fitted_menu(ui, |ui| {
+            row_menu(ui, model, context, state, actions, (body, listing));
+        });
+    });
     row_name.context_menu(|ui| {
         widgets::fitted_menu(ui, |ui| {
-            row_menu(ui, model, selection, state, actions, (body, listing));
+            row_menu(ui, model, context, state, actions, (body, listing));
         });
     });
     if eye && let Ok(transaction) = toggle {
@@ -325,7 +335,7 @@ fn item(
             body_appearance::show(
                 ui,
                 model,
-                selection,
+                context.selection,
                 actions,
                 body,
                 (painting.focus_pending, painting.naming),
@@ -346,16 +356,18 @@ fn item(
 fn row_menu(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     (body, listing): (FeatureId, &Listing<'_>),
 ) {
+    let keys = |command| context.keymap.hint(command).map(str::to_owned);
+
     if widgets::menu_item(
         ui,
         icons::command(Command::RenameBody),
         "Rename body…",
-        None,
+        keys(Command::RenameBody),
     )
     .clicked()
     {
@@ -370,7 +382,7 @@ fn row_menu(
         ui,
         icons::command(Command::SelectBody),
         "Select the whole body",
-        None,
+        keys(Command::SelectBody),
     )
     .clicked()
     {
@@ -381,7 +393,37 @@ fn row_menu(
         ));
         ui.close();
     }
-    if widgets::menu_item(ui, icons::command(Command::CopyBody), "Copy body", None).clicked() {
+
+    let only_isolated = context.isolated.len() == 1 && context.isolated.contains(&body);
+    let (isolate_command, isolate_label) = if only_isolated {
+        (Command::ExitIsolate, "Exit isolate")
+    } else {
+        (Command::IsolateBody, "Isolate in view")
+    };
+
+    if widgets::menu_item(
+        ui,
+        icons::command(isolate_command),
+        isolate_label,
+        keys(isolate_command),
+    )
+    .clicked()
+    {
+        if only_isolated {
+            actions.push(Action::ExitIsolate);
+        } else {
+            actions.push(Action::Isolate(vec![body]));
+        }
+        ui.close();
+    }
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::CopyBody),
+        "Copy body",
+        keys(Command::CopyBody),
+    )
+    .clicked()
+    {
         actions.extend(move_tools::create_actions(
             model,
             &move_tools::MoveSource::single(body),
@@ -389,8 +431,15 @@ fn row_menu(
         ));
         ui.close();
     }
-    if widgets::menu_item(ui, icons::command(Command::Split), "Split body", None).clicked() {
-        match split_tools::source_for(model, selection, body) {
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::Split),
+        "Split body",
+        keys(Command::Split),
+    )
+    .clicked()
+    {
+        match split_tools::source_for(model, context.selection, body) {
             Ok(source) => actions.extend(split_tools::create_actions(model, &source)),
             Err(reason) => actions.push(Action::Inform(Notice::warning(format!(
                 "{}: {reason}.",
@@ -400,7 +449,14 @@ fn row_menu(
         ui.close();
     }
     ui.separator();
-    if widgets::menu_item(ui, icons::command(Command::RemoveBody), "Remove body", None).clicked() {
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::RemoveBody),
+        "Remove body",
+        keys(Command::RemoveBody),
+    )
+    .clicked()
+    {
         actions.extend(removal::create_actions(model.document(), body));
         ui.close();
     }
@@ -487,7 +543,7 @@ fn label(ui: &Ui, text: &str, shown: bool) -> RichText {
     if shown {
         text
     } else {
-        text.color(appearance::tokens(ui).text_muted).italics()
+        text.color(appearance::tokens(ui).text_muted)
     }
 }
 

@@ -104,6 +104,10 @@ pub struct StatusContext<'a> {
     pub edited: Option<FeatureId>,
     pub filter: SelectionFilter,
     pub sketch_filter: SketchSelectionFilter,
+    pub lasso: bool,
+    pub paint: bool,
+    pub select_through: bool,
+    pub isolated: Option<&'a str>,
 }
 
 pub fn show(
@@ -230,8 +234,66 @@ fn trailing(
             sketch_filter(ui, context.sketch_filter, actions);
             divider(ui);
         }
+        if context.select_through {
+            selection_mode(
+                ui,
+                Command::ToggleSelectThrough,
+                "Select through",
+                "Boxes, lassos and painting also take what lies hidden behind. Click to turn off.",
+                Action::SetSelectThrough(false),
+                actions,
+            );
+            divider(ui);
+        }
+        if context.paint {
+            selection_mode(
+                ui,
+                Command::TogglePaintSelection,
+                "Paint",
+                "Dragging over faces selects them. Click to return to box selection.",
+                Action::SetPaint(false),
+                actions,
+            );
+            divider(ui);
+        }
+        if context.lasso {
+            selection_mode(
+                ui,
+                Command::ToggleLasso,
+                "Lasso",
+                "Dragging in the view draws a freehand outline. Click to return to box selection.",
+                Action::SetLasso(false),
+                actions,
+            );
+            divider(ui);
+        }
+        if let Some(isolated) = context.isolated {
+            if feature_pill(
+                ui,
+                Tone::Info,
+                isolated,
+                "Showing only the isolated body in this session. Click to show all bodies again.",
+            )
+            .clicked()
+            {
+                actions.push(Action::ExitIsolate);
+            }
+            divider(ui);
+        }
         if let Some(size) = context.offers.size.as_deref().or(context.between) {
-            ui.label(RichText::new(size).color(appearance::tokens(ui).text_muted));
+            let readout = ui
+                .add(
+                    Label::new(RichText::new(size).color(appearance::tokens(ui).text_muted))
+                        .selectable(false)
+                        .sense(Sense::click()),
+                )
+                .on_hover_cursor(CursorIcon::PointingHand)
+                .on_hover_text("Click to copy");
+
+            if readout.clicked() {
+                ui.ctx().copy_text(size.to_owned());
+                actions.push(Action::Inform(Notice::info(format!("Copied {size}."))));
+            }
             divider(ui);
         }
         widgets::remember_width(ui, room.id, ui.min_rect().width());
@@ -445,16 +507,18 @@ fn summary(
     hovers: &Hovers,
     actions: &mut Vec<Action>,
 ) {
+    let mut partial_bodies = false;
+
     if let Some((shown, bodies)) = model.bodies_preparing() {
+        partial_bodies = true;
         if widgets::progress(format!("{}…", showing_bodies_text(shown, bodies)))
             .cancel(STOP_PREPARING_HOVER)
             .show(ui)
         {
             actions.push(Action::StopPreparingBodies);
         }
-        return;
-    }
-    if let Some((shown, bodies)) = model.bodies_stopped() {
+    } else if let Some((shown, bodies)) = model.bodies_stopped() {
+        partial_bodies = true;
         widgets::announced_status_pill(ui, Tone::Info, showing_bodies_text(shown, bodies))
             .on_hover_text(STOPPED_PREPARING_HOVER);
         if ui
@@ -470,7 +534,7 @@ fn summary(
     let failed = model.evaluation().failed_count();
     let waiting = model.evaluation().waiting_count();
 
-    if failed == 0 && waiting == 0 {
+    if failed == 0 && waiting == 0 && !partial_bodies {
         widgets::icon_label(ui, icons::UP_TO_DATE, tokens.success);
         ui.label(widgets::muted(UP_TO_DATE, ui));
     }
@@ -623,12 +687,15 @@ fn notice(
         widgets::announced(ui, &response, notice.kind.is_urgent());
     });
 
+    let mut action_left = None;
     let offered = notice.action.as_ref().filter(|action| model.offers(action));
+
     let taken = match offered {
         Some(NoticeAction::Remedies(remedies)) => {
             let edited = edited == Some(remedies.feature());
             let button = constraint_remedies::button(ui, model, remedies, edited, actions);
 
+            action_left = Some(button.rect.left());
             widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());
             None
         }
@@ -651,6 +718,7 @@ fn notice(
     if let Some((label, hover, taken)) = taken {
         let button = ui.add(widgets::button(label)).on_hover_text(hover);
 
+        action_left = Some(button.rect.left());
         widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());
         if button.clicked() {
             actions.push(taken);
@@ -659,8 +727,9 @@ fn notice(
 
     let messages = widgets::icon_button(ui, icons::command(Command::Messages), &hovers.messages);
     let dismiss = widgets::icon_button(ui, icons::CLOSE, "Dismiss");
+    let left = action_left.unwrap_or(messages.rect.left());
 
-    widgets::remember_width(ui, buttons_id, dismiss.rect.right() - messages.rect.left());
+    widgets::remember_width(ui, buttons_id, dismiss.rect.right() - left);
     if messages.clicked() {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
@@ -710,6 +779,22 @@ fn filter(ui: &mut Ui, filter: SelectionFilter, actions: &mut Vec<Action>) {
     );
     if response.clicked() {
         actions.push(Action::Filter(SelectionFilter::Everything));
+    }
+}
+
+fn selection_mode(
+    ui: &mut Ui,
+    command: Command,
+    label: &str,
+    hover: &str,
+    off: Action,
+    actions: &mut Vec<Action>,
+) {
+    let button = widgets::small_button(ui, icons::command(command), label);
+    let response = ui.add(Named::new(button, label)).on_hover_text(hover);
+
+    if response.clicked() {
+        actions.push(off);
     }
 }
 

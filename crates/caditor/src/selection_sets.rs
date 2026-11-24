@@ -586,13 +586,16 @@ fn row(
     let mut rename = false;
     let mut delete = false;
     let mut update = false;
-    let mut select = false;
 
-    Sides::new().shrink_left().truncate().show(
+    let (title_select, button_select) = Sides::new().shrink_left().truncate().show(
         ui,
         |ui| {
-            ui.label(&set.name);
+            let clicked = widgets::truncated_link(ui, &set.name)
+                .on_hover_text(SELECT_HOVER)
+                .clicked();
+
             ui.label(widgets::muted(members_text(set), ui));
+            clicked
         },
         |ui| {
             delete = widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked();
@@ -600,11 +603,11 @@ fn row(
             update =
                 widgets::icon_button(ui, icons::command(Command::SaveSelectionSet), UPDATE_HOVER)
                     .clicked();
-            select = widgets::icon_button(ui, icons::command(Command::SelectionSets), SELECT_HOVER)
-                .clicked();
+            widgets::icon_button(ui, icons::command(Command::SelectionSets), SELECT_HOVER).clicked()
         },
     );
-    if select {
+
+    if title_select || button_select {
         draft.problem = None;
         draft.note = None;
         outcome = Some(Outcome::Select(index));
@@ -680,27 +683,28 @@ fn saving(
 
     widgets::properties(ui, (DIALOG_ID, "save"), |ui| {
         widgets::property(ui, NAME_CAPTION, |ui| {
-            ui.horizontal(|ui| {
-                let field = widgets::text_field(ui, |ui| {
-                    ui.add(
-                        TextEdit::singleline(&mut draft.name)
-                            .id(name_field_id())
-                            .char_limit(MAX_SET_NAME_CHARS)
-                            .desired_width(
-                                ui.available_width() - 2.0 * ui.spacing().interact_size.y,
-                            ),
-                    )
-                });
+            let (enter, clicked) = Sides::new().shrink_left().show(
+                ui,
+                |ui| {
+                    let field = widgets::text_field(ui, |ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut draft.name)
+                                .id(name_field_id())
+                                .char_limit(MAX_SET_NAME_CHARS)
+                                .desired_width(f32::INFINITY),
+                        )
+                    });
 
-                widgets::tie_to_caption(ui, &field);
-                if focus {
-                    field.request_focus();
-                }
+                    widgets::tie_to_caption(ui, &field);
+                    if focus {
+                        field.request_focus();
+                    }
+                    field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter))
+                },
+                |ui| ui.add(widgets::button(SAVE_LABEL)).clicked(),
+            );
 
-                let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-
-                save_now = ui.add(widgets::button(SAVE_LABEL)).clicked() || enter;
-            });
+            save_now = clicked || enter;
         });
     });
     if !save_now {

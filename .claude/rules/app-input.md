@@ -281,8 +281,10 @@ paths:
 
 - A model keeps named camera views (`document.md`, `saved_views.rs`). Save the current view saves
   `Camera::destination` as the next free "View N". Saved views… opens a modal
-  (`Workspace::saved_views`, dropped with the session) with Show, Replace, Rename and Delete per
-  view, a Name field with Save view, and the Isometric section. Escape in a rename row of this dialog, of
+  (`Workspace::saved_views`, dropped with the session) with clickable view titles, Show, Replace,
+  Rename and Delete per
+  view, a Name field with Save view, and the Isometric section (reading the Isometric shortcut from
+  `Keymap` and disabling Reset with a hover explanation when already built-in). Escape in a rename row of this dialog, of
   Selection sets and of Configurations cancels the rename alone (`widgets::escape_cancels`, which
   consumes the key, since egui drops the field's focus on the Escape frame and the modal would
   otherwise take it and close). Each change is one undoable
@@ -417,11 +419,12 @@ paths:
 - What lies behind something is reached from the pick list (`pick_list.rs`): a primary press held
   still for `HOLD_TO_LIST` (not while drawing, Trim or the modifying tools, which take presses
   themselves) or List everything under the pointer (`view.list_under_pointer`; at the pointer, else
-  where it last was in the view, else the view's centre) opens a popup listing every pickable under
+  where it last was in the view, else the view's centre) opens a popup (measured and flipped upward
+  when needed via `widgets::menu_opening_down` and `widgets::measured_menu`) listing every pickable under
   it, from `Scene::hits_through` (`render.md`) through `PickTable::listed` (each pick's tolerance
   and the selection filter), named as hover names them, one row per body with the Bodies filter.
   Rows are `widgets::menu_choice`s with `icons::pickable`; the first takes focus, and the pointed or
-  focused row is drawn as hovered and described at once at the band's top left, as a keyboard
+  focused row (clearing stale hover focus when the pointer leaves) is drawn as hovered and described at once at the band's top left, as a keyboard
   highlight is (`described_in_band`), never beside the pointer under the list. Choosing one acts as Activate does
   (`ViewportState::choose`) but replaces the selection, adding with Shift or Ctrl. The press that
   opened it never counts as a click; with nothing under the pointer an info notice says so.
@@ -501,11 +504,13 @@ paths:
   through off) and a box or lasso reaching through is drawn with a double outline
   (`THROUGH_STROKE_WIDTH` in its colour, a `Chrome::panel` line inside), told by shape, not
   colour.
-- Select with a lasso (`Command::ToggleLasso`; `ViewportState::lasso`, session only, since Alt-drag
+- Select with a lasso (`Command::ToggleLasso`; `ViewportState::lasso`, session only, mutually
+  exclusive with Paint selection, since Alt-drag
   already navigates in the Laptop input mode) makes those drags, and the edited sketch's, draw a
   freehand outline (`sketch_drag::ScreenArea::Lasso`, a point every `LASSO_STEP` points, closed back
   to its start) taking what lies wholly inside, like a window.
-- Select faces by painting (`Command::TogglePaintSelection`; `ViewportState::paint`, session only)
+- Select faces by painting (`Command::TogglePaintSelection`; `ViewportState::paint`, session only,
+  mutually exclusive with Lasso selection)
   makes model drags a brush (`PrimaryDrag::Paint`, `paint_selection.rs`) while the filter takes
   faces (Everything, Faces or Bodies) and the display style picks them (otherwise the box stays):
   the drag replaces the selection (Shift or Ctrl adds) and each pointer move adds the faces under the
@@ -513,6 +518,16 @@ paths:
   `Scene::hits_through` on the CPU, so no GPU pick is awaited. Each sample takes the nearest face, or
   every face under it with Select through; the Bodies filter takes the whole body. Escape mid-drag
   restores the selection the drag started from. Sketch drags keep the box or lasso.
+- Session-only body isolation (`Command::IsolateBody`, `view.isolate_body`; `Command::ExitIsolate`,
+  `view.exit_isolate`; `ViewportState::isolated` and `Revisions::isolated`): hides every other body
+  in the 3D scene (`scene::body_shown`) and bounds calculations for the current session without
+  mutating the document or undo stack, pruned when isolated bodies disappear and cleared when a new
+  session starts; the status bar shows an `Isolated: … · Show all` chip that exits isolate on click.
+- Double-clicking (or pressing Enter on a keyboard highlight) outside sketch editing and outside
+  in-view choosing (`!editing.context().is_choosing()`) opens the owning sketch for
+  `Pickable::SketchEntity` and `Pickable::SketchRegion` (`EditingCommand::Enter`) and opens the
+  owning feature for `Pickable::Datum`, `FrameAxis`, `FramePlane`, `Face` and `Edge`
+  (`EditingCommand::OpenSolid`).
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on shown bodies outside sketch editing and refuse inside one. Select all
   takes every face, edge or vertex by the filter, or by the kind already selected while the filter

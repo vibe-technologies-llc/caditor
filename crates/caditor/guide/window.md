@@ -76,7 +76,10 @@ with a Cancel; cancelled, the bodies not shown yet stay hidden, the count stays 
 background that is not a recompute, a file or a paste (preparing bodies, loading them to the
 graphics card, face analysis, mass properties, isocurves and interference) is also a command in the View menu's Background work, offered
 while that work runs, and the command that picks it up again is offered once it was stopped. Escape
-is not bound to them, as it already closes or cancels what is open. On the right: what is selected, its size or the distance between two selected items, the
+is not bound to them, as it already closes or cancels what is open. On the right: what is selected,
+its size or the distance between two selected items (click it to copy the reading), any active
+session-only **Isolated** chip or selection mode chips (**Select through**, **Paint**, **Lasso**;
+click any chip to reset it), the
 [selection filter](selection) while one is on (click it to select anything again), the length unit
 (click it for [Preferences](preferences)) and the interface size when it is not 100% (click it to
 go back to 100%). Hovering a button there names its keys.

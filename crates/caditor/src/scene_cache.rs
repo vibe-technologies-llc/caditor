@@ -36,6 +36,7 @@ pub struct Revisions {
     pub canvas: Canvas,
     pub draft: u64,
     pub pictures: u64,
+    pub isolated: u64,
 }
 
 pub struct SceneInputs<'a> {

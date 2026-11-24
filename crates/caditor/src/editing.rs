@@ -329,6 +329,10 @@ impl Context {
         Self { principal, ..self }
     }
 
+    pub fn is_choosing(self) -> bool {
+        self.choosing_plane || self.choosing_bodies || self.choosing_face || self.choosing_in_view
+    }
+
     pub fn picks_shown_regions(self) -> bool {
         self.sketch.is_none()
             && !self.choosing_plane

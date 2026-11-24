@@ -179,6 +179,7 @@ fn framed_from(
         canvas: looks.canvas,
         draft: None,
         pictures,
+        isolated: None,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 

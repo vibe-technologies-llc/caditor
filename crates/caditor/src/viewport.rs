@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::BTreeSet, fmt::Display, sync::Arc, time::Duration};
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
@@ -528,6 +528,8 @@ pub struct ViewportState {
     hover_delay: HoverDelay,
     orbit_mark: Option<OrbitMark>,
     pointer_labels: Vec<Rect>,
+    isolated: BTreeSet<FeatureId>,
+    isolated_revision: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -792,7 +794,7 @@ fn paste_note(pasted: &PastedGeometry) -> Option<String> {
 }
 
 fn clear_of(label: Rect, keep_out: Rect, view: Rect) -> Rect {
-    if !label.intersects(keep_out) {
+    if !keep_out.is_positive() || !label.intersects(keep_out) {
         return label;
     }
     if keep_out.center().x < view.center().x {
@@ -807,6 +809,27 @@ fn clear_of(label: Rect, keep_out: Rect, view: Rect) -> Rect {
     let moved = label.translate(vec2(shift, 0.0));
     let past_left = (view.left() - moved.left()).max(0.0);
     moved.translate(vec2(past_left, 0.0))
+}
+
+fn nudge_clear_of_badges(mut label: Rect, placed: &[Rect], view: Rect) -> Rect {
+    let gap = canvas::MARGIN * 0.5;
+
+    for _ in 0..placed.len() {
+        let Some(hit) = placed.iter().find(|other| label.intersects(**other)) else {
+            break;
+        };
+        let above = label.translate(vec2(0.0, hit.top() - gap - label.bottom()));
+        let below = label.translate(vec2(0.0, hit.bottom() + gap - label.top()));
+
+        if above.top() >= view.top() + canvas::MARGIN {
+            label = above;
+        } else if below.bottom() <= view.bottom() - canvas::MARGIN {
+            label = below;
+        } else {
+            break;
+        }
+    }
+    label
 }
 
 fn problems(model: &Model) -> Vec<Problem> {
@@ -979,7 +1002,61 @@ impl ViewportState {
             hover_delay: HoverDelay::default(),
             orbit_mark: None,
             pointer_labels: Vec::new(),
+            isolated: BTreeSet::new(),
+            isolated_revision: 0,
         }
+    }
+
+    pub fn isolated(&self) -> &BTreeSet<FeatureId> {
+        &self.isolated
+    }
+
+    pub fn isolate(&mut self, bodies: impl IntoIterator<Item = FeatureId>) {
+        let next: BTreeSet<FeatureId> = bodies.into_iter().collect();
+
+        if next == self.isolated {
+            return;
+        }
+        self.isolated = next;
+        self.isolated_revision = self.isolated_revision.wrapping_add(1);
+        if !self.isolated.is_empty() {
+            self.selection.retain(|pickable| {
+                pickable
+                    .body()
+                    .is_none_or(|body| self.isolated.contains(&body))
+            });
+            self.hovered = self.hovered.filter(|hovered| {
+                hovered
+                    .body()
+                    .is_none_or(|body| self.isolated.contains(&body))
+            });
+        }
+    }
+
+    pub fn exit_isolate(&mut self) {
+        if self.isolated.is_empty() {
+            return;
+        }
+        self.isolated.clear();
+        self.isolated_revision = self.isolated_revision.wrapping_add(1);
+    }
+
+    pub fn set_lasso(&mut self, on: bool) {
+        self.lasso = on;
+        if on {
+            self.paint = false;
+        }
+    }
+
+    pub fn set_paint(&mut self, on: bool) {
+        self.paint = on;
+        if on {
+            self.lasso = false;
+        }
+    }
+
+    pub fn set_select_through(&mut self, on: bool) {
+        self.select_through = on;
     }
 
     pub fn snapping(&self) -> bool {
@@ -1672,6 +1749,7 @@ impl ViewportState {
             self.session = model.session();
             self.fit_when_computed = true;
             self.history.clear();
+            self.exit_isolate();
             self.start_from_home(model);
         }
         if self.fit_when_computed
@@ -1934,6 +2012,16 @@ impl ViewportState {
         hovered.sort_unstable();
         hovered.dedup();
 
+        let document = model.document();
+        let before_isolated = self.isolated.len();
+
+        self.isolated
+            .retain(|body| document.body_maker(*body).is_some());
+        if self.isolated.len() != before_isolated {
+            self.isolated_revision = self.isolated_revision.wrapping_add(1);
+        }
+
+        let isolated = (!self.isolated.is_empty()).then_some(&self.isolated);
         let framed_rows = with_their_bodies(model.document(), rows);
         let view = self.view();
         let sources = scene_sources(
@@ -1945,6 +2033,7 @@ impl ViewportState {
                 analyses: &self.analyses,
                 contrast: self.contrast,
                 canvas: self.canvas,
+                isolated,
             },
             context.solid,
         );
@@ -1968,6 +2057,7 @@ impl ViewportState {
                 canvas: self.canvas,
                 draft: model.draft_generation(),
                 pictures: model.pictures().generation(),
+                isolated: self.isolated_revision,
             },
             context,
             highlight: Highlight {
@@ -2175,6 +2265,7 @@ impl ViewportState {
             canvas: self.canvas,
             draft: None,
             pictures: Some(model.pictures()),
+            isolated: (!self.isolated.is_empty()).then_some(&self.isolated),
         };
         let context = editing.context().with_principal(model.principal_view());
         let view = self
@@ -3778,6 +3869,7 @@ impl ViewportState {
     ) {
         if click.double
             && editing.feature().is_none()
+            && !editing.context().is_choosing()
             && let Some(command) = open_command(self.hovered, model)
         {
             actions.push(Action::Editing(command));
@@ -4212,8 +4304,6 @@ impl ViewportState {
         for (command, setting) in [
             (Command::ToggleSnapping, &mut self.snapping),
             (Command::ToggleGridSnapping, &mut self.grid_snapping),
-            (Command::ToggleLasso, &mut self.lasso),
-            (Command::TogglePaintSelection, &mut self.paint),
             (Command::ToggleSelectThrough, &mut self.select_through),
             (Command::ToggleTypedDimensions, &mut self.typed_dimensions),
         ] {
@@ -4223,6 +4313,26 @@ impl ViewportState {
             *setting = !*setting;
             if commands.state_unseen(command)
                 && let Some(text) = toggles::quiet_toggle_notice(command, *setting)
+            {
+                actions.push(Action::Inform(Notice::info(text)));
+            }
+        }
+        if commands.available(Command::ToggleLasso) {
+            let on = !self.lasso;
+
+            self.set_lasso(on);
+            if commands.state_unseen(Command::ToggleLasso)
+                && let Some(text) = toggles::quiet_toggle_notice(Command::ToggleLasso, on)
+            {
+                actions.push(Action::Inform(Notice::info(text)));
+            }
+        }
+        if commands.available(Command::TogglePaintSelection) {
+            let on = !self.paint;
+
+            self.set_paint(on);
+            if commands.state_unseen(Command::TogglePaintSelection)
+                && let Some(text) = toggles::quiet_toggle_notice(Command::TogglePaintSelection, on)
             {
                 actions.push(Action::Inform(Notice::info(text)));
             }
@@ -5869,6 +5979,7 @@ impl ViewportState {
                 && self.model_dimensions.open(highlight)
             {
             } else if editing.feature().is_none()
+                && !editing.context().is_choosing()
                 && let Some(command) = open_command(self.keyboard_highlight, model)
             {
                 actions.push(Action::Editing(command));
@@ -6080,6 +6191,7 @@ impl ViewportState {
                 analyses: &self.analyses,
                 contrast: self.contrast,
                 canvas: self.canvas,
+                isolated: (!self.isolated.is_empty()).then_some(&self.isolated),
             },
             editing.context().solid,
         );
@@ -6511,6 +6623,10 @@ impl ViewportState {
                     canvas::chrome(painter.ctx()).measure,
                 )
             });
+            let mut placed_badges = Vec::new();
+            let cube = self.cube_area(rect);
+            let display = self.display_area;
+
             for (index, (place, label, color)) in
                 failures.chain(interference).chain(kept).enumerate()
             {
@@ -6524,10 +6640,12 @@ impl ViewportState {
                         canvas::Label::new(painter, label, canvas::small(), color, f32::INFINITY);
                     let wanted = Align2::CENTER_BOTTOM
                         .anchor_size(position + vec2(0.0, -PROBLEM_LABEL_LIFT), chip.size());
-                    let placed = clear_of(wanted, self.cube_area(rect), rect);
+                    let placed = clear_of(clear_of(wanted, cube, rect), display, rect);
+                    let placed = nudge_clear_of_badges(placed, &placed_badges, rect);
 
                     let shown = chip.paint(painter, placed.min);
 
+                    placed_badges.push(shown);
                     canvas::announce(ui, shown, &format!("problem {index}"), label, None);
                 }
             }
@@ -6744,9 +6862,13 @@ impl ViewportState {
             return None;
         }
 
-        let card = self
-            .start_card
-            .show(ui, rect, cube, model.session(), &key_hints.starts);
+        let card = self.start_card.show(
+            ui,
+            rect,
+            (cube, self.display_area),
+            model.session(),
+            &key_hints.starts,
+        );
 
         self.chosen_commands.extend(card.chosen);
         Some(card.area)
@@ -7583,6 +7705,7 @@ struct SourceParts<'a> {
     analyses: &'a Analyses,
     contrast: Contrast,
     canvas: Canvas,
+    isolated: Option<&'a BTreeSet<FeatureId>>,
 }
 
 fn scene_sources<'a>(
@@ -7602,6 +7725,7 @@ fn scene_sources<'a>(
         canvas: parts.canvas,
         draft: solid.and_then(|feature| model.draft_evaluation_of(feature)),
         pictures: Some(model.pictures()),
+        isolated: parts.isolated,
     }
 }
 
@@ -7623,11 +7747,14 @@ fn outcome_action<E: Display>(outcome: Result<Option<Transaction>, E>) -> Option
 fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingCommand> {
     let pickable = pickable?;
     match pickable {
-        Pickable::SketchEntity { .. } => feature_of(pickable, model).map(EditingCommand::Enter),
+        Pickable::SketchEntity { .. } | Pickable::SketchRegion { .. } => {
+            feature_of(pickable, model).map(EditingCommand::Enter)
+        }
         Pickable::Datum(_)
         | Pickable::FrameAxis { .. }
         | Pickable::FramePlane { .. }
-        | Pickable::Face { .. } => feature_of(pickable, model).map(EditingCommand::OpenSolid),
+        | Pickable::Face { .. }
+        | Pickable::Edge { .. } => feature_of(pickable, model).map(EditingCommand::OpenSolid),
         _ => None,
     }
 }

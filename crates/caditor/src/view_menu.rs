@@ -477,6 +477,8 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) {
     }
     entries.titled_item(ui, Command::HideSelection, HIDE);
     entries.titled_item(ui, Command::HideOthers, HIDE_OTHERS);
+    entries.offered(ui, Command::IsolateBody, &Command::IsolateBody.title());
+    entries.offered(ui, Command::ExitIsolate, &Command::ExitIsolate.title());
     entries.titled_item(ui, Command::ShowAll, SHOW_ALL);
     ui.separator();
     entries.offered(ui, Command::LookAtFace, LOOK_AT_FACE);

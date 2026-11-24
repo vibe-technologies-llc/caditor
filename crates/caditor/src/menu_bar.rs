@@ -921,6 +921,8 @@ impl Menus<'_> {
                         [
                             Command::HideSelection,
                             Command::HideOthers,
+                            Command::IsolateBody,
+                            Command::ExitIsolate,
                             Command::ToggleVisibility,
                             Command::ShowAll,
                         ],

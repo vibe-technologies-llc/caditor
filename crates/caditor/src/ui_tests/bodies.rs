@@ -424,3 +424,91 @@ fn a_bodys_edges_are_one_styled_run_over_its_mesh_polylines_not_a_line_per_segme
             .all(|pick| lines.iter().any(|line| line.pick == Some(*pick)))
     );
 }
+
+#[test]
+fn isolating_a_body_shows_only_it_for_the_session_without_undo_and_clears_on_exit_or_new_model() {
+    let mut harness = Harness::new();
+
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.settle();
+
+    let undo_before = harness.model.undo_label().map(str::to_owned);
+
+    harness.select([top]);
+    harness.frame();
+    run_from_palette(&mut harness, "Isolate body in view");
+    harness.frame();
+    harness.frame();
+
+    let isolated = harness.workspace.viewport.isolated().clone();
+    let picks_isolated: Vec<Pickable> = harness.built().picks.pickables().collect();
+    let has_plate_isolated = picks_isolated
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == plate));
+    let has_peg_isolated = picks_isolated
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == peg));
+    let undo_during = harness.model.undo_label().map(str::to_owned);
+    let shows_chip = harness.shows_containing("Isolated:");
+
+    run_from_palette(&mut harness, "Exit isolate");
+    harness.frame();
+    harness.frame();
+
+    let restored = harness.workspace.viewport.isolated().is_empty();
+    let picks_restored: Vec<Pickable> = harness.built().picks.pickables().collect();
+    let has_peg_restored = picks_restored
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == peg));
+
+    harness.select([top]);
+    harness.frame();
+    run_from_palette(&mut harness, "Isolate body in view");
+    harness.frame();
+    harness
+        .model
+        .replace(caditor_document::Document::default(), None, None, false);
+    harness.settle();
+
+    assert!(isolated.contains(&plate));
+    assert!(!isolated.contains(&peg));
+    assert!(has_plate_isolated);
+    assert!(!has_peg_isolated);
+    assert_eq!(undo_during, undo_before);
+    assert!(shows_chip);
+    assert!(restored);
+    assert!(has_peg_restored);
+    assert!(harness.workspace.viewport.isolated().is_empty());
+}
+
+#[test]
+fn bodies_group_header_eye_toggles_all_bodies_and_rows_offer_a_menu_button() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+
+    harness.settle();
+    harness.click("Bodies (2)");
+    harness.settle();
+    harness.click_button("Hide every body");
+    harness.settle();
+
+    let both_hidden = hidden(&harness, plate) && hidden(&harness, peg);
+
+    harness.click_button("Show every body");
+    harness.settle();
+
+    let both_shown = !hidden(&harness, plate) && !hidden(&harness, peg);
+
+    harness.click_button("More actions for Peg");
+    harness.frame();
+
+    let shows_isolate = harness.shows("Isolate in view");
+
+    assert!(both_hidden);
+    assert!(both_shown);
+    assert!(shows_isolate);
+}

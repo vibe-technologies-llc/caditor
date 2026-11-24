@@ -224,6 +224,8 @@ pub enum Command {
     ContextMenu,
     HideSelection,
     HideOthers,
+    IsolateBody,
+    ExitIsolate,
     LookAtFace,
     LookAtSketch,
     SelectAllShapes,
@@ -861,6 +863,8 @@ plain_commands! {
     ContextMenu,
     HideSelection,
     HideOthers,
+    IsolateBody,
+    ExitIsolate,
     LookAtFace,
     LookAtSketch,
     SelectAllShapes,
@@ -1317,6 +1321,8 @@ impl Command {
             Self::ContextMenu => "view.context_menu",
             Self::HideSelection => "view.hide_selection",
             Self::HideOthers => "view.hide_others",
+            Self::IsolateBody => "view.isolate_body",
+            Self::ExitIsolate => "view.exit_isolate",
             Self::LookAtFace => "view.look_at_face",
             Self::LookAtSketch => "view.look_at_sketch",
             Self::SelectAllShapes => "select.all",
@@ -1662,6 +1668,8 @@ impl Command {
             Self::ContextMenu => "Show the context menu",
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
+            Self::IsolateBody => "Isolate body in view",
+            Self::ExitIsolate => "Exit isolate and show all bodies",
             Self::LookAtFace => "Look straight at the selection",
             Self::LookAtSketch => "Look straight at the edited sketch",
             Self::SelectAllShapes => "Select all faces, edges or vertices",
@@ -1854,6 +1862,7 @@ impl Command {
             Self::HideSelection | Self::HideOthers | Self::ToggleVisibility => {
                 &["visibility", "show", "hide"]
             }
+            Self::IsolateBody | Self::ExitIsolate => &["isolate", "solo", "focus", "visibility"],
             Self::ShowAll => &["visibility", "unhide", "reveal"],
             Self::GroupBodies
             | Self::UngroupBodies
@@ -2176,6 +2185,8 @@ impl Command {
             | Self::ContextMenu
             | Self::HideSelection
             | Self::HideOthers
+            | Self::IsolateBody
+            | Self::ExitIsolate
             | Self::LookAtFace
             | Self::LookAtSketch
             | Self::ToggleVisibility
@@ -2751,6 +2762,8 @@ impl Command {
             | Self::WiderPanel
             | Self::NarrowerPanel
             | Self::NormalPanel
+            | Self::IsolateBody
+            | Self::ExitIsolate
             | Self::Assistant => Vec::new(),
         }
     }

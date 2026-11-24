@@ -40,7 +40,7 @@ use crate::{
     scene_palette::{Canvas, Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
     view_aids::{EdgeLook, ViewAids},
-    visibility::{self, PrincipalView},
+    visibility::PrincipalView,
 };
 
 pub const fn opaque(color: egui::Color32) -> Color {
@@ -375,6 +375,18 @@ pub struct Sources<'a> {
     pub canvas: Canvas,
     pub draft: Option<&'a Evaluation>,
     pub pictures: Option<&'a ImageTextures>,
+    pub isolated: Option<&'a BTreeSet<FeatureId>>,
+}
+
+fn body_shown(
+    document: &Document,
+    isolated: Option<&BTreeSet<FeatureId>>,
+    body: FeatureId,
+) -> bool {
+    match isolated {
+        Some(isolated) => isolated.contains(&body),
+        None => !document.body_hidden(body),
+    }
 }
 
 impl BuiltScene {
@@ -400,6 +412,7 @@ impl BuiltScene {
             evaluation,
             bodies,
             sketches,
+            isolated,
             ..
         } = *sources;
         features
@@ -408,7 +421,10 @@ impl BuiltScene {
                 let owner = document.feature(*feature)?;
                 let drawn = bodies
                     .get(*feature)
-                    .filter(|_| visibility::is_shown(document, *feature))
+                    .filter(|_| {
+                        document.body_maker(*feature).is_some()
+                            && body_shown(document, isolated, *feature)
+                    })
                     .and_then(|mesh| mesh.bounds());
                 let sketched = sketches
                     .bounds(evaluation, owner, sketch_points_bounds)
@@ -1078,6 +1094,7 @@ pub fn build_keeping(
         canvas,
         draft,
         pictures,
+        isolated,
     } = *sources;
 
     let palette = contrast.palette(canvas);
@@ -1257,7 +1274,7 @@ pub fn build_keeping(
     let finishes = Finishes::of(builder.style, palette, editing.is_none(), &aids);
 
     for (body, mesh) in bodies.iter() {
-        if document.body_hidden(body) {
+        if !body_shown(document, isolated, body) {
             continue;
         }
 
@@ -1359,7 +1376,7 @@ pub fn build_keeping(
             .solid
             .and_then(|open| Some((open, drafted(draft, open)?)));
 
-        builder.threads(document, evaluation, context.solid, open_draft);
+        builder.threads(document, evaluation, context.solid, open_draft, isolated);
     }
     match open_view {
         Some((open, OpenView::Before)) => {
@@ -1374,7 +1391,7 @@ pub fn build_keeping(
     for ghost in highlight.ghosts {
         let shown = bodies
             .ghost(ghost.feature)
-            .filter(|before| !document.body_hidden(before.body));
+            .filter(|before| body_shown(document, isolated, before.body));
         if let Some(before) = shown {
             builder.lit_ghost(document, evaluation, before, ghost);
         }
@@ -3153,6 +3170,7 @@ impl<'a> Builder<'a> {
         evaluation: &Evaluation,
         open: Option<FeatureId>,
         draft: Option<(FeatureId, &Evaluation)>,
+        isolated: Option<&BTreeSet<FeatureId>>,
     ) {
         let placed = match draft {
             Some((drafted, draft)) => placed_threads(document, evaluation)
@@ -3172,7 +3190,10 @@ impl<'a> Builder<'a> {
                 .feature(thread.feature)
                 .is_some_and(|feature| feature.hidden && feature.kind.thread().is_some());
 
-            if !visibility::is_shown(document, thread.body) || (hidden && !opened) {
+            if document.body_maker(thread.body).is_none()
+                || !body_shown(document, isolated, thread.body)
+                || (hidden && !opened)
+            {
                 continue;
             }
 
@@ -4066,6 +4087,7 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         evaluation,
         bodies,
         sketches,
+        isolated,
         ..
     } = *sources;
 
@@ -4076,7 +4098,9 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         .reduce(Aabb::union);
     let shown_bodies = bodies
         .iter()
-        .filter(|(body, _)| document.body_maker(*body).is_some() && !document.body_hidden(*body))
+        .filter(|(body, _)| {
+            document.body_maker(*body).is_some() && body_shown(document, isolated, *body)
+        })
         .filter_map(|(_, mesh)| mesh.bounds())
         .reduce(Aabb::union);
     let images = document
@@ -4219,6 +4243,7 @@ mod tests {
                 canvas: Canvas::default(),
                 draft: None,
                 pictures: None,
+                isolated: None,
             },
             highlight,
             Context {
@@ -4249,6 +4274,7 @@ mod tests {
                     canvas: Canvas::default(),
                     draft: None,
                     pictures: None,
+                    isolated: None,
                 },
                 pickables,
             )
@@ -5079,6 +5105,7 @@ mod tests {
                 canvas: Canvas::default(),
                 draft: None,
                 pictures: None,
+                isolated: None,
             };
             let context = Context {
                 sketch: Some(feature),
@@ -5121,6 +5148,7 @@ mod tests {
             canvas: Canvas::default(),
             draft: None,
             pictures: None,
+            isolated: None,
         };
 
         let built_at = |chord: f64| {
@@ -5172,6 +5200,7 @@ mod tests {
             canvas: Canvas::default(),
             draft: None,
             pictures: None,
+            isolated: None,
         };
         let wanted = Faceting::within(1e-9);
         let mut shapes = SketchShapes::new(wanted);
@@ -5209,6 +5238,7 @@ mod tests {
             canvas: Canvas::default(),
             draft: None,
             pictures: None,
+            isolated: None,
         };
         let mut shapes = SketchShapes::new(Faceting::within(0.1));
 
@@ -5241,6 +5271,7 @@ mod tests {
             canvas: Canvas::default(),
             draft: None,
             pictures: None,
+            isolated: None,
         };
         let wanted = Faceting::within(1e-9);
 

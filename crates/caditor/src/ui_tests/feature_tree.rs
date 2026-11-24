@@ -1006,3 +1006,74 @@ fn a_feature_opened_from_the_palette_is_scrolled_into_view() {
     assert!(harness.workspace.editing.solid().is_some());
     assert!(harness.fully_shown(solid_panel::DISTANCE));
 }
+
+#[test]
+fn feature_tree_filter_clears_with_button_or_escape_and_shows_match_count() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    harness.perform(Action::Editing(EditingCommand::CloseSolid));
+    harness.settle();
+
+    for index in 0..4 {
+        let mut sketch = Sketch::new(Plane::XY);
+        let offset = (index + 1) as f64 * 60.0;
+
+        rectangle(
+            &mut sketch,
+            Point2::new(offset, 0.0),
+            Point2::new(offset + 10.0, 10.0),
+        );
+        harness.add_sketch(sketch);
+    }
+    harness.settle();
+
+    harness.workspace.panels.tree_filter = "Extrude".to_owned();
+    harness.frame();
+
+    let shows_banner =
+        harness.shows_containing("1 of ") && harness.shows_containing("Drag and rollback return");
+
+    harness.click_button(crate::feature_tree::CLEAR_FILTER_LABEL);
+    harness.frame();
+
+    let cleared_by_button = harness.workspace.panels.tree_filter.is_empty();
+
+    harness.key(Key::F, Modifiers::COMMAND);
+    harness.frame();
+    harness.type_text("Plate");
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    let cleared_by_escape = harness.workspace.panels.tree_filter.is_empty();
+
+    assert!(shows_banner);
+    assert!(cleared_by_button);
+    assert!(cleared_by_escape);
+}
+
+#[test]
+fn rollback_bar_offers_inline_roll_to_end_when_rolled_back() {
+    let mut harness = Harness::new();
+
+    let (extrude, _) = extruded_plate(&mut harness);
+    let plate = feature_named(&harness, "Plate");
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the rollback bar",
+        Edit::SetRollbackBar {
+            bar: RollbackBar::Before(plate),
+        },
+    )));
+    harness.settle();
+
+    assert!(harness.model.evaluation().body(extrude).is_none());
+    assert!(harness.shows("Roll to end"));
+
+    harness.click_button("Roll to end");
+    harness.settle();
+
+    assert_eq!(harness.document().rollback_bar(), RollbackBar::default());
+    assert!(harness.model.evaluation().body(extrude).is_some());
+}

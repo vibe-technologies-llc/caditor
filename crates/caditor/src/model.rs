@@ -117,6 +117,11 @@ pub enum Action {
     Assistant(AssistantCommand),
     Filter(SelectionFilter),
     SketchFilter(SketchSelectionFilter),
+    SetLasso(bool),
+    SetPaint(bool),
+    SetSelectThrough(bool),
+    Isolate(Vec<FeatureId>),
+    ExitIsolate,
     Select(Vec<Pickable>),
 }
 
@@ -1500,6 +1505,14 @@ impl Model {
             }
             Action::SketchFilter(filter) => {
                 log::warn!("{filter:?} reached the model instead of the viewport");
+                Ok(None)
+            }
+            command @ (Action::SetLasso(_)
+            | Action::SetPaint(_)
+            | Action::SetSelectThrough(_)
+            | Action::Isolate(_)
+            | Action::ExitIsolate) => {
+                log::warn!("{command:?} reached the model instead of the viewport");
                 Ok(None)
             }
             Action::Select(chosen) => {

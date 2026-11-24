@@ -7,7 +7,7 @@ use egui::{Id, Key, ScrollArea, Sides, TextEdit, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    commands::{Command, StandardView},
+    commands::{Command, Keymap, StandardView},
     icons,
     widgets::{self, DialogWidth, Tone},
 };
@@ -19,9 +19,7 @@ const EXPLANATION: &str = "Come back to an angle and zoom worth keeping. Saved v
                            the model, so they travel with the file.";
 const EMPTY: &str = "No view is saved yet. Turn the model to an angle worth keeping, then save it \
                      here or with the Save the current view command.";
-const ISOMETRIC_EXPLANATION: &str = "The Isometric view (0) shows the model from the standard \
-                                     corner. Make it the current view to change where it looks \
-                                     from, how near and at what angle; models open from it.";
+const RESET_DISABLED: &str = "Isometric is already the built-in view";
 const DIALOG_ID: &str = "saved-views";
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Medium;
 const SHOW_HOVER: &str = "Show this view";
@@ -199,17 +197,27 @@ pub fn rename_field_id() -> Id {
     Id::unique((DIALOG_ID, "rename"))
 }
 
-pub fn dialog(ctx: &egui::Context, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
+pub fn dialog(
+    ctx: &egui::Context,
+    document: &Document,
+    keymap: &Keymap,
+    draft: &mut ViewsDraft,
+) -> Option<Outcome> {
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(EXPLANATION, ui));
         ui.add_space(SPACE_S);
-        widgets::dialog_body(ui, |ui| body(ui, document, draft))
+        widgets::dialog_body(ui, |ui| body(ui, document, keymap, draft))
     });
     let closed = response.should_close().then_some(Outcome::Close);
     response.inner.or(closed)
 }
 
-fn body(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
+fn body(
+    ui: &mut Ui,
+    document: &Document,
+    keymap: &Keymap,
+    draft: &mut ViewsDraft,
+) -> Option<Outcome> {
     let views = document.saved_views();
     let mut outcome = None;
 
@@ -235,7 +243,7 @@ fn body(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outc
         outcome = Some(saved);
     }
     ui.add_space(SPACE_M);
-    if let Some(changed) = isometric(ui, document, draft) {
+    if let Some(changed) = isometric(ui, document, keymap, draft) {
         outcome = Some(changed);
     }
     if let Some(problem) = &draft.problem {
@@ -278,27 +286,29 @@ fn row(
     let mut rename = false;
     let mut delete = false;
     let mut update = false;
-    let mut show = false;
 
-    Sides::new().shrink_left().truncate().show(
+    let (title_show, button_show) = Sides::new().shrink_left().truncate().show(
         ui,
         |ui| {
-            ui.label(&named.name);
+            widgets::truncated_link(ui, &named.name)
+                .on_hover_text(SHOW_HOVER)
+                .clicked()
         },
         |ui| {
             delete = widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked();
             rename = widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked();
             update =
                 widgets::icon_button(ui, icons::command(Command::SaveView), UPDATE_HOVER).clicked();
-            show = widgets::icon_button(
+            widgets::icon_button(
                 ui,
                 icons::command(Command::View(StandardView::Isometric)),
                 SHOW_HOVER,
             )
-            .clicked();
+            .clicked()
         },
     );
-    if show {
+
+    if title_show || button_show {
         draft.current = named.view;
         outcome = Some(Outcome::Show(index));
     }
@@ -368,27 +378,28 @@ fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Ou
 
     widgets::properties(ui, (DIALOG_ID, "save"), |ui| {
         widgets::property(ui, NAME_CAPTION, |ui| {
-            ui.horizontal(|ui| {
-                let field = widgets::text_field(ui, |ui| {
-                    ui.add(
-                        TextEdit::singleline(&mut draft.name)
-                            .id(name_field_id())
-                            .char_limit(MAX_VIEW_NAME_CHARS)
-                            .desired_width(
-                                ui.available_width() - 2.0 * ui.spacing().interact_size.y,
-                            ),
-                    )
-                });
+            let (enter, clicked) = Sides::new().shrink_left().show(
+                ui,
+                |ui| {
+                    let field = widgets::text_field(ui, |ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut draft.name)
+                                .id(name_field_id())
+                                .char_limit(MAX_VIEW_NAME_CHARS)
+                                .desired_width(f32::INFINITY),
+                        )
+                    });
 
-                widgets::tie_to_caption(ui, &field);
-                if focus {
-                    field.request_focus();
-                }
+                    widgets::tie_to_caption(ui, &field);
+                    if focus {
+                        field.request_focus();
+                    }
+                    field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter))
+                },
+                |ui| ui.add(widgets::button(SAVE_LABEL)).clicked(),
+            );
 
-                let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-
-                save_now = ui.add(widgets::button(SAVE_LABEL)).clicked() || enter;
-            });
+            save_now = clicked || enter;
         });
     });
     if !save_now {
@@ -411,13 +422,29 @@ fn saving(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Ou
     outcome
 }
 
-fn isometric(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {
+fn isometric(
+    ui: &mut Ui,
+    document: &Document,
+    keymap: &Keymap,
+    draft: &mut ViewsDraft,
+) -> Option<Outcome> {
     let redefined = document.saved_views().home.is_some();
     let mut outcome = None;
+    let explanation = match keymap.hint(Command::View(StandardView::Isometric)) {
+        Some(keys) => format!(
+            "The Isometric view ({keys}) shows the model from the standard corner. Make it the \
+             current view to change where it looks from, how near and at what angle; models open \
+             from it."
+        ),
+        None => "The Isometric view shows the model from the standard corner. Make it the current \
+                 view to change where it looks from, how near and at what angle; models open from \
+                 it."
+        .to_owned(),
+    };
 
     widgets::caption(ui, HOME_VIEW_NAME);
-    ui.label(widgets::muted(ISOMETRIC_EXPLANATION, ui));
-    ui.horizontal(|ui| {
+    ui.label(widgets::muted(explanation, ui));
+    ui.horizontal_wrapped(|ui| {
         let set = ui.add(widgets::button(Command::SetHomeView.title()));
 
         if set.clicked() {
@@ -426,7 +453,9 @@ fn isometric(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option
             outcome = applying(draft, built);
         }
 
-        let reset = ui.add_enabled(redefined, widgets::button(Command::ResetHomeView.title()));
+        let reset = ui
+            .add_enabled(redefined, widgets::button(Command::ResetHomeView.title()))
+            .on_disabled_hover_text(RESET_DISABLED);
         if reset.clicked() {
             let built = reset_home(document);
 

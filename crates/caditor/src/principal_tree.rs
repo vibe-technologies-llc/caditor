@@ -182,7 +182,7 @@ fn title(ui: &Ui, text: &str, shown: bool) -> RichText {
     if shown {
         text
     } else {
-        text.color(appearance::tokens(ui).text_muted).italics()
+        text.color(appearance::tokens(ui).text_muted)
     }
 }
 

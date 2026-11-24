@@ -86,3 +86,45 @@ fn painting_over_faces_selects_each_face_the_brush_passes_over() {
     assert_eq!(whole, (6, 0, 0));
     assert_eq!(boxed, (0, 0, 0));
 }
+
+#[test]
+fn paint_lasso_and_select_through_are_exclusive_and_reset_from_status_bar_chips() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.frame();
+
+    run_from_palette(&mut harness, "select with a lasso");
+    harness.frame();
+
+    let lasso_on = harness.workspace.viewport.lasso();
+    let lasso_chip = harness.shows("Lasso");
+
+    run_from_palette(&mut harness, "select faces by painting");
+    harness.frame();
+
+    let paint_cleared_lasso =
+        harness.workspace.viewport.paint() && !harness.workspace.viewport.lasso();
+    let paint_chip = harness.shows("Paint");
+
+    run_from_palette(&mut harness, "select through");
+    harness.frame();
+
+    let through_on = harness.workspace.viewport.select_through();
+    let through_chip = harness.shows("Select through");
+
+    harness.click_button("Paint");
+    harness.frame();
+    harness.click_button("Select through");
+    harness.frame();
+
+    assert!(lasso_on);
+    assert!(lasso_chip);
+    assert!(paint_cleared_lasso);
+    assert!(paint_chip);
+    assert!(through_on);
+    assert!(through_chip);
+    assert!(!harness.workspace.viewport.paint());
+    assert!(!harness.workspace.viewport.select_through());
+}

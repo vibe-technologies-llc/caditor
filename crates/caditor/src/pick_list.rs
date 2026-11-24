@@ -12,7 +12,7 @@ use crate::{
 pub const HOLD_TO_LIST: Duration = Duration::from_millis(500);
 pub const NOTHING_UNDER: &str = "Nothing that can be picked lies under the pointer";
 pub const LIST_TITLE: &str = "Under the pointer";
-pub const LIST_CAPTION: &str = "Nearest first   Shift or Ctrl: add to the selection   Esc: close";
+pub const LIST_CAPTION: &str = "Nearest first · Shift or Ctrl: add · Esc: close";
 const LIST_ID: &str = "pick-list";
 const LIST_WIDTH: f32 = 340.0;
 const ANCHOR_OFFSET: Vec2 = vec2(6.0, 6.0);
@@ -26,6 +26,7 @@ pub struct Row {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PickList {
     anchor: Pos2,
+    size: Option<Vec2>,
     rows: Vec<Row>,
     revision: u64,
     pointed: Option<usize>,
@@ -69,6 +70,7 @@ impl PickList {
     pub fn new(pointer: Pos2, rows: Vec<Row>, revision: u64) -> Self {
         Self {
             anchor: pointer + ANCHOR_OFFSET,
+            size: None,
             rows,
             revision,
             pointed: None,
@@ -101,21 +103,28 @@ impl PickList {
         let toggle = ctx.input(|input| input.modifiers.shift || input.modifiers.command);
         let width = widgets::fitting_width(ctx, LIST_WIDTH);
         let highlighted = self.pointed.or(self.focused);
+        let opening = widgets::menu_opening_down(ctx, self.anchor, self.size);
         let mut pointed = None;
         let mut focused = None;
         let mut chosen = None;
+        let mut measured_height = 0.0f32;
 
         let shown = Area::new(Id::unique(LIST_ID))
             .order(Order::Foreground)
-            .fixed_pos(self.anchor)
+            .fixed_pos(opening)
             .constrain(true)
             .show(ctx, |ui| {
                 Frame::menu(ui.style()).show(ui, |ui| {
                     ui.set_max_width(width);
+
+                    let header_top = ui.cursor().top();
+
                     ui.label(widgets::strong(LIST_TITLE));
                     widgets::column_caption(ui, LIST_CAPTION);
                     ui.separator();
-                    widgets::fitted_menu(ui, |ui| {
+
+                    let header_height = ui.cursor().top() - header_top;
+                    let (_, list_height) = widgets::measured_menu(ui, |ui| {
                         for (index, row) in self.rows.iter().enumerate() {
                             let glyph = icons::pickable(row.pickable, document);
                             let response = widgets::menu_choice(
@@ -128,6 +137,7 @@ impl PickList {
 
                             if self.focus_first && index == 0 {
                                 response.request_focus();
+                                focused = Some(0);
                             }
                             if response.hovered() {
                                 pointed = Some(index);
@@ -140,12 +150,19 @@ impl PickList {
                             }
                         }
                     });
+
+                    measured_height =
+                        header_height + list_height + ui.spacing().menu_margin.sum().y;
                 });
             });
 
+        self.size = Some(vec2(
+            shown.response.rect.width(),
+            measured_height.max(shown.response.rect.height()),
+        ));
         self.focus_first = false;
         self.pointed = pointed;
-        self.focused = focused.or(self.focused);
+        self.focused = focused;
         if let Some(pickable) = chosen {
             return Outcome::Chosen { pickable, toggle };
         }

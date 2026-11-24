@@ -2,7 +2,13 @@
 
 The Bodies section above the features lists the bodies standing at the end of the model, by their
 own name or the name of the feature that made them. Click one to choose its feature in the tree;
-Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides or shows it.
+Ctrl-click and Shift-click choose several, as in the feature tree. The eye on a row hides or shows
+that body, and the eye on the **Bodies** header hides or shows every body at once.
+
+To focus on one or more bodies without changing the model or undo history, use
+{command:view.isolate_body} (also on a body's **⋯** or right-click menu). Other bodies are hidden
+only for this view until you click the **Isolated** chip in the status bar or run
+{command:view.exit_isolate}.
 
 An extrusion, revolve or sweep set to make **A body each** (its **Separate pieces** row) lists one
 body per separate piece, named after the feature and the sketch curve that drew the piece, such as
@@ -28,7 +34,7 @@ on a right-click, has:
 - **Ungroup** ({command:model.ungroup_bodies}), which moves what the group held up one level.
 - **Move to group**, which puts the whole group inside another one, or **Out of every group**.
 
-A body's right-click menu has {command:model.group_bodies}, **Move to group** (for every chosen body
+A body's **⋯** or right-click menu has **Isolate in view** ({command:view.isolate_body}), {command:model.group_bodies}, **Move to group** (for every chosen body
 when the body is among them) and {command:model.move_out_of_body_group}, which takes it up one level.
 That command also moves a chosen group up a level. Groups only organise the list: they never change
 the model, and every change to them can be undone.

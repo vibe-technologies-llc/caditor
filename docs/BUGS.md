@@ -215,31 +215,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   labels; the composer footer overflows at 200%; shows duplicate Stop controls while busy; `Enter` is
   not consumed when `!can_send`; disabled buttons lack `.on_disabled_hover_text(...)`; and
   `CliState::Checking` does not use `Tone::Info`.
-- [medium · easy] Viewport overlays, selection modes, PickList, Saved views, Selection sets and
-  Status bar defects:
-  - `start_card::placement` and `viewport::clear_of` do not clear `display_area` (and nearby
-    viewport badges can overlap); `Pickable::ShellFace::describe` lacks `draft` and `replace_face`
-    branches; `viewport::open_command` ignores double-clicking `Pickable::Edge` and
-    `Pickable::SketchRegion`.
-  - Paint and Lasso selection are not mutually exclusive (posting misleading notices) and Paint,
-    Lasso and Select-through lack status-bar chips showing active state and one-click reset.
-  - `pick_list.rs` keeps stale hover focus after the pointer leaves, does not flip upward via
-    `widgets::menu_opening_down`, and has uneven caption spacing.
-  - `saved_views.rs` hardcodes `(0)` for the Isometric shortcut instead of reading `Keymap`, clips
-    input/button widths in `saved_views::saving` and `selection_sets::saving`, does not wrap
-    `isometric()` buttons or give `Reset` a disabled hover, and ignores clicks on row titles.
-  - `status_bar::notice` omits `NoticeAction` button width from `buttons_id` (clipping right-hand
-    buttons when notices wrap), displays `"Up to date"` beside `"Showing N of M bodies"`, and hides
-    failed-feature pills while bodies prepare.
-- [medium · easy] Feature tree and Bodies tree defects:
-  - `PanelState::forget_missing` (`panels.rs`) drops piece body IDs because it checks only
-    `document.feature(*id)` and not `document.body_maker(*id)`.
-  - Inline folder rename fields in `feature_groups.rs` and `body_groups.rs` do not render
-    `widgets::error_text` on validation failure.
-  - Feature tree drag-and-drop autoscroll (`feature_tree.rs`) rejects pointers outside
-    `visible.y_range()` before computing autoscroll, halting scroll when dragging past the clip edge.
-  - Hidden rows in `feature_tree.rs`, `bodies_tree.rs` and `principal_tree.rs` still apply faux
-    `.italics()` (`app-look.md`).
 - [medium · easy] Parameters, Completion popup, Configurations and Menu bar defects:
   - Clicking `ParameterUser::Drawing(_)` in `parameter_table.rs` does nothing instead of opening the
     Drawings panel; parameter expression `value_field`s skip `.problem(ui, document, enter)` live

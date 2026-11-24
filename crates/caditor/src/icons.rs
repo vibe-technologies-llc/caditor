@@ -336,6 +336,8 @@ pub fn command(command: Command) -> &'static str {
         Command::ContextMenu => phosphor::DOTS_THREE_VERTICAL,
         Command::HideSelection | Command::ToggleVisibility => HIDE,
         Command::HideOthers => phosphor::EYE_CLOSED,
+        Command::IsolateBody => phosphor::CUBE_FOCUS,
+        Command::ExitIsolate => SHOW,
         Command::LookAtFace => phosphor::CUBE_FOCUS,
         Command::LookAtSketch => phosphor::SCAN,
         Command::SelectAllShapes => phosphor::SELECTION_ALL,

@@ -62,9 +62,10 @@ list the features it builds on and those built on it; choose one to go to its ro
 
 ## The rollback bar
 
-The bar at the end of the tree marks where the model stops. Drag it up, or use
+The bar at the end of the tree marks where the model stops. Drag it up, right-click it, or use
 {command:model.rollback_up} and {command:model.roll_to_here}, to see the model as it was at that
-point; new features are added where the bar stands. {command:model.roll_to_end} brings it back.
+point; new features are added where the bar stands. While rolled back, the bar also offers an
+inline **Roll to end** button, and {command:model.roll_to_end} brings it back.
 
 ## When a feature fails
 
@@ -95,7 +96,9 @@ it again after a stop.
   it. Pasted anywhere else, features copied from a folder land in a folder of the same name, so
   pasting right below the folder they came from adds them to it.
 - {command:model.filter_features} filters the rows by name, by kind, such as "fillet", or by
-  state: "failed", "outdated", "waiting", "suppressed" or "hidden".
+  state: "failed", "outdated", "waiting", "suppressed" or "hidden". While filtered, a banner shows
+  the match count and notes that dragging and rollback return once cleared; click the inline **×**
+  button or press **Escape** to clear the filter.
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
   clipboard, within a model or into another. A fillet, shell, sketch on a face or anything else
   copied with the features whose faces, edges or corners it picks is pasted onto the copies,

@@ -20,6 +20,7 @@ const DONT_SHOW_AGAIN_HOVER: &str = "Show the start card brings it back for one 
                                      Preferences › General › Tips for every empty model";
 const WIDTH: f32 = 400.0;
 const MIN_WIDTH: f32 = 300.0;
+const MIN_TIGHT_HEIGHT: f32 = 180.0;
 const TOP_MARGIN: f32 = 16.0;
 const BUTTON_HEIGHT: f32 = 30.0;
 
@@ -105,11 +106,11 @@ impl StartCard {
         &mut self,
         ui: &mut Ui,
         view: Rect,
-        cube: Rect,
+        (cube, display_area): (Rect, Rect),
         session: u64,
         starts: &[Start],
     ) -> Shown {
-        let placed = placement(view, cube, self.drawn_height as f32);
+        let placed = placement(view, cube, display_area, self.drawn_height as f32);
         let mut child = ui.new_child(
             UiBuilder::new()
                 .id_salt("start card")
@@ -248,7 +249,7 @@ struct Placed {
     under_cube: bool,
 }
 
-fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
+fn placement(view: Rect, cube: Rect, display_area: Rect, height: f32) -> Placed {
     let room = (view.width() - 2.0 * canvas::MARGIN).max(0.0);
     let width = WIDTH.min(room);
     let top = view.top() + TOP_MARGIN;
@@ -260,9 +261,20 @@ fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
 
     if reaches_cube {
         if cube.center().x < view.center().x {
-            band_left = cube.right() + canvas::MARGIN;
+            band_left = band_left.max(cube.right() + canvas::MARGIN);
         } else {
-            band_right = cube.left() - canvas::MARGIN;
+            band_right = band_right.min(cube.left() - canvas::MARGIN);
+        }
+    }
+    if display_area.is_positive() {
+        let display_at_top = display_area.center().y <= view.center().y;
+        let reaches_display = display_at_top || top + height > display_area.top() - canvas::MARGIN;
+        if reaches_display {
+            if display_area.center().x < view.center().x {
+                band_left = band_left.max(display_area.right() + canvas::MARGIN);
+            } else {
+                band_right = band_right.min(display_area.left() - canvas::MARGIN);
+            }
         }
     }
 
@@ -291,10 +303,49 @@ fn placement(view: Rect, cube: Rect, height: f32) -> Placed {
 
         return at(left, top, width, false);
     }
-    if cube_at_top {
-        return at(centred_left, cube.bottom() + canvas::MARGIN, width, true);
+
+    let below_display = (display_area.is_positive() && display_area.center().y <= view.center().y)
+        .then(|| display_area.bottom() + canvas::MARGIN);
+    let top_clear = if cube_at_top {
+        let below_cube = cube.bottom() + canvas::MARGIN;
+        below_display.map_or(below_cube, |below| below_cube.max(below))
+    } else if let Some(below) = below_display {
+        let fits_above_cube =
+            !cube.is_positive() || cube.top() - canvas::MARGIN - below >= MIN_TIGHT_HEIGHT;
+        if fits_above_cube { below } else { top }
+    } else {
+        top
+    };
+
+    if !cube_at_top
+        && cube.is_positive()
+        && let Some(below) = below_display
+        && (height == 0.0 || below + height > cube.top() - canvas::MARGIN)
+    {
+        let (cube_left, cube_right) = if cube.center().x < view.center().x {
+            (
+                (view.left() + canvas::MARGIN).max(cube.right() + canvas::MARGIN),
+                view.right() - canvas::MARGIN,
+            )
+        } else {
+            (
+                view.left() + canvas::MARGIN,
+                (view.right() - canvas::MARGIN).min(cube.left() - canvas::MARGIN),
+            )
+        };
+
+        let cube_band = cube_right - cube_left;
+
+        if cube_band >= MIN_WIDTH {
+            let width = width.min(cube_band);
+            let left = (view.center().x - width / 2.0)
+                .min(cube_right - width)
+                .max(cube_left);
+
+            return at(left, below, width, true);
+        }
     }
-    at(centred_left, top, width, true)
+    at(centred_left, top_clear, width, true)
 }
 
 #[cfg(test)]
@@ -316,7 +367,7 @@ mod tests {
     fn a_wide_view_centres_the_card_at_the_top() {
         let view = Rect::from_min_size(pos2(300.0, 100.0), vec2(1100.0, 800.0));
 
-        let placed = placement(view, cube_of(view), 0.0).area;
+        let placed = placement(view, cube_of(view), Rect::NOTHING, 0.0).area;
 
         assert_eq!(placed.center().x, view.center().x);
         assert_eq!(placed.top(), view.top() + TOP_MARGIN);
@@ -328,7 +379,7 @@ mod tests {
         let view = Rect::from_min_size(pos2(0.0, 0.0), vec2(560.0, 400.0));
         let cube = cube_of(view);
 
-        let placed = placement(view, cube, CARD_HEIGHT).area;
+        let placed = placement(view, cube, Rect::NOTHING, CARD_HEIGHT).area;
 
         assert!(placed.right() <= cube.left() - canvas::MARGIN);
         assert!(placed.left() >= view.left() + canvas::MARGIN);
@@ -341,7 +392,7 @@ mod tests {
         let view = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 600.0));
         let cube = cube_of(view);
 
-        let placed = placement(view, cube, CARD_HEIGHT).area;
+        let placed = placement(view, cube, Rect::NOTHING, CARD_HEIGHT).area;
 
         assert!(placed.top() >= cube.bottom());
         assert!(view.contains_rect(placed));
@@ -355,13 +406,26 @@ mod tests {
             for corner in Corner::ALL {
                 let cube = CubePlacement { size, corner }.area(view);
 
-                let placed = placement(view, cube, CARD_HEIGHT).area;
+                let placed = placement(view, cube, Rect::NOTHING, CARD_HEIGHT).area;
 
                 assert!(!placed.intersects(cube), "{size:?} {corner:?}");
                 assert!(view.contains_rect(placed), "{size:?} {corner:?}");
                 assert!(placed.width() >= MIN_WIDTH, "{size:?} {corner:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_card_clears_a_display_picker_at_top_left() {
+        let view = Rect::from_min_size(pos2(0.0, 0.0), vec2(560.0, 400.0));
+        let cube = cube_of(view);
+        let display_area = Rect::from_min_size(pos2(12.0, 12.0), vec2(140.0, 24.0));
+
+        let placed = placement(view, cube, display_area, CARD_HEIGHT).area;
+
+        assert!(!placed.intersects(display_area));
+        assert!(!placed.intersects(cube));
+        assert!(view.contains_rect(placed));
     }
 
     #[test]

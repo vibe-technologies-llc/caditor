@@ -36,10 +36,13 @@ the drag has begun always works, even where Alt and a drag would move the window
 Laptop navigation, turn the view. {command:view.toggle_select_through} does the same for every
 drag until you turn it off, from the keyboard too.
 
-- {command:view.toggle_lasso} draws a freehand outline instead of a box.
-- {command:view.toggle_paint_selection} selects faces by painting over them; in Wireframe and
+- {command:view.toggle_lasso} draws a freehand outline instead of a box (turning off Paint selection).
+- {command:view.toggle_paint_selection} selects faces by painting over them (turning off Lasso selection); in Wireframe and
   X-ray the drag draws a box instead. Holding Alt while painting takes every face under the brush,
   hidden ones too.
+
+Whenever Select through, Paint or Lasso is active, the status bar shows a chip for it; click the
+chip to turn the mode off.
 
 ## Choosing what to pick
 

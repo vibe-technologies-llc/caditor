@@ -221,13 +221,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Workspace, tree, parameter, palette, inspection and assistant ergonomics:
-  - Status bar quick size/distance readout clickable to copy with hover tooltip (`status_bar.rs`).
-  - Feature tree rollback bar right-click menu and inline "Roll to end" button; inline `×` clear
-    button, `Escape`-to-clear, `"N of M"` match count and muted filter banner on feature and
-    parameter filters (`feature_tree.rs`, `parameter_table.rs`); `"⋯"` menu button on individual
-    body rows, hide/show-all eye toggle on the `Bodies` group header, and `Keymap` shortcut labels
-    in tree context menus (`bodies_tree.rs`, `feature_tree.rs`).
+- [medium · easy] Workspace, parameter, palette, inspection and assistant ergonomics:
+  - Inline `×` clear button, `Escape`-to-clear and `"N of M"` match count on the parameter filter
+    (`parameter_table.rs`).
   - Expression completion popup (`completion.rs`) listing built-in functions (`Function::ALL`) and
     constants (`pi`, `tau`, `e`) after parameter matches; concise hover tooltip on scrubbable
     captions (`field.rs`); custom `colour_selector` for configured body colours
@@ -243,8 +239,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.
-- [low · medium] No isolate that only changes the view: showing one body alone hides the others
-  through the document, as undoable changes, rather than for the session.
 - [low · medium] No zoom to a dragged box; the view zooms by the wheel, the keys and Fit only.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the

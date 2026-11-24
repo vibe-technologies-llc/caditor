@@ -215,9 +215,10 @@ paths:
   full-width `primary_icon_button`, the other two equal `sized_icon_button`s side by side (stacked
   when a label would not fit half the width), and Don't show this again as a `widgets::checkbox`.
   `start_card::placement`: `WIDTH` wide, centred in the view `TOP_MARGIN` below its top when that
-  clears the view cube's area (`ViewportState::cube_area`, wherever the cube sits); else as near
-  the centre as the band beside a top cube allows while it is at least `MIN_WIDTH`; else under the
-  cube, centred, without the sentence and in a tight layout (`Spacing::TIGHT`: `SPACE_M` margin,
+  clears the view cube's area (`ViewportState::cube_area`, wherever the cube sits) and the display
+  picker (`ViewportState::display_area`); else as near
+  the centre as the band beside a top cube and display picker allows while it is at least `MIN_WIDTH`; else under the
+  cube (or display picker, keeping clear of a bottom cube when room allows), centred, without the sentence and in a tight layout (`Spacing::TIGHT`: `SPACE_M` margin,
   `SPACE_S` gaps) that keeps the card in the view at 200%, where the ribbon takes two rows; the
   card's `drawn_height` is recorded only from roomy frames, so the choice cannot flip between
   frames. A bottom cube shortens its area while the card, as tall
@@ -555,21 +556,27 @@ paths:
   the renderer after `perform` (`ui_tests/upload_indicator.rs`). Saving, the file dialog wait and
   the closing waits are not cancellable by design.
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
-  selection | its size or pair reading | selection filter (while not Everything) | unit | interface
-  size (while not 100%); the filter, unit and interface size are `small_button`s with an icon.
+  selection | its clickable size or pair reading (click copies with a passing info notice) |
+  session-only isolate chip (`Isolated: … · Show all`, exits isolate on click) | active selection
+  mode chips (`Select through`, `Paint`, `Lasso`, each resetting its mode on click) | selection
+  filter (while not Everything) | unit | interface
+  size (while not 100%); the chips, filter, unit and interface size are `small_button`s with an icon.
   Recompute is progress (the feature running, and how long once past two
-  seconds, from `Progress`) with Cancel, Up to date, or a failed `status_pill` that is a button
+  seconds, from `Progress`) with Cancel, Up to date (suppressed while bodies are still preparing or
+  stopped), or a failed `status_pill` (kept visible even while bodies prepare) that is a button
   focusing the next failed feature after the tree's primary row (`status_bar::failed_after`,
   wrapping, as Go to the next failed feature, F8, does; Shift+F8 the previous). A feature waiting
   for something to be chosen (`FeatureState::Waiting`) is counted by an info pill beside it, "N
   waiting", the same button focusing the next waiting feature (`status_bar::waiting_after`; Go to
   the next feature waiting for input, F9, does the same, wrapping, and Shift+F9 the previous), and
-  Up to date shows only when nothing has failed or waits; a cancelled or
+  Up to date shows only when nothing has failed or waits and bodies are neither preparing nor
+  stopped; a cancelled or
   stopped recompute is a warning or error pill with a Recompute or Restart button, its text a live
   region (`widgets::announced_status_pill`: polite for a warning, assertive for an error). Those
   hovers name their command's keys (`status_bar::Hovers`, `CommandFrame::with_keys`). The unit opens
   Preferences; the interface size, when not 100%, goes back to it. A notice too wide for the row
-  wraps onto a row of its own; the bar is a bottom panel sized by the frame before, so a change of
+  wraps onto a row of its own (`buttons_id` includes the width of any `NoticeAction` button so
+  right-hand buttons never clip); the bar is a bottom panel sized by the frame before, so a change of
   its height discards the pass (`widgets::remember_height`) and the new row shows in the same frame,
   never drawn below the window for a frame or until the next repaint.
 - Notices have a `NoticeKind` drawn through its `Tone` (`NoticeKind::tone`): `Notice::info` for what
@@ -806,7 +813,7 @@ paths:
   view with nothing selected (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
   (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen unseen.
   Whenever the document's revision changes, `PanelState::forget_missing` drops chosen rows the
-  document no longer holds. Fit view (F) with nothing selected in the view frames the chosen rows'
+  document no longer holds, retaining separate-piece body IDs (`document.body_maker(*id).is_some()`). Fit view (F) with nothing selected in the view frames the chosen rows'
   bodies (a modifying feature's the body it changes), sketches and datums
   (`BuiltScene::bounds_of_features`), and everything when none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
@@ -856,18 +863,26 @@ paths:
   (`PrincipalView::reads_drawn`) while their eyes, which read `reads_shown`, keep their setting and
   what a click does.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the
-  end of the tree when nothing is rolled back. It and every row name drag (`PanelState::dragging`):
+  end of the tree when nothing is rolled back, with a right-click menu (`Roll to end`, `Roll up
+  one`, `Roll down one`) and an inline "Roll to end" button while rolled back. It and every row name
+  drag (`PanelState::dragging`), autoscrolling when the pointer moves past the tree's clip edges
+  before testing whether a drop gap is visible:
   the gap under the pointer shows an accent line, or an error one with a reason when
   `Document::move_row` refuses it; release applies, Escape or a release outside the tree cancels.
   Dragging one of several chosen rows moves them all (`Document::move_features`, "Move N features").
 - A filter field (`PanelState::tree_filter`) heads the feature rows once there are
-  `FILTER_FROM_FEATURES` of them, or while it holds text or focus; Filter the feature tree (Ctrl+F,
+  `FILTER_FROM_FEATURES` of them, or while it holds text or focus, with an inline `×` clear button
+  and `Escape`-to-clear; Filter the feature tree (Ctrl+F,
   Model menu, palette) shows and focuses it at any size. It keeps the features whose name, kind
   words (`feature_tree::kind_words`) or state words (`state_words`: "failed", "outdated",
   "suppressed", "hidden") contain the text in any case, plus the edited, renamed, revealed or focused
-  one, so going to a feature never lands on a hidden row. While it filters, the rollback bar is
+  one, so going to a feature never lands on a hidden row. While it filters, a muted banner shows
+  `"N of M · Drag and rollback return when the filter is cleared"`, the rollback bar is
   hidden, rows do not drag (gaps between shown rows are not the model's) and folders are not drawn;
-  with no match an empty state offers Clear the filter.
+  with no match an empty state offers Clear the filter. Tree context menus receive `Keymap` via
+  `panels::TreeContext` so command shortcuts show beside menu items; hidden rows in feature, body
+  and principal trees stay muted without faux italics, and inline folder rename fields in
+  `feature_groups.rs` and `body_groups.rs` render `widgets::error_text` below the field on refusal.
 - Consecutive features of one group (`document.md`) sit under a folder row (`feature_groups.rs`):
   chevron, folder icon, name, member count and a "⋯" menu (Rename group, Ungroup), members indented by
   `GROUP_INDENT`. A click or tab chooses every member; a double-click renames in place (blank
@@ -889,8 +904,10 @@ paths:
 ### Bodies
 
 - The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
+  has a hide/show-all eye toggle on its group header and
   lists the bodies standing at the end of the model, by their own name or else the name of the
-  feature that made each; a body a Combine or Remove consumed is not listed. A click or tab chooses
+  feature that made each, each row carrying a `"⋯"` (`icons::MORE`) menu button alongside its paint
+  bucket and eye; a body a Combine or Remove consumed is not listed. A click or tab chooses
   that feature (Ctrl+click toggles and Shift+click extends over the listed bodies, through
   `feature_tree::choose_among`) and the eye hides or shows it like the feature's own. A
   double-click follows the tree's preference (`PanelState::double_click`): it opens the feature
@@ -902,7 +919,8 @@ paths:
   chooses that body for the body commands (`body_selection::tree_bodies` keeps piece ids). Hide
   selection hides a picked piece alone and Show everything shows hidden pieces too; Hide others
   on a piece hides the feature's other pieces (`visibility::hide_others`).
-  Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
+  Right-clicking a row (or clicking its `"⋯"` button) offers Isolate in view / Exit isolate, Rename
+  body… (the card below with its Body name field focused), Select
   the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
   which adds a `Remove` feature at the bar with a notice saying how to bring the body back and an
   Undo button; the same

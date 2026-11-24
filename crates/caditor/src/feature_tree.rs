@@ -24,7 +24,7 @@ use crate::{
     blend_panel,
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
-    commands::{Command, CommandFrame, Reason},
+    commands::{Command, CommandFrame, Keymap, Reason},
     completion,
     constraint_remedies::{self, ConstraintRemedies},
     constraint_trial, datum_panel, delete_face_panel, draft_panel,
@@ -39,7 +39,7 @@ use crate::{
     loft_panel, manipulator, mate_panel, measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_face_panel, move_panel, move_tools, offset_face_panel,
-    panels::{Focus, PanelState, Renaming},
+    panels::{Focus, PanelState, Renaming, TreeContext},
     pattern_panel,
     pattern_tools::{self, Reference},
     pipe_panel,
@@ -206,11 +206,11 @@ impl Reason for TreeError {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
-    editing: &SketchEditing,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
+    let editing = context.editing;
     let edited = editing.feature().or(editing.solid());
 
     if let Some(finished) = state
@@ -222,7 +222,7 @@ pub fn show(
     }
     tree_row::tree(ui, TREE_NAME, |ui| {
         tree_row::rows(ui, |ui| {
-            rows(ui, model, selection, editing, state, actions);
+            rows(ui, model, context, state, actions);
         });
     });
     combining_card(ui, model, editing, actions);
@@ -278,15 +278,15 @@ struct CombiningShown;
 fn rows(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
-    editing: &SketchEditing,
+    context: &TreeContext<'_>,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
+    let (selection, editing, keymap) = (context.selection, context.editing, context.keymap);
     let document = model.document();
 
     principal_tree::show(ui, model, selection, state, actions);
-    bodies_tree::show(ui, model, selection, state, actions);
+    bodies_tree::show(ui, model, context, state, actions);
 
     let count = document.features().len();
 
@@ -298,6 +298,26 @@ fn rows(
 
     let query = filter_field(ui, state, count);
     let filtering = !query.is_empty();
+
+    if filtering {
+        let matched = document
+            .features()
+            .filter(|feature| kept_by_filter(model, state, editing, feature, &query))
+            .count();
+
+        tree_row::content(ui, |ui| {
+            ui.add(
+                Label::new(widgets::muted(
+                    format!(
+                        "{matched} of {count} · Drag and rollback return when the filter is cleared"
+                    ),
+                    ui,
+                ))
+                .wrap(),
+            );
+        });
+    }
+
     let bar = document.bar_index();
     let chosen: BTreeSet<FeatureId> = state.chosen().into_iter().collect();
     let mut placed = Vec::with_capacity(count + 1);
@@ -308,7 +328,10 @@ fn rows(
 
     for (index, feature) in document.features().enumerate() {
         if index == bar && !filtering {
-            placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
+            placed.push((
+                TreeRow::Bar,
+                rollback_bar(ui, document, keymap, state, actions),
+            ));
         }
 
         let id = feature.id();
@@ -339,6 +362,7 @@ fn rows(
         let row = Row {
             feature,
             selection,
+            keymap,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
             opened: editing.opened().filter(|opened| opened.feature == id),
             taking_regions: editing
@@ -381,7 +405,10 @@ fn rows(
         return;
     }
     if bar >= count {
-        placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
+        placed.push((
+            TreeRow::Bar,
+            rollback_bar(ui, document, keymap, state, actions),
+        ));
     }
     drag_and_drop(ui, document, state, actions, &placed);
 }
@@ -426,26 +453,36 @@ fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
         return String::new();
     }
     tree_row::content(ui, |ui| {
-        ui.horizontal(|ui| {
-            let muted = appearance::tokens(ui).text_muted;
+        let has_text = !state.tree_filter.is_empty();
+        let (escaped, clicked_clear) = Sides::new().shrink_left().show(
+            ui,
+            |ui| {
+                let muted = appearance::tokens(ui).text_muted;
 
-            widgets::icon_label(ui, icons::SEARCH, muted);
+                widgets::icon_label(ui, icons::SEARCH, muted);
 
-            let field = widgets::text_field(ui, |ui| {
-                widgets::spoken_as(
-                    ui.add(
-                        TextEdit::singleline(&mut state.tree_filter)
-                            .id(Focus::TreeFilter.field_id())
-                            .hint_text(FILTER_HINT)
-                            .desired_width(f32::INFINITY),
-                    ),
-                    FILTER_HINT,
-                )
-            });
-            if wanted {
-                field.request_focus();
-            }
-        });
+                let field = widgets::text_field(ui, |ui| {
+                    widgets::spoken_as(
+                        ui.add(
+                            TextEdit::singleline(&mut state.tree_filter)
+                                .id(Focus::TreeFilter.field_id())
+                                .hint_text(FILTER_HINT)
+                                .desired_width(f32::INFINITY),
+                        ),
+                        FILTER_HINT,
+                    )
+                });
+
+                if wanted {
+                    field.request_focus();
+                }
+                has_text && widgets::escape_cancels(ui, &field)
+            },
+            |ui| has_text && widgets::icon_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL).clicked(),
+        );
+        if escaped || clicked_clear {
+            state.tree_filter.clear();
+        }
     });
     state.tree_filter.trim().to_lowercase()
 }
@@ -619,6 +656,7 @@ fn empty_tree(ui: &mut Ui, actions: &mut Vec<Action>) {
 struct Row<'a> {
     feature: &'a Feature,
     selection: &'a Selection,
+    keymap: &'a Keymap,
     edited: bool,
     opened: Option<Opened>,
     taking_regions: Option<&'a Feature>,
@@ -633,7 +671,13 @@ impl Row<'_> {
     }
 }
 
-fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rect {
+fn rollback_bar(
+    ui: &mut Ui,
+    document: &Document,
+    keymap: &Keymap,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) -> Rect {
     let tokens = appearance::tokens(ui);
     let below = document
         .features()
@@ -683,6 +727,52 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         .on_hover_text(ROLLBACK_BAR_HINT)
         .on_hover_cursor(CursorIcon::Grab);
 
+    response.context_menu(|ui| {
+        widgets::fitted_menu(ui, |ui| {
+            let keys = |command| keymap.hint(command).map(str::to_owned);
+            let end = roll_to_end(document);
+
+            if menu_entry_with_keys(
+                ui,
+                icons::ROLL_TO_END,
+                "Roll to end",
+                keys(Command::RollToEnd),
+                &end,
+            ) && let Ok(transaction) = end
+            {
+                actions.push(Action::Apply(transaction));
+            }
+
+            let up: Result<(), &str> = (included > 0)
+                .then_some(())
+                .ok_or("The rollback bar is already at the top");
+
+            if menu_entry_with_keys(
+                ui,
+                icons::command(Command::RollbackUp),
+                "Roll up one",
+                keys(Command::RollbackUp),
+                &up,
+            ) {
+                state.requested.push(Command::RollbackUp);
+            }
+
+            let down: Result<(), &str> = (below > 0)
+                .then_some(())
+                .ok_or("The rollback bar is already at the end");
+
+            if menu_entry_with_keys(
+                ui,
+                icons::command(Command::RollbackDown),
+                "Roll down one",
+                keys(Command::RollbackDown),
+                &down,
+            ) {
+                state.requested.push(Command::RollbackDown);
+            }
+        });
+    });
+
     if response.drag_started() {
         state.dragging = Some(TreeRow::Bar);
     }
@@ -723,6 +813,21 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
     if response.has_focus() {
         tree_row::focus_outline(ui, rect);
     }
+    if below > 0 {
+        tree_row::content(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let button = widgets::small_button(ui, icons::ROLL_TO_END, "Roll to end");
+                if ui
+                    .add(button)
+                    .on_hover_text("Move the rollback bar back to the end of the model")
+                    .clicked()
+                    && let Ok(transaction) = roll_to_end(document)
+                {
+                    actions.push(Action::Apply(transaction));
+                }
+            });
+        });
+    }
     rect
 }
 
@@ -750,20 +855,22 @@ fn drag_and_drop(
     };
     let visible = ui.clip_rect();
 
+    let beyond_top = visible.top() + AUTOSCROLL_EDGE - pointer.y;
+    let beyond_bottom = pointer.y - (visible.bottom() - AUTOSCROLL_EDGE);
+
+    if held && visible.x_range().contains(pointer.x) {
+        if beyond_top > 0.0 {
+            ui.scroll_with_delta(vec2(0.0, beyond_top * AUTOSCROLL_RATE));
+        } else if beyond_bottom > 0.0 {
+            ui.scroll_with_delta(vec2(0.0, -beyond_bottom * AUTOSCROLL_RATE));
+        }
+    }
+
     if !visible.contains(pointer) {
         if !held {
             state.dragging = None;
         }
         return;
-    }
-
-    let beyond_top = visible.top() + AUTOSCROLL_EDGE - pointer.y;
-    let beyond_bottom = pointer.y - (visible.bottom() - AUTOSCROLL_EDGE);
-
-    if held && beyond_top > 0.0 {
-        ui.scroll_with_delta(vec2(0.0, beyond_top * AUTOSCROLL_RATE));
-    } else if held && beyond_bottom > 0.0 {
-        ui.scroll_with_delta(vec2(0.0, -beyond_bottom * AUTOSCROLL_RATE));
     }
 
     let gap = placed
@@ -1643,7 +1750,7 @@ fn name_text(ui: &Ui, row: &Row<'_>, status: Option<&FeatureStatus>) -> RichText
         return text.color(muted);
     }
     if feature.hidden {
-        return text.color(muted).italics();
+        return text.color(muted);
     }
     text
 }
@@ -1885,9 +1992,19 @@ pub fn menu_entry<T, E: Display>(
     label: &str,
     outcome: &Result<T, E>,
 ) -> bool {
+    menu_entry_with_keys(ui, glyph, label, None, outcome)
+}
+
+fn menu_entry_with_keys<T, E: Display>(
+    ui: &mut Ui,
+    glyph: &str,
+    label: &str,
+    keys: Option<String>,
+    outcome: &Result<T, E>,
+) -> bool {
     let response = ui
         .add_enabled_ui(outcome.is_ok(), |ui| {
-            widgets::menu_item(ui, glyph, label, None)
+            widgets::menu_item(ui, glyph, label, keys)
         })
         .inner;
     let response = match outcome {
@@ -1911,6 +2028,7 @@ fn context_menu(
 ) {
     let document = model.document();
     let feature = row.feature;
+    let keys = |command| row.keymap.hint(command).map(str::to_owned);
 
     if let Some(command) = edit_command(feature, row.edited) {
         let editable = if row.edited {
@@ -1919,9 +2037,19 @@ fn context_menu(
             editable(document, feature).map(|()| command)
         };
         let glyph = if row.edited { icons::DONE } else { icons::EDIT };
+        let shortcut = if row.edited {
+            None
+        } else {
+            keys(Command::EditFeature)
+        };
 
-        if menu_entry(ui, glyph, &edit_title(feature, row.edited), &editable)
-            && let Ok(command) = editable
+        if menu_entry_with_keys(
+            ui,
+            glyph,
+            &edit_title(feature, row.edited),
+            shortcut,
+            &editable,
+        ) && let Ok(command) = editable
         {
             actions.push(Action::Editing(command));
         }
@@ -1940,10 +2068,11 @@ fn context_menu(
         let taking = solid_tools::take_sketch_regions(model, open, feature.id());
         let title = format!("Take all regions of {} for {}", feature.name, open.name);
 
-        if menu_entry(
+        if menu_entry_with_keys(
             ui,
             icons::command(Command::SelectAllRegions),
             &title,
+            keys(Command::SelectAllRegions),
             &taking,
         ) && let Ok(transaction) = taking
         {
@@ -1951,7 +2080,7 @@ fn context_menu(
         }
         ui.separator();
     }
-    if widgets::menu_item(ui, icons::RENAME, "Rename", None).clicked() {
+    if widgets::menu_item(ui, icons::RENAME, "Rename", keys(Command::RenameFeature)).clicked() {
         start_renaming(state, feature);
         ui.close();
     }
@@ -1968,7 +2097,7 @@ fn context_menu(
         } else {
             (icons::SHOW, "Show")
         };
-        if widgets::menu_item(ui, glyph, label, None).clicked() {
+        if widgets::menu_item(ui, glyph, label, keys(Command::ToggleVisibility)).clicked() {
             actions.push(Action::Apply(toggle.transaction));
             ui.close();
         }
@@ -1977,15 +2106,29 @@ fn context_menu(
     let (glyph, label) = suppress_title(&targets);
     let suppression = suppress_change(document, &targets);
 
-    if menu_entry(ui, glyph, label, &suppression)
-        && let Ok(transaction) = suppression
+    if menu_entry_with_keys(
+        ui,
+        glyph,
+        label,
+        keys(Command::SuppressFeature),
+        &suppression,
+    ) && let Ok(transaction) = suppression
     {
         actions.push(Action::Apply(transaction));
     }
     for direction in Direction::BOTH {
         let transaction = direction.transaction(document, feature);
-        if menu_entry(ui, direction.glyph(), direction.label(), &transaction)
-            && let Ok(transaction) = transaction
+        let command = match direction {
+            Direction::Up => Command::MoveFeatureUp,
+            Direction::Down => Command::MoveFeatureDown,
+        };
+        if menu_entry_with_keys(
+            ui,
+            direction.glyph(),
+            direction.label(),
+            keys(command),
+            &transaction,
+        ) && let Ok(transaction) = transaction
         {
             actions.push(Action::Apply(transaction));
         }
@@ -1993,10 +2136,11 @@ fn context_menu(
 
     let grouping = feature_groups::grouping(document, &ids);
 
-    if menu_entry(
+    if menu_entry_with_keys(
         ui,
         icons::command(Command::GroupFeatures),
         &Command::GroupFeatures.title(),
+        keys(Command::GroupFeatures),
         &grouping,
     ) && let Ok(transaction) = grouping
     {
@@ -2005,10 +2149,11 @@ fn context_menu(
     }
     if feature.group.is_some() {
         let ungrouping = feature_groups::ungrouping(document, feature.id());
-        if menu_entry(
+        if menu_entry_with_keys(
             ui,
             icons::command(Command::Ungroup),
             feature_groups::UNGROUP_LABEL,
+            keys(Command::Ungroup),
             &ungrouping,
         ) && let Ok(transaction) = ungrouping
         {
@@ -2020,7 +2165,7 @@ fn context_menu(
             ui,
             icons::command(Command::ReplaceImport),
             &Command::ReplaceImport.title(),
-            None,
+            keys(Command::ReplaceImport),
         )
         .on_hover_text(REPLACE_HINT)
         .clicked()
@@ -2033,7 +2178,7 @@ fn context_menu(
             ui,
             icons::command(Command::ReloadImport),
             &Command::ReloadImport.title(),
-            None,
+            keys(Command::ReloadImport),
         )
         .on_hover_text(RELOAD_HINT_SHORT)
         .clicked()
@@ -2045,7 +2190,7 @@ fn context_menu(
         ui,
         icons::command(Command::CopyFeatures),
         &Command::CopyFeatures.title(),
-        None,
+        keys(Command::CopyFeatures),
     )
     .clicked()
     {
@@ -2058,10 +2203,11 @@ fn context_menu(
 
     let update = reference_update(model, &targets);
 
-    if menu_entry(
+    if menu_entry_with_keys(
         ui,
         icons::command(Command::UpdateReferences),
         UPDATE_REFERENCES_LABEL,
+        keys(Command::UpdateReferences),
         &update,
     ) && let Ok(transaction) = update
     {
@@ -2074,15 +2220,25 @@ fn context_menu(
     let here = roll_to_here(document, feature);
     let here_label = format!("{} here", roll_verb(document, feature));
 
-    if menu_entry(ui, icons::ROLL_TO_HERE, &here_label, &here)
-        && let Ok(transaction) = here
+    if menu_entry_with_keys(
+        ui,
+        icons::ROLL_TO_HERE,
+        &here_label,
+        keys(Command::RollToHere),
+        &here,
+    ) && let Ok(transaction) = here
     {
         actions.push(Action::Apply(transaction));
     }
     if document.rollback_bar() != RollbackBar::AtEnd {
         let end = roll_to_end(document);
-        if menu_entry(ui, icons::ROLL_TO_END, "Roll to end", &end)
-            && let Ok(transaction) = end
+        if menu_entry_with_keys(
+            ui,
+            icons::ROLL_TO_END,
+            "Roll to end",
+            keys(Command::RollToEnd),
+            &end,
+        ) && let Ok(transaction) = end
         {
             actions.push(Action::Apply(transaction));
         }
@@ -2094,8 +2250,13 @@ fn context_menu(
         Ok(Deletion::Ask(_)) => "Delete…",
         Ok(Deletion::Now(_)) | Err(_) => "Delete",
     };
-    if menu_entry(ui, icons::DELETE, label, &delete)
-        && let Ok(deletion) = delete
+    if menu_entry_with_keys(
+        ui,
+        icons::DELETE,
+        label,
+        keys(Command::DeleteFeature),
+        &delete,
+    ) && let Ok(deletion) = delete
     {
         deletion.perform(state, actions);
     }
