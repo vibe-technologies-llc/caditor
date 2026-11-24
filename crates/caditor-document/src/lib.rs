@@ -133,7 +133,7 @@ pub use crate::{
         DatumPoint, DatumResult, FaceTangent, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
         PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing,
         capitalized, describe_axis, describe_curve, describe_plane, describe_point,
-        describe_points, displayed_axis, displayed_frame, displayed_plane,
+        describe_points, displayed_axis, displayed_frame, displayed_plane, displayed_station_track,
     },
     delete_face::DeleteFace,
     dependencies::DependencyGraph,

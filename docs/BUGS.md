@@ -125,19 +125,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
-## Modelling
-
-- [medium · medium] Revolve handles, `body_reach.rs`, Leave out and Reverse direction gaps:
-  - `turn_handles.rs` does not compute swing from the chosen regions/side (nor fall back to the
-    farthest corner when the centroid lies on the axis), skips per-grip `per_point`, and omits
-    `END_ON` sight culling.
-  - `body_reach.rs` ignores partial revolves (`RevolveExtent::OneSide`/`Symmetric`/`TwoSides`,
-    checking only `Full`) and sweeps face-cut sketch pieces as their enclosing whole region instead
-    of resolving `solid.regions()` through `SketchResult::resolve_choice`.
-  - `leaving_out.rs` does not expand `EdgeGroup`s when leaving out a failing Blend edge and omits
-    `shell.faces` (`Own thickness`) for Shell; `reversing.rs` (`Command::ReverseDirection`) omits
-    `Draft`, `Emboss` and asymmetric/angle `Chamfer`.
-
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when

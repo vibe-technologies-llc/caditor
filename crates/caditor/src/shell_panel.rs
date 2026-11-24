@@ -43,7 +43,15 @@ fn change(model: &Model, feature: FeatureId, shell: Shell) -> Result<Transaction
 pub fn leave_out(model: &Model, feature: &Feature, shell: &Shell, index: usize) -> Action {
     let mut changed = shell.clone();
 
-    changed.open.remove(index);
+    match index.checked_sub(changed.open.len()) {
+        None => {
+            changed.open.remove(index);
+        }
+        Some(own) if own < changed.faces.len() => {
+            changed.faces.remove(own);
+        }
+        Some(_) => {}
+    }
     feature_fields::applied(&feature.name, change(model, feature.id(), changed))
 }
 

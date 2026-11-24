@@ -55,6 +55,7 @@ pub enum Rule {
     ZeroOrMore,
     AboveZeroOrReverse,
     FlipWhenNegative,
+    FlipTurnWhenNegative,
     Turn,
     TurnBeside(f64),
     Count,
@@ -121,6 +122,9 @@ impl Rule {
             Self::ZeroOrMore if value < 0.0 => Err(RuleError::ZeroOrMore),
             Self::AboveZeroOrReverse if value <= 0.0 => Err(RuleError::AboveZeroOrReverse),
             Self::FlipWhenNegative if value == 0.0 => Err(RuleError::NotZeroOrReverse),
+            Self::FlipTurnWhenNegative if value == 0.0 || value.abs() > FULL_TURN_DEGREES => {
+                Err(RuleError::Turn)
+            }
             Self::Turn if value <= 0.0 || value > FULL_TURN_DEGREES => Err(RuleError::Turn),
             Self::TurnBeside(other) if value <= 0.0 || value + other > FULL_TURN_DEGREES => {
                 Err(RuleError::TurnsTogether)
@@ -182,6 +186,7 @@ impl Rule {
             | Self::ZeroOrMore
             | Self::AboveZeroOrReverse
             | Self::FlipWhenNegative
+            | Self::FlipTurnWhenNegative
             | Self::Turn
             | Self::TurnBeside(_)
             | Self::Count

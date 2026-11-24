@@ -456,4 +456,17 @@ fn draft_uses_a_preselected_neutral_plane_and_names_own_angle_only_state() {
     assert!(draft_of(&harness, draft).faces.is_empty());
     assert_eq!(draft_of(&harness, draft).own.len(), 1);
     assert!(harness.shows("None: every drafted face takes its own angle"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let step = drag_value_arrow(&mut harness, Measured::DraftFaceAngle(0), 10.0);
+    let own_angle = length_value(&harness, &draft_of(&harness, draft).own[0].angle);
+
+    assert!(
+        (own_angle - 13.0).abs() <= step,
+        "expected ~13 deg, got {own_angle} with step {step}"
+    );
 }

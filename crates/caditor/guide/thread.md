@@ -17,7 +17,8 @@ face. The panel sets:
   trapezoidal threads get flat crests and roots. A taper pipe thread is always cosmetic.
 - **Standard**, **Size** and **Class**; the side, internal or external, is read from the face.
 - **Hand**: right or left.
-- **Length**: the full face, or a depth, starting from either end.
+- **Length**: the full face, or a depth, starting from either end (a depth can also be dragged on its
+  arrow in the view or typed directly).
 
 A modelled thread shows as the cut itself. A cosmetic one shows in the view as a circle at its start,
 dashed lines along it and a dashed circle at its end. For a tapped hole made with the [Hole](hole)

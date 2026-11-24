@@ -27,8 +27,9 @@ out; the panel lists the chosen ones in words, each with a button to leave it ou
 one lights it in the view. Leaving out one edge of a face or body taken whole turns that entry into
 its edges as they are now, less the one left out. Edges that continue smoothly are taken together
 as a chain. When the fillet or chamfer fails over one chosen edge (too large for the faces beside
-it, say), the failure in its row has **Leave this edge out**, which takes that edge off the list;
-an edge only reached by following a chain, or taken with a face, body or rule, has no such button.
+it, say), the failure in its row has **Leave this edge out**, which takes that edge off the list
+(expanding a face, body or rule entry into its explicit edges less the failing one); an edge only
+reached by following a chain has no such button.
 
 An edge ending where earlier fillets meet, such as an upright edge of a box whose top edges are
 already rounded, is rounded or bevelled up into them. A fillet of the same radius ends in the
@@ -59,7 +60,8 @@ split, so you can choose the pieces again rather than lose one without notice.
   distance on the other face) or **Angle** (a distance and the angle from the first face).
   **Measure from the other face** swaps which face takes the first distance. The same choices are
   {command:model.chamfer_equal}, {command:model.chamfer_two_distances},
-  {command:model.chamfer_distance_angle} and {command:model.flip_chamfer}.
+  {command:model.chamfer_distance_angle}, {command:model.flip_chamfer} and
+  {command:model.reverse_direction}.
 - A new fillet or chamfer starts from the radius (never a chord length), distances and form last used on one, kept
   between sessions; a value naming a parameter the model lacks falls back to the usual 1 mm.
 - Typing a value previews it before you press Enter; when it cannot be made, the reason shows under

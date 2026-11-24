@@ -29,7 +29,8 @@ menu of faces or {command:palette}.
   faces of a cylinder or cone alike: wrapped round one, the walls lean by the angle along the axis
   and by a little more (a raise) or less (a recess) across it, in the ratio of the radii at the top
   and the face. A draft that closes an outline up before the depth fails the emboss.
-- **Raise** adds the outlines to the face; **Recess** cuts them into it.
+- **Raise** adds the outlines to the face; **Recess** cuts them into it
+  ({command:model.reverse_direction} switches between the two).
 
 A flat face takes the outlines straight, as an extrusion from the face would: the sketch must lie
 parallel to it. On a face of a cylinder or cone the outlines are wrapped round it the way

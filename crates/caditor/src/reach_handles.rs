@@ -1,6 +1,6 @@
 use caditor_document::{
     Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterValues, RegionChoice,
-    SolidFeature, SolidStart, Transaction, displayed_start_offset,
+    SolidFeature, SolidStart, Transaction, displayed_axis, displayed_start_offset,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Aabb2, Plane, Point3, Ray, Vector2, Vector3};
@@ -168,17 +168,28 @@ pub fn swept_bounds(model: &Model, extrude: &Extrude, plane: &Plane) -> Option<A
     })
 }
 
-fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Point3, Vector3)> {
-    if extrude.direction.is_some() {
-        return None;
-    }
+const DIRECTION_ALONG_PLANE: f64 = 1e-6;
 
+fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Point3, Vector3)> {
     let document = model.document();
     let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
     let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
     let bounds = swept_bounds(model, extrude, &plane)?;
     let normal = plane.normal();
-    Some((plane.to_world(bounds.center()) + normal * start, normal))
+    let direction = match extrude.direction.as_deref() {
+        Some(reference) => {
+            let axis = displayed_axis(model.evaluation(), feature, reference)?;
+            let along = axis.direction().try_normalize()?;
+            let dot = along.dot(normal);
+
+            if dot.abs() <= DIRECTION_ALONG_PLANE {
+                return None;
+            }
+            if dot < 0.0 { -along } else { along }
+        }
+        None => normal,
+    };
+    Some((plane.to_world(bounds.center()) + normal * start, direction))
 }
 
 pub fn primary(model: &Model, feature: FeatureId) -> Option<Reach> {

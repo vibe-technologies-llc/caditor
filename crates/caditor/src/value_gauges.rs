@@ -2,14 +2,15 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CoilSpan, CurvePattern,
-    CurvePatternPath, CurveSpacing, Datum, DatumPlane, Draft, Emboss, EmbossForm, Evaluation,
-    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, FilletSizing, Helix, Hole,
-    HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing,
+    CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumPlane, Draft, Emboss, EmbossForm,
+    Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, FilletSizing, Helix,
+    Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing,
     MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, MoveFace, OffsetFace,
-    Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape,
-    ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion,
-    SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
-    displayed_plane, face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name,
+    Pattern, PatternKind, PatternPath, Pipe, PlaneThrough, PointBy, Primitive, PrimitiveAnchor,
+    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Scale, Shell, ShellSide,
+    SizeRule, SketchRegion, SolidFeature, SolidStart, Thread, ThreadLength, Wall, capitalized,
+    circle_sizes, coil_size_name, displayed_axis, displayed_frame, displayed_plane,
+    displayed_station_track, face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name,
     pipe_stand, rib_stand, span_with_pitch,
 };
 use caditor_expression::{Dimension, Expression};
@@ -32,12 +33,14 @@ use crate::{
     move_manipulator::{ARROW_POINTS, Reach, step_for},
     pattern_panel, pattern_tools, pipe_panel, reach_handles,
     reversing::Flip,
-    rib_panel, scene, selection, shell_panel, solid_panel,
+    rib_panel, scene, selection, shell_panel, solid_panel, thread_tools,
     turn_handles::{STEP_DEGREES, Swing},
     units::Units,
 };
 
 const TAPER_STEP_DEGREES: f64 = 1.0;
+const FACTOR_STEP: f64 = 0.1;
+const FACTOR_ROUNDING: f64 = 100.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const HALF_TURN_DEGREES: f64 = 180.0;
 const SMALLEST_OPENING: f64 = 1e-3;
@@ -54,12 +57,15 @@ pub const OFFSET_DISTANCE: &str = "Distance";
 pub const PLANE_OFFSET: &str = "Offset";
 pub const PLANE_ANGLE: &str = "Angle";
 pub const SHELL_THICKNESS: &str = "Thickness";
+pub const SCALE_FACTOR: &str = "Factor";
+pub const CURVE_DISTANCE: &str = "Distance along";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Amount {
     Length,
     Angle,
     Count,
+    Factor,
 }
 
 impl Amount {
@@ -67,7 +73,7 @@ impl Amount {
         match self {
             Self::Length => Dimension::LENGTH,
             Self::Angle => Dimension::ANGLE,
-            Self::Count => Dimension::NONE,
+            Self::Count | Self::Factor => Dimension::NONE,
         }
     }
 
@@ -76,6 +82,7 @@ impl Amount {
             Self::Length => units.length.measured(value),
             Self::Angle => units.angle.measured(value),
             Self::Count => Expression::number(value.round()),
+            Self::Factor => Expression::number((value * FACTOR_ROUNDING).round() / FACTOR_ROUNDING),
         }
     }
 
@@ -84,6 +91,7 @@ impl Amount {
             Self::Length => units.readout_text(value),
             Self::Angle => units.angle_readout(value),
             Self::Count => format!("{}", value.round()),
+            Self::Factor => format!("{value:.2}"),
         }
     }
 
@@ -108,13 +116,16 @@ pub enum Measured {
     SlotLength,
     SlotAngle,
     ThreadDepth,
+    ThreadedDepth,
     HoleEndOffset,
     OffsetDistance,
     MoveDistance,
     MoveAngle,
     DraftAngle,
+    DraftFaceAngle(usize),
     PlaneOffset,
     PlaneAngle,
+    CurveDistance,
     BlendSize,
     BlendSecond,
     BlendAngle,
@@ -139,31 +150,49 @@ pub enum Measured {
     CoilHeight,
     RibThickness,
     EmbossDepth,
+    ScaleFactor,
 }
 
 pub fn primary(kind: &FeatureKind) -> Option<Measured> {
     let candidates: &[Measured] = match kind {
+        FeatureKind::Solid(SolidFeature::Extrude(_)) => &[
+            Measured::EndOffset(Reach::Only),
+            Measured::EndOffset(Reach::Forward),
+            Measured::EndOffset(Reach::Backward),
+            Measured::WallThickness,
+            Measured::Taper,
+        ],
+        FeatureKind::Solid(SolidFeature::Revolve(_)) => &[Measured::WallThickness],
+        FeatureKind::Solid(SolidFeature::Sweep(_)) => &[],
         FeatureKind::Hole(hole) if hole.sizing.by_circles() => &[Measured::HoleDepth],
         FeatureKind::Hole(_) => &[Measured::HoleDiameter, Measured::HoleDepth],
         FeatureKind::Blend(_) => &[Measured::BlendSize],
         FeatureKind::Shell(_) => &[Measured::ShellThickness],
         FeatureKind::OffsetFace(_) => &[Measured::OffsetDistance],
         FeatureKind::MoveFace(_) => &[Measured::MoveDistance],
-        FeatureKind::Draft(_) => &[Measured::DraftAngle],
+        FeatureKind::Draft(draft) if draft.faces.is_empty() && !draft.own.is_empty() => {
+            &[Measured::DraftFaceAngle(0), Measured::DraftAngle]
+        }
+        FeatureKind::Draft(_) => &[Measured::DraftAngle, Measured::DraftFaceAngle(0)],
         FeatureKind::Emboss(_) => &[Measured::EmbossDepth],
         FeatureKind::Primitive(_) => &[Measured::PrimitiveSize(0)],
         FeatureKind::Pipe(_) => &[Measured::PipeSize],
         FeatureKind::Coil(_) | FeatureKind::Helix(_) => &[Measured::CoilDiameter],
         FeatureKind::Rib(_) => &[Measured::RibThickness],
-        FeatureKind::Datum(_) => &[Measured::PlaneOffset, Measured::PlaneAngle],
+        FeatureKind::Datum(_) => &[
+            Measured::PlaneOffset,
+            Measured::PlaneAngle,
+            Measured::CurveDistance,
+        ],
         FeatureKind::Pattern(_) => &[
             Measured::PatternSpacing(0),
             Measured::CircularCount,
             Measured::CurveSpacing,
             Measured::CurveCount,
         ],
+        FeatureKind::Thread(_) => &[Measured::ThreadedDepth],
+        FeatureKind::Scale(_) => &[Measured::ScaleFactor],
         FeatureKind::Sketch(_)
-        | FeatureKind::Solid(_)
         | FeatureKind::ReplaceFace(_)
         | FeatureKind::DeleteFace(_)
         | FeatureKind::SplitFace(_)
@@ -173,10 +202,8 @@ pub fn primary(kind: &FeatureKind) -> Option<Measured> {
         | FeatureKind::Mate(_)
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
-        | FeatureKind::Scale(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Thread(_)
         | FeatureKind::Measurement(_)
         | FeatureKind::ReferenceImage(_) => &[],
     };
@@ -310,8 +337,10 @@ impl Measured {
             | Self::CountersinkAngle
             | Self::MoveAngle
             | Self::DraftAngle
+            | Self::DraftFaceAngle(_)
             | Self::SlotAngle => Amount::Angle,
             Self::CircularCount | Self::PrismSides | Self::CurveCount => Amount::Count,
+            Self::ScaleFactor => Amount::Factor,
             Self::HoleDepth
             | Self::HoleDiameter
             | Self::CounterboreDiameter
@@ -321,10 +350,12 @@ impl Measured {
             | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
             | Self::MoveDistance
             | Self::PlaneOffset
+            | Self::CurveDistance
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
@@ -347,6 +378,12 @@ impl Measured {
     }
 
     pub fn rule(self, kind: &FeatureKind) -> Rule {
+        if self.reversed(kind).is_some() {
+            return match self {
+                Self::CircularAngle => Rule::FlipTurnWhenNegative,
+                _ => Rule::FlipWhenNegative,
+            };
+        }
         match self {
             Self::HoleDepth
             | Self::HoleDiameter
@@ -357,6 +394,7 @@ impl Measured {
             | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
@@ -369,7 +407,8 @@ impl Measured {
             | Self::CoilPitch
             | Self::CoilHeight
             | Self::RibThickness
-            | Self::EmbossDepth => Rule::AboveZero,
+            | Self::EmbossDepth
+            | Self::ScaleFactor => Rule::AboveZero,
             Self::PipeBend => Rule::ZeroOrMore,
             Self::CountersinkAngle => Rule::ConeAngle,
             Self::BlendAngle => Rule::ChamferAngle,
@@ -377,8 +416,10 @@ impl Measured {
             | Self::MoveDistance
             | Self::MoveAngle
             | Self::DraftAngle
+            | Self::DraftFaceAngle(_)
             | Self::PlaneOffset
             | Self::PlaneAngle
+            | Self::CurveDistance
             | Self::EndOffset(_)
             | Self::SlotAngle
             | Self::HoleEndOffset => Rule::Any,
@@ -402,7 +443,7 @@ impl Measured {
 
     pub fn caption(self, kind: &FeatureKind) -> Option<String> {
         let fixed = match self {
-            Self::HoleDepth => HOLE_DEPTH,
+            Self::HoleDepth | Self::ThreadedDepth => HOLE_DEPTH,
             Self::HoleDiameter => HOLE_DIAMETER,
             Self::CounterboreDiameter => hole_panel::COUNTERBORE_DIAMETER,
             Self::CounterboreDepth => hole_panel::COUNTERBORE_DEPTH,
@@ -418,8 +459,10 @@ impl Measured {
             Self::MoveDistance => move_face_panel::DISTANCE,
             Self::MoveAngle => move_face_panel::ANGLE,
             Self::DraftAngle => draft_panel::ANGLE,
+            Self::DraftFaceAngle(index) => return Some(draft_panel::own_angle_caption(index)),
             Self::PlaneOffset => PLANE_OFFSET,
             Self::PlaneAngle => PLANE_ANGLE,
+            Self::CurveDistance => CURVE_DISTANCE,
             Self::ShellThickness => SHELL_THICKNESS,
             Self::ShellFaceThickness(index) => {
                 return Some(shell_panel::own_thickness_caption(index));
@@ -441,6 +484,7 @@ impl Measured {
             Self::CoilHeight => coil_panel::HEIGHT,
             Self::RibThickness => rib_panel::THICKNESS,
             Self::EmbossDepth => emboss_panel::DEPTH,
+            Self::ScaleFactor => SCALE_FACTOR,
             Self::BlendSize => blend_panel::size_caption(kind.blend()?),
             Self::BlendSecond => blend_panel::SECOND_DISTANCE,
             Self::BlendAngle => blend_panel::CHAMFER_ANGLE,
@@ -480,14 +524,19 @@ impl Measured {
             }
             Self::SlotLength => "Drag to change the slot's length",
             Self::SlotAngle => "Drag to turn the slot",
-            Self::ThreadDepth => "Drag to change how deep the thread goes",
+            Self::ThreadDepth | Self::ThreadedDepth => "Drag to change how deep the thread goes",
             Self::HoleEndOffset => "Drag to change how far the hole goes past the face",
             Self::OffsetDistance => "Drag to change how far the faces move",
             Self::MoveDistance => "Drag to change how far the faces move",
             Self::MoveAngle => "Drag to tilt the faces about the axis",
             Self::DraftAngle => "Drag to change the draft angle",
+            Self::DraftFaceAngle(index) => {
+                return format!("Drag to change the draft angle of face {}", index + 1);
+            }
             Self::PlaneOffset => "Drag to change the plane's offset",
             Self::PlaneAngle => "Drag to turn the plane about its axis",
+            Self::CurveDistance => "Drag to move along the edge",
+            Self::ScaleFactor => "Drag to change the scale factor",
             Self::ShellThickness => "Drag to change the shell's thickness",
             Self::ShellFaceThickness(index) => {
                 return format!("Drag to change the thickness of face {}", index + 1);
@@ -632,6 +681,13 @@ impl Measured {
                 FeatureKind::Hole(hole) => hole.thread.depth.as_mut(),
                 _ => None,
             },
+            Self::ThreadedDepth => match kind {
+                FeatureKind::Thread(Thread {
+                    length: ThreadLength::Depth(depth),
+                    ..
+                }) => Some(depth),
+                _ => None,
+            },
             Self::HoleEndOffset => match kind {
                 FeatureKind::Hole(hole) => Some(
                     hole_offset_mut(&mut hole.depth)?
@@ -660,6 +716,10 @@ impl Measured {
                 FeatureKind::Draft(Draft { angle, .. }) => Some(angle),
                 _ => None,
             },
+            Self::DraftFaceAngle(index) => match kind {
+                FeatureKind::Draft(Draft { own, .. }) => Some(&mut own.get_mut(index)?.angle),
+                _ => None,
+            },
             Self::PlaneOffset => match kind {
                 FeatureKind::Datum(Datum::Plane(DatumPlane { offset, .. })) => Some(offset),
                 _ => None,
@@ -669,6 +729,17 @@ impl Measured {
                     rotation: Some(rotation),
                     ..
                 })) => Some(&mut rotation.angle),
+                _ => None,
+            },
+            Self::CurveDistance => match kind {
+                FeatureKind::Datum(Datum::PointBy(PointBy::Along(station)))
+                | FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::SquareToCurve(station))) => {
+                    Some(&mut station.distance)
+                }
+                _ => None,
+            },
+            Self::ScaleFactor => match kind {
+                FeatureKind::Scale(scale) => Some(&mut scale.factor),
                 _ => None,
             },
             Self::BlendSize => match kind {
@@ -789,12 +860,15 @@ impl Measured {
             | Self::SlotLength
             | Self::SlotAngle
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::OffsetDistance
             | Self::MoveDistance
             | Self::MoveAngle
             | Self::DraftAngle
+            | Self::DraftFaceAngle(_)
             | Self::PlaneOffset
             | Self::PlaneAngle
+            | Self::CurveDistance
             | Self::BlendSize
             | Self::BlendSecond
             | Self::BlendAngle
@@ -816,7 +890,8 @@ impl Measured {
             | Self::CoilPitch
             | Self::CoilHeight
             | Self::RibThickness
-            | Self::EmbossDepth => {}
+            | Self::EmbossDepth
+            | Self::ScaleFactor => {}
         }
     }
 
@@ -829,8 +904,10 @@ impl Measured {
             | Self::CountersinkAngle
             | Self::MoveAngle
             | Self::DraftAngle
+            | Self::DraftFaceAngle(_)
             | Self::SlotAngle => STEP_DEGREES,
             Self::CircularCount | Self::PrismSides | Self::CurveCount => 1.0,
+            Self::ScaleFactor => FACTOR_STEP,
             Self::HoleDepth
             | Self::HoleDiameter
             | Self::CounterboreDiameter
@@ -840,10 +917,12 @@ impl Measured {
             | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
             | Self::MoveDistance
             | Self::PlaneOffset
+            | Self::CurveDistance
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
@@ -877,6 +956,7 @@ impl Measured {
             | Self::StepDepth(_)
             | Self::SlotLength
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::BlendSize
             | Self::BlendSecond
             | Self::ShellThickness
@@ -891,7 +971,8 @@ impl Measured {
             | Self::CoilPitch
             | Self::CoilHeight
             | Self::RibThickness
-            | Self::EmbossDepth => value.max(step),
+            | Self::EmbossDepth
+            | Self::ScaleFactor => value.max(step),
             Self::PipeBend => value.max(0.0),
             Self::BlendAngle => value.clamp(step, HALF_TURN_DEGREES - step),
             Self::PrimitiveSize(index) => {
@@ -903,7 +984,7 @@ impl Measured {
                 value.max(if may_vanish { 0.0 } else { step })
             }
             Self::OffsetDistance if value == 0.0 => step,
-            Self::DraftAngle => {
+            Self::DraftAngle | Self::DraftFaceAngle(_) => {
                 let steepest = STEEPEST_DRAFT.to_degrees() - step;
                 value.clamp(-steepest, steepest)
             }
@@ -912,6 +993,7 @@ impl Measured {
             | Self::MoveAngle
             | Self::PlaneOffset
             | Self::PlaneAngle
+            | Self::CurveDistance
             | Self::EndOffset(_)
             | Self::SlotAngle
             | Self::HoleEndOffset => value,
@@ -1005,13 +1087,16 @@ impl Measured {
             | Self::SlotLength
             | Self::SlotAngle
             | Self::ThreadDepth
+            | Self::ThreadedDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
             | Self::MoveDistance
             | Self::MoveAngle
             | Self::DraftAngle
+            | Self::DraftFaceAngle(_)
             | Self::PlaneOffset
             | Self::PlaneAngle
+            | Self::CurveDistance
             | Self::BlendSize
             | Self::BlendSecond
             | Self::BlendAngle
@@ -1027,7 +1112,8 @@ impl Measured {
             | Self::CurveCount
             | Self::CoilDiameter
             | Self::CoilSection
-            | Self::EmbossDepth => return None,
+            | Self::EmbossDepth
+            | Self::ScaleFactor => return None,
         }
         Some(reversed)
     }
@@ -1148,12 +1234,16 @@ impl Builder<'_> {
             FeatureKind::OffsetFace(offset) => self.offset(offset).into_iter().collect(),
             FeatureKind::Emboss(emboss) => self.emboss(emboss).into_iter().collect(),
             FeatureKind::MoveFace(moving) => self.moving(moving),
-            FeatureKind::Draft(draft) => self.draft(draft).into_iter().collect(),
+            FeatureKind::Draft(draft) => self.draft_gauges(draft),
             FeatureKind::Datum(Datum::Plane(plane)) => {
                 [self.plane_offset(plane), self.plane_angle(plane)]
                     .into_iter()
                     .flatten()
                     .collect()
+            }
+            FeatureKind::Datum(Datum::PointBy(PointBy::Along(station)))
+            | FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::SquareToCurve(station))) => {
+                self.curve_station(station).into_iter().collect()
             }
             FeatureKind::Blend(blend) => self.blend(blend),
             FeatureKind::Shell(shell) => {
@@ -1185,6 +1275,8 @@ impl Builder<'_> {
             FeatureKind::Coil(coil) => self.coil(coil),
             FeatureKind::Helix(helix) => self.helix(helix),
             FeatureKind::Rib(rib) => self.rib(rib).into_iter().collect(),
+            FeatureKind::Thread(thread) => self.thread(thread).into_iter().collect(),
+            FeatureKind::Scale(scale) => self.scale(scale).into_iter().collect(),
             _ => Vec::new(),
         }
     }
@@ -1567,17 +1659,71 @@ impl Builder<'_> {
         })
     }
 
-    fn draft(&self, draft: &Draft) -> Option<Gauge> {
-        let value = self.angle(&draft.angle)?;
-        let solid = &handle_snap::before(self.model, self.feature)?.solid;
-        let faces = draft.resolve(solid).ok()?;
+    fn draft_gauges(&self, draft: &Draft) -> Vec<Gauge> {
+        let Some(solid) = handle_snap::before(self.model, self.feature).map(|body| &body.solid)
+        else {
+            return Vec::new();
+        };
+        let Some(neutral) = displayed_plane(self.shown_evaluation(), self.feature, &draft.neutral)
+        else {
+            return Vec::new();
+        };
+        let mut gauges = Vec::new();
 
-        let (face, plane) = faces
+        if let Some(value) = self.angle(&draft.angle)
+            && let Ok(faces) = draft.resolve(solid)
+            && let Some((face, plane)) = faces
+                .iter()
+                .find_map(|face| Some((*face, face_plane(solid, *face)?)))
+                .or_else(|| faces.iter().find_map(|face| round_tangent(solid, *face)))
+            && let Some(gauge) = self.draft_face_gauge(
+                solid,
+                (&neutral, draft.flipped),
+                (face, plane),
+                (Measured::DraftAngle, value),
+            )
+        {
+            gauges.push(gauge);
+        }
+
+        for (index, (resolution, own)) in draft
+            .own_resolutions(solid)
             .iter()
-            .find_map(|face| Some((*face, face_plane(solid, *face)?)))
-            .or_else(|| faces.iter().find_map(|face| round_tangent(solid, *face)))?;
-        let neutral = displayed_plane(self.shown_evaluation(), self.feature, &draft.neutral)?;
-        let pull = if draft.flipped {
+            .zip(&draft.own)
+            .enumerate()
+        {
+            let Resolution::One(face) = resolution else {
+                continue;
+            };
+            let Some(value) = self.angle(&own.angle) else {
+                continue;
+            };
+            let Some((_, plane)) = face_plane(solid, *face)
+                .map(|plane| (*face, plane))
+                .or_else(|| round_tangent(solid, *face))
+            else {
+                continue;
+            };
+            if let Some(gauge) = self.draft_face_gauge(
+                solid,
+                (&neutral, draft.flipped),
+                (*face, plane),
+                (Measured::DraftFaceAngle(index), value),
+            ) {
+                gauges.push(gauge);
+            }
+        }
+        gauges
+    }
+
+    fn draft_face_gauge(
+        &self,
+        solid: &Solid,
+        (neutral, flipped): (&Plane, bool),
+        (face, plane): (FaceId, Plane),
+        (measured, value): (Measured, f64),
+    ) -> Option<Gauge> {
+        let pull = if flipped {
             -neutral.normal()
         } else {
             neutral.normal()
@@ -1597,7 +1743,7 @@ impl Builder<'_> {
 
         let radial = swing.radial * cos - hinge.cross(swing.radial) * sin;
         Some(Gauge {
-            measured: Measured::DraftAngle,
+            measured,
             track: Track::Turn(Swing {
                 radial,
                 normal: hinge.cross(radial),
@@ -1607,6 +1753,85 @@ impl Builder<'_> {
                 scale: 1.0,
                 offset: 0.0,
             },
+            value,
+        })
+    }
+
+    fn thread(&self, thread: &Thread) -> Option<Gauge> {
+        let ThreadLength::Depth(depth) = &thread.length else {
+            return None;
+        };
+        let value = self.length(depth)?;
+        let bore = thread_tools::threaded_bore(self.shown_evaluation(), self.feature, thread)?;
+
+        let placement = bore.placement(
+            Some(value),
+            thread.reversed,
+            thread.size.drawn_diameter(bore.side),
+        );
+        let radial = placement.direction.any_orthonormal_vector();
+        Some(Gauge::line(
+            Measured::ThreadedDepth,
+            (
+                placement.start + radial * placement.radius,
+                placement.direction,
+            ),
+            1.0,
+            value,
+        ))
+    }
+
+    fn scale(&self, scale: &Scale) -> Option<Gauge> {
+        let factor = Amount::Factor.evaluate(self.model, self.feature, &scale.factor)?;
+        let [x, y, z] = [
+            self.length(scale.center.first()?)?,
+            self.length(scale.center.get(1)?)?,
+            self.length(scale.center.get(2)?)?,
+        ];
+
+        let centre = match scale.frame {
+            Some(frame) => {
+                let frame = displayed_frame(self.model.evaluation(), frame)?;
+                frame.origin() + frame.x_axis() * x + frame.y_axis() * y + frame.normal() * z
+            }
+            None => Point3::new(x, y, z),
+        };
+        let bounds = handle_snap::before(self.model, self.feature)?.bounding_box()?;
+
+        let right = bounds.max().x - centre.x;
+        let left = centre.x - bounds.min().x;
+
+        let (direction, reach) = if right >= left {
+            (Vector3::X, right)
+        } else {
+            (-Vector3::X, left)
+        };
+        let arm = reach.max(bounds.diagonal() * 0.25);
+
+        (arm > SMALLEST_RADIUS)
+            .then(|| Gauge::line(Measured::ScaleFactor, (centre, direction), arm, factor))
+    }
+
+    fn curve_station(&self, station: &CurveStation) -> Option<Gauge> {
+        let value = self.length(&station.distance)?;
+        let (samples, length) = displayed_station_track(
+            self.model.document(),
+            self.shown_evaluation(),
+            self.feature,
+            station,
+            CURVE_SAMPLES,
+        )?;
+        let track = CurveTrack::new(
+            samples
+                .into_iter()
+                .map(|(position, point)| TrackPoint { position, point }),
+        )?;
+
+        let offset = if value < 0.0 { length } else { 0.0 };
+        Some(Gauge {
+            measured: Measured::CurveDistance,
+            track: Track::Curve(track),
+            mapping: Mapping::Linear { scale: 1.0, offset },
             value,
         })
     }

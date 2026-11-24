@@ -316,3 +316,24 @@ fn a_named_own_thickness_keeps_its_handle_draggable_and_updates_the_parameter() 
         Ok(after)
     );
 }
+
+#[test]
+fn leaving_out_an_own_thickness_face_removes_it_from_the_shell() {
+    let mut harness = Harness::new();
+
+    let shell = shell_with_an_own_thickness_bottom(&mut harness);
+    let own_face = shell_of(&harness, shell).faces[0].face.clone();
+    let feature = harness.document().feature(shell).unwrap();
+    let pick = caditor_document::FailingPick::Face(own_face);
+
+    let listed = crate::leaving_out::listed(&harness.model, feature, &pick)
+        .expect("the own-thickness face is listed for Leave out");
+    let action = crate::leaving_out::leave_out(&harness.model, feature, listed.target)
+        .expect("leaving out produces an action");
+
+    harness.perform(action);
+    harness.settle();
+
+    assert!(shell_of(&harness, shell).faces.is_empty());
+    assert_eq!(shell_of(&harness, shell).open.len(), 1);
+}

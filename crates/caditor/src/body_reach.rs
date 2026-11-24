@@ -5,9 +5,10 @@ use std::{
 
 use caditor_document::{
     Document, Evaluation, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureResult, ParameterValues,
-    RegionChoice, RevolveAxis, RevolveExtent, SolidFeature, displayed_axis, profile_curve,
+    RegionChoice, RevolveAxis, RevolveExtent, SketchResult, SolidFeature, displayed_axis,
+    profile_curve,
 };
-use caditor_expression::Expression;
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector2, larger};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, Interference, Interrupt,
@@ -51,7 +52,13 @@ pub fn reaches(
     deadline: Instant,
     footprint_of: Option<FeatureId>,
 ) -> Option<Reaches> {
-    let sketch = solved_sketch(document, evaluation, solid.sketch())?;
+    let sketch_result = evaluation
+        .feature(solid.sketch())
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch);
+    let sketch = sketch_result
+        .map(|result| &result.geometry)
+        .or_else(|| editing::edited_sketch(document, solid.sketch()))?;
     let swept = Swept::of(evaluation, parameters, solid, sketch)?;
 
     let reach = swept.bounds(sketch)?;
@@ -80,8 +87,8 @@ pub fn reaches(
 
     let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
     let (reached, tool) = interruptible(interrupt, || {
-        let tool = swept.tool(sketch, solid)?;
-        let reached = swept.contacts(&tool, sketch, solid, &near, footprint_of);
+        let tool = swept.tool(sketch, sketch_result, solid)?;
+        let reached = swept.contacts(&tool, sketch, sketch_result, solid, &near, footprint_of);
         Some((reached, tool))
     })?;
     Some(Reaches {
@@ -238,7 +245,7 @@ struct Swept {
 #[derive(Clone, Copy)]
 enum Motion {
     Along { start: f64, end: f64 },
-    About(Axis2),
+    About { axis: Axis2, extent: AngularExtent },
 }
 
 impl Swept {
@@ -257,6 +264,13 @@ impl Swept {
                 .evaluate_expression(expression)
                 .ok()
                 .map(|quantity| quantity.value)
+        };
+        let angle = |expression: &Expression| {
+            expression
+                .evaluate_as(Dimension::ANGLE, &|id| parameters.value(id))
+                .ok()
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .map(f64::to_radians)
         };
         let wall = match solid.wall() {
             Some(wall) => Some(length(&wall.thickness)?),
@@ -291,16 +305,39 @@ impl Swept {
             }
             SolidFeature::Sweep(_) => return None,
             SolidFeature::Revolve(revolve) => {
-                if !matches!(revolve.extent, RevolveExtent::Full) || revolve.side.is_some() {
+                if revolve.side.is_some() {
                     return None;
                 }
-                Motion::About(revolution_axis(
-                    evaluation,
-                    solid.sketch(),
-                    sketch,
-                    &plane,
-                    &revolve.axis,
-                )?)
+
+                let extent = match &revolve.extent {
+                    RevolveExtent::Full => AngularExtent::full(),
+                    RevolveExtent::OneSide {
+                        angle: value,
+                        reversed,
+                    } => {
+                        let radians = angle(value)?;
+                        AngularExtent::one_side(if *reversed { -radians } else { radians }).ok()?
+                    }
+                    RevolveExtent::Symmetric { angle: value } => {
+                        AngularExtent::symmetric(angle(value)?).ok()?
+                    }
+                    RevolveExtent::TwoSides { forward, backward } => {
+                        AngularExtent::new(-angle(backward)?, angle(forward)?).ok()?
+                    }
+                    RevolveExtent::UpTo { .. }
+                    | RevolveExtent::UpToNext { .. }
+                    | RevolveExtent::UpToSurface { .. } => return None,
+                };
+                Motion::About {
+                    axis: revolution_axis(
+                        evaluation,
+                        solid.sketch(),
+                        sketch,
+                        &plane,
+                        &revolve.axis,
+                    )?,
+                    extent,
+                }
             }
         };
         Some(Self {
@@ -335,7 +372,7 @@ impl Swept {
                     [start, end].map(|height| at + self.plane.normal() * height)
                 }))
             }
-            Motion::About(axis) => {
+            Motion::About { axis, .. } => {
                 let radius = corners
                     .iter()
                     .map(|corner| axis.signed_distance(*corner).abs())
@@ -354,19 +391,42 @@ impl Swept {
         }
     }
 
-    fn tool(&self, sketch: &Sketch, solid: &SolidFeature) -> Option<Solid> {
-        self.tool_over(sketch, solid, self.motion)
+    fn tool(
+        &self,
+        sketch: &Sketch,
+        result: Option<&SketchResult>,
+        solid: &SolidFeature,
+    ) -> Option<Solid> {
+        self.tool_over(sketch, result, solid, self.motion)
     }
 
-    fn tool_over(&self, sketch: &Sketch, solid: &SolidFeature, motion: Motion) -> Option<Solid> {
-        let curves: Vec<ProfileCurve> = sketch
-            .entities()
-            .filter(|(id, _)| !sketch.is_construction(*id))
-            .filter_map(|(id, _)| profile_curve(sketch, id))
-            .collect();
+    fn tool_over(
+        &self,
+        sketch: &Sketch,
+        result: Option<&SketchResult>,
+        solid: &SolidFeature,
+        motion: Motion,
+    ) -> Option<Solid> {
         let regions = match (self.wall, solid.wall()) {
-            (Some(thickness), Some(wall)) => wall_regions(&curves, thickness, wall.side).ok()?,
-            _ => chosen_regions(&curves, solid.regions())?,
+            (Some(thickness), Some(wall)) => {
+                let curves: Vec<ProfileCurve> = sketch
+                    .entities()
+                    .filter(|(id, _)| !sketch.is_construction(*id))
+                    .filter_map(|(id, _)| profile_curve(sketch, id))
+                    .collect();
+                wall_regions(&curves, thickness, wall.side).ok()?
+            }
+            _ => match result.and_then(|result| result.chosen_regions(solid.regions())) {
+                Some(regions) => regions,
+                None => {
+                    let curves: Vec<ProfileCurve> = sketch
+                        .entities()
+                        .filter(|(id, _)| !sketch.is_construction(*id))
+                        .filter_map(|(id, _)| profile_curve(sketch, id))
+                        .collect();
+                    chosen_regions(&curves, solid.regions())?
+                }
+            },
         };
         self.swept_regions(&regions, solid.sketch().raw(), motion)
     }
@@ -380,8 +440,8 @@ impl Swept {
                 feature,
             )
             .ok(),
-            Motion::About(axis) => {
-                revolve(&self.plane, regions, axis, AngularExtent::full(), feature).ok()
+            Motion::About { axis, extent } => {
+                revolve(&self.plane, regions, axis, extent, feature).ok()
             }
         }
     }
@@ -389,6 +449,7 @@ impl Swept {
     fn spans_footprint(
         &self,
         sketch: &Sketch,
+        result: Option<&SketchResult>,
         solid: &SolidFeature,
         body: &Standing<'_>,
     ) -> Option<bool> {
@@ -432,7 +493,7 @@ impl Swept {
         let feature = solid.sketch().raw();
 
         let cover = self.swept_regions(&whole, feature, slab)?;
-        let profile = self.tool_over(sketch, solid, slab)?;
+        let profile = self.tool_over(sketch, result, solid, slab)?;
         let reach_of = |tool: &Solid| match interference(tool, body.solid) {
             Ok(Interference::Overlapping(overlap)) => Aabb2::from_points(
                 overlap
@@ -459,6 +520,7 @@ impl Swept {
         &self,
         tool: &Solid,
         sketch: &Sketch,
+        result: Option<&SketchResult>,
         solid: &SolidFeature,
         near: &[Standing<'_>],
         footprint_of: Option<FeatureId>,
@@ -492,7 +554,7 @@ impl Swept {
                     },
                     depth: self.depth_of(&body.bounds),
                     spans_footprint: match (footprint_of == Some(body.body), overlap_is_solid) {
-                        (true, true) => self.spans_footprint(sketch, solid, body),
+                        (true, true) => self.spans_footprint(sketch, result, solid, body),
                         _ => None,
                     },
                 }
@@ -503,7 +565,7 @@ impl Swept {
     fn length(&self) -> Option<f64> {
         match self.motion {
             Motion::Along { start, end } => Some(end - start),
-            Motion::About(_) => None,
+            Motion::About { .. } => None,
         }
     }
 

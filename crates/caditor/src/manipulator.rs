@@ -379,15 +379,18 @@ fn turn_typing(model: &Model, feature: FeatureId, end: TurnEnd) -> Typing {
 }
 
 pub fn primary_typing(model: &Model, feature: FeatureId) -> Option<Typing> {
+    let fallback = || {
+        value_handles::primary(model, feature)
+            .and_then(|measured| value_typing(model, feature, measured))
+    };
     match &model.document().feature(feature)?.kind {
-        FeatureKind::Solid(SolidFeature::Extrude(_)) => {
-            reach_handles::primary(model, feature).map(|reach| reach_typing(feature, reach))
-        }
-        FeatureKind::Solid(SolidFeature::Revolve(_)) => {
-            turn_handles::primary(model, feature).map(|end| turn_typing(model, feature, end))
-        }
-        _ => value_handles::primary(model, feature)
-            .and_then(|measured| value_typing(model, feature, measured)),
+        FeatureKind::Solid(SolidFeature::Extrude(_)) => reach_handles::primary(model, feature)
+            .map(|reach| reach_typing(feature, reach))
+            .or_else(fallback),
+        FeatureKind::Solid(SolidFeature::Revolve(_)) => turn_handles::primary(model, feature)
+            .map(|end| turn_typing(model, feature, end))
+            .or_else(fallback),
+        _ => fallback(),
     }
 }
 

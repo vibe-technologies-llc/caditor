@@ -1197,3 +1197,221 @@ fn an_extrusion_of_one_region_has_its_arrow_over_that_region_and_not_the_whole_s
     assert!((from.x - 20.0).abs() < 1e-6, "{from:?}");
     assert!((from.y - 20.0).abs() < 1e-6, "{from:?}");
 }
+
+#[test]
+fn a_custom_direction_extrusion_has_a_reach_arrow_along_its_direction() {
+    let mut harness = Harness::new();
+    let mut guide = Sketch::new(Plane::XZ);
+
+    guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+
+    let guide_sketch = harness.add_sketch(guide);
+    let guide_line = harness
+        .sketch(guide_sketch)
+        .entities()
+        .find_map(|(id, entity)| {
+            matches!(entity, caditor_sketch::Entity::Line { .. }).then_some(id)
+        })
+        .expect("the guide sketch has a line");
+
+    let mut profile = Sketch::new(Plane::XY);
+
+    rectangle(&mut profile, Point2::new(0.0, 0.0), Point2::new(20.0, 20.0));
+    harness.add_sketch(profile);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+
+    let extrude = open_feature(&harness);
+    let FeatureKind::Solid(SolidFeature::Extrude(mut definition)) =
+        kind_of(&harness, extrude).clone()
+    else {
+        panic!("an extrusion is open");
+    };
+
+    definition.direction = Some(Box::new(caditor_document::AxisReference::Sketch {
+        sketch: guide_sketch,
+        entity: guide_line,
+    }));
+    harness.perform(Action::Apply(Transaction::single(
+        "Extrude along a line",
+        Edit::SetFeatureKind {
+            id: extrude,
+            kind: FeatureKind::Solid(SolidFeature::Extrude(definition)),
+        },
+    )));
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let lines = crate::reach_handles::reach_lines(&harness.model, extrude);
+    let [(_, [from, to])] = lines.as_slice() else {
+        panic!("the custom-direction extrusion shows its reach arrow");
+    };
+
+    let delta = *to - *from;
+
+    assert!(delta.x.abs() > 1.0 && delta.z > 1.0, "{delta:?}");
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Reach(Reach::Only), 0.0)
+            .is_some()
+    );
+}
+
+#[test]
+fn a_scale_feature_shows_its_factor_handle_and_takes_typed_input() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let before = harness.body_volume(plate);
+
+    harness.select([]);
+    run_from_palette(&mut harness, "Scale body");
+    harness.settle();
+
+    let scale = open_feature(&harness);
+
+    run_from_palette(&mut harness, "Fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(Measured::ScaleFactor), 0.0)
+            .is_some()
+    );
+
+    let step = drag_value_arrow(&mut harness, Measured::ScaleFactor, 10.0);
+    let FeatureKind::Scale(scaled) = kind_of(&harness, scale) else {
+        panic!("the scale stays a scale");
+    };
+    let factor = harness
+        .model
+        .parameters()
+        .evaluate_expression(&scaled.factor)
+        .unwrap()
+        .value;
+
+    assert!(
+        factor > 1.0,
+        "expected factor > 1, got {factor} (step {step})"
+    );
+    assert!(harness.body_volume(plate) > before);
+}
+
+#[test]
+fn typing_a_negative_value_over_a_shell_arrow_switches_its_side() {
+    let mut harness = Harness::new();
+
+    let (_, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Shell");
+    harness.settle();
+    harness.select([]);
+
+    let shell = open_feature(&harness);
+
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let at = grip(&mut harness, Handle::Value(Measured::ShellThickness), 0.0);
+
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+    harness.type_text("-2");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    let FeatureKind::Shell(after) = kind_of(&harness, shell) else {
+        panic!("the shell stays a shell");
+    };
+
+    assert_eq!(after.side, ShellSide::Outside);
+    assert!((value_of(&harness, &after.thickness) - 2.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_revolve_whose_centroid_lies_on_the_axis_still_shows_a_turn_arrow() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XZ);
+
+    rectangle(
+        &mut sketch,
+        Point2::new(-10.0, 0.0),
+        Point2::new(10.0, 20.0),
+    );
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+
+    let revolve = open_feature(&harness);
+    let FeatureKind::Solid(SolidFeature::Revolve(mut definition)) =
+        kind_of(&harness, revolve).clone()
+    else {
+        panic!("a revolve is open");
+    };
+
+    definition.extent = caditor_document::RevolveExtent::OneSide {
+        angle: caditor_expression::Expression::measure(90.0, caditor_expression::Unit::Degree),
+        reversed: false,
+    };
+    definition.side = Some(caditor_document::AxisSide::Right);
+    harness.perform(Action::Apply(Transaction::single(
+        "Turn one side",
+        Edit::SetFeatureKind {
+            id: revolve,
+            kind: FeatureKind::Solid(SolidFeature::Revolve(definition)),
+        },
+    )));
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Revolve(crate::turn_handles::TurnEnd::Only), 0.0)
+            .is_some()
+    );
+}
+
+#[test]
+fn a_datum_point_along_an_edge_has_a_curve_distance_handle() {
+    let mut harness = Harness::new();
+
+    let (plate, _) = extruded_plate(&mut harness);
+    let edge = top_edge_along_x(&harness, plate, 0.0);
+
+    harness.select([Pickable::Edge { body: plate, edge }]);
+    run_from_palette(&mut harness, "Datum point");
+    harness.settle();
+
+    let datum = open_feature(&harness);
+
+    assert!(matches!(
+        kind_of(&harness, datum),
+        FeatureKind::Datum(Datum::PointBy(caditor_document::PointBy::Along(_)))
+    ));
+
+    run_from_palette(&mut harness, "Fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(Measured::CurveDistance), 0.0)
+            .is_some()
+    );
+}

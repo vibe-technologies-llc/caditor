@@ -3436,14 +3436,14 @@ fn leave_out_button(
     let Some(listed) = error
         .pick
         .as_deref()
-        .and_then(|pick| leaving_out::listed(row.feature, pick))
+        .and_then(|pick| leaving_out::listed(model, row.feature, pick))
     else {
         return;
     };
 
     let button = widgets::small_button(ui, icons::REMOVE, listed.label);
     if ui.add(button).clicked()
-        && let Some(action) = leaving_out::leave_out(model, row.feature, listed.index)
+        && let Some(action) = leaving_out::leave_out(model, row.feature, listed.target)
     {
         actions.push(action);
     }

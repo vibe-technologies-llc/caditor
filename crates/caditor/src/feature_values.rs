@@ -1,19 +1,23 @@
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Edit, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId,
-    FeatureKind, FeatureResult, HoleDepth, LinearDirection, LinearSpacing, Move, MoveAxis,
-    ParameterValues, PatternKind, PrimitiveShape, Revolve, RevolveExtent, SizeRule, SolidFeature,
-    ThreadLength, Transaction, origin_feature,
+    Blend, BlendKind, ChamferForm, Coil, CoilLength, CurvePattern, CurveSpacing, Draft, Edit,
+    Emboss, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, FeatureResult,
+    Helix, HoleDepth, LinearDirection, LinearSpacing, Move, MoveAxis, MoveFace, ParameterValues,
+    PatternKind, Pipe, PrimitiveShape, Revolve, RevolveExtent, Rib, Scale, SizeRule, SolidFeature,
+    Sweep, ThreadLength, Transaction, coil_size_name, origin_feature, pipe_size_name,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Face, Solid};
 
 use crate::{
+    coil_panel, draft_panel, emboss_panel,
     feature_fields::Rule,
     field::{self, CheckError},
+    helix_panel, helix_tools,
     model::Model,
+    move_face_panel,
     move_manipulator::Reach,
-    reversing, solid_panel,
+    pipe_panel, reversing, rib_panel, solid_panel,
     value_shapes::{self, Drawn},
 };
 
@@ -24,6 +28,33 @@ pub enum ValueSlot {
     RevolveTotal,
     RevolveForward,
     RevolveBackward,
+    SweepTwist,
+    SweepScale,
+    PipeSize,
+    PipeWall,
+    PipeBend,
+    CoilDiameter,
+    CoilSection,
+    CoilTaper,
+    CoilTurns,
+    CoilPitch,
+    CoilHeight,
+    HelixDiameter,
+    HelixTaper,
+    HelixTurns,
+    HelixPitch,
+    HelixHeight,
+    HelixStart,
+    RibThickness,
+    RibDraft,
+    EmbossDepth,
+    EmbossDraft,
+    MoveFaceDistance,
+    MoveFaceAngle,
+    DraftAngle,
+    DraftBeyond,
+    CurveSpacing,
+    ScaleFactor,
     BlendSize,
     ShellThickness,
     HoleDiameter,
@@ -101,6 +132,28 @@ impl ValueSlot {
             Self::RevolveTotal | Self::PatternAngle => "Total angle",
             Self::RevolveForward => "Forward angle",
             Self::RevolveBackward => "Backward angle",
+            Self::SweepTwist => solid_panel::TWIST,
+            Self::SweepScale => solid_panel::END_SCALE,
+            Self::PipeSize => "Size",
+            Self::PipeWall => pipe_panel::WALL_THICKNESS,
+            Self::PipeBend => pipe_panel::BEND_RADIUS,
+            Self::CoilDiameter | Self::HelixDiameter => coil_panel::DIAMETER,
+            Self::CoilSection => "Section",
+            Self::CoilTaper | Self::HelixTaper => coil_panel::TAPER,
+            Self::CoilTurns | Self::HelixTurns => coil_panel::TURNS,
+            Self::CoilPitch | Self::HelixPitch => coil_panel::PITCH,
+            Self::CoilHeight | Self::HelixHeight => coil_panel::HEIGHT,
+            Self::HelixStart => helix_panel::START_ANGLE,
+            Self::RibThickness => rib_panel::THICKNESS,
+            Self::RibDraft => rib_panel::DRAFT,
+            Self::EmbossDepth => emboss_panel::DEPTH,
+            Self::EmbossDraft => emboss_panel::DRAFT,
+            Self::MoveFaceDistance => move_face_panel::DISTANCE,
+            Self::MoveFaceAngle => move_face_panel::ANGLE,
+            Self::DraftAngle => draft_panel::ANGLE,
+            Self::DraftBeyond => draft_panel::BEYOND,
+            Self::CurveSpacing => "Spacing",
+            Self::ScaleFactor => "Factor",
             Self::BlendSize => "Size",
             Self::ShellThickness => "Thickness",
             Self::HoleDiameter => "Diameter",
@@ -263,22 +316,312 @@ fn spacing_caption(direction: &LinearDirection, first: bool) -> &'static str {
     }
 }
 
+fn pipe_size_caption(shape: caditor_kernel::PipeShape) -> &'static str {
+    match pipe_size_name(shape) {
+        "diameter" => "Diameter",
+        "width" => "Width",
+        "side length" => "Side length",
+        _ => "Size",
+    }
+}
+
+fn coil_size_caption(shape: caditor_kernel::CoilShape) -> &'static str {
+    match coil_size_name(shape) {
+        "diameter" => "Diameter",
+        "width" => "Width",
+        _ => "Section",
+    }
+}
+
+fn sweep_values(sweep: &Sweep) -> Vec<Found> {
+    vec![
+        found(
+            ValueSlot::SweepTwist,
+            solid_panel::TWIST,
+            &sweep.twist,
+            (Dimension::ANGLE, Rule::Any),
+        ),
+        found(
+            ValueSlot::SweepScale,
+            solid_panel::END_SCALE,
+            &sweep.scale,
+            (Dimension::NONE, Rule::AboveZero),
+        ),
+    ]
+}
+
+fn pipe_values(pipe: &Pipe) -> Vec<Found> {
+    let mut values = vec![found(
+        ValueSlot::PipeSize,
+        pipe_size_caption(pipe.shape),
+        &pipe.size,
+        (Dimension::LENGTH, Rule::AboveZero),
+    )];
+
+    if let Some(wall) = &pipe.wall {
+        values.push(found(
+            ValueSlot::PipeWall,
+            pipe_panel::WALL_THICKNESS,
+            wall,
+            (Dimension::LENGTH, Rule::AboveZero),
+        ));
+    }
+    values.push(found(
+        ValueSlot::PipeBend,
+        pipe_panel::BEND_RADIUS,
+        &pipe.bend,
+        (Dimension::LENGTH, Rule::ZeroOrMore),
+    ));
+    values
+}
+
+fn coil_length_values(
+    length: &CoilLength,
+    [turns_slot, pitch_slot, height_slot]: [ValueSlot; 3],
+    height_caption: &'static str,
+) -> Vec<Found> {
+    match length {
+        CoilLength::TurnsAndPitch { turns, pitch } => vec![
+            found(
+                turns_slot,
+                coil_panel::TURNS,
+                turns,
+                (Dimension::NONE, Rule::CoilTurns),
+            ),
+            found(
+                pitch_slot,
+                coil_panel::PITCH,
+                pitch,
+                (Dimension::LENGTH, Rule::AboveZero),
+            ),
+        ],
+        CoilLength::HeightAndTurns { height, turns } => vec![
+            found(
+                height_slot,
+                height_caption,
+                height,
+                (Dimension::LENGTH, Rule::AboveZero),
+            ),
+            found(
+                turns_slot,
+                coil_panel::TURNS,
+                turns,
+                (Dimension::NONE, Rule::CoilTurns),
+            ),
+        ],
+        CoilLength::HeightAndPitch { height, pitch } => vec![
+            found(
+                height_slot,
+                height_caption,
+                height,
+                (Dimension::LENGTH, Rule::AboveZero),
+            ),
+            found(
+                pitch_slot,
+                coil_panel::PITCH,
+                pitch,
+                (Dimension::LENGTH, Rule::AboveZero),
+            ),
+        ],
+    }
+}
+
+fn coil_values(coil: &Coil) -> Vec<Found> {
+    let mut values = vec![
+        found(
+            ValueSlot::CoilDiameter,
+            coil_panel::DIAMETER,
+            &coil.diameter,
+            (Dimension::LENGTH, Rule::AboveZero),
+        ),
+        found(
+            ValueSlot::CoilSection,
+            coil_size_caption(coil.shape),
+            &coil.size,
+            (Dimension::LENGTH, Rule::AboveZero),
+        ),
+        found(
+            ValueSlot::CoilTaper,
+            coil_panel::TAPER,
+            &coil.taper,
+            (Dimension::ANGLE, Rule::CoilTaper),
+        ),
+    ];
+
+    values.extend(coil_length_values(
+        &coil.length,
+        [
+            ValueSlot::CoilTurns,
+            ValueSlot::CoilPitch,
+            ValueSlot::CoilHeight,
+        ],
+        coil_panel::HEIGHT,
+    ));
+    values
+}
+
+fn helix_values(helix: &Helix) -> Vec<Found> {
+    let flat = helix.is_flat();
+    let mut values = vec![found(
+        ValueSlot::HelixDiameter,
+        if flat {
+            helix_panel::INNER_DIAMETER
+        } else {
+            coil_panel::DIAMETER
+        },
+        &helix.diameter,
+        (Dimension::LENGTH, Rule::AboveZero),
+    )];
+
+    if !flat {
+        values.push(found(
+            ValueSlot::HelixTaper,
+            coil_panel::TAPER,
+            &helix.taper,
+            (Dimension::ANGLE, Rule::CoilTaper),
+        ));
+    }
+    values.extend(coil_length_values(
+        &helix.length,
+        [
+            ValueSlot::HelixTurns,
+            ValueSlot::HelixPitch,
+            ValueSlot::HelixHeight,
+        ],
+        if flat {
+            helix_panel::OUTER_DIAMETER
+        } else {
+            coil_panel::HEIGHT
+        },
+    ));
+    if helix.start_point.is_none() {
+        values.push(found(
+            ValueSlot::HelixStart,
+            helix_panel::START_ANGLE,
+            &helix.start,
+            (Dimension::ANGLE, Rule::Any),
+        ));
+    }
+    values
+}
+
+fn rib_values(rib: &Rib) -> Vec<Found> {
+    vec![
+        found(
+            ValueSlot::RibThickness,
+            rib_panel::THICKNESS,
+            &rib.thickness,
+            (Dimension::LENGTH, Rule::AboveZero),
+        ),
+        found(
+            ValueSlot::RibDraft,
+            rib_panel::DRAFT,
+            &rib.draft,
+            (Dimension::ANGLE, Rule::RibDraft),
+        ),
+    ]
+}
+
+fn emboss_values(emboss: &Emboss) -> Vec<Found> {
+    vec![
+        found(
+            ValueSlot::EmbossDepth,
+            emboss_panel::DEPTH,
+            &emboss.depth,
+            (Dimension::LENGTH, Rule::AboveZero),
+        ),
+        found(
+            ValueSlot::EmbossDraft,
+            emboss_panel::DRAFT,
+            &emboss.draft,
+            (Dimension::ANGLE, Rule::EmbossDraft),
+        ),
+    ]
+}
+
+fn move_face_values(moving: &MoveFace) -> Vec<Found> {
+    let mut values = vec![found(
+        ValueSlot::MoveFaceDistance,
+        move_face_panel::DISTANCE,
+        &moving.distance,
+        (Dimension::LENGTH, Rule::Any),
+    )];
+
+    if moving.axis.is_some() {
+        values.push(found(
+            ValueSlot::MoveFaceAngle,
+            move_face_panel::ANGLE,
+            &moving.angle,
+            (Dimension::ANGLE, Rule::Any),
+        ));
+    }
+    values
+}
+
+fn draft_values(draft: &Draft) -> Vec<Found> {
+    let mut values = vec![found(
+        ValueSlot::DraftAngle,
+        draft_panel::ANGLE,
+        &draft.angle,
+        (Dimension::ANGLE, Rule::Any),
+    )];
+
+    if let Some(beyond) = &draft.beyond {
+        values.push(found(
+            ValueSlot::DraftBeyond,
+            draft_panel::BEYOND,
+            beyond,
+            (Dimension::ANGLE, Rule::Any),
+        ));
+    }
+    values
+}
+
+fn curve_pattern_values(curve: &CurvePattern) -> Vec<Found> {
+    let mut values = vec![found(
+        ValueSlot::Count,
+        COUNT,
+        &curve.count,
+        (Dimension::NONE, Rule::Count),
+    )];
+
+    if curve.measured == CurveSpacing::Distance {
+        values.push(found(
+            ValueSlot::CurveSpacing,
+            "Spacing",
+            &curve.spacing,
+            (Dimension::LENGTH, Rule::AboveZeroOrReverse),
+        ));
+    }
+    values
+}
+
+fn scale_values(scale: &Scale) -> Vec<Found> {
+    vec![found(
+        ValueSlot::ScaleFactor,
+        "Factor",
+        &scale.factor,
+        (Dimension::NONE, Rule::AboveZero),
+    )]
+}
+
 fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
     let length = |rule| (Dimension::LENGTH, rule);
     match kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_values(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_values(parameters, revolve),
-        FeatureKind::Solid(SolidFeature::Sweep(_))
-        | FeatureKind::Pipe(_)
-        | FeatureKind::Loft(_)
-        | FeatureKind::Coil(_)
-        | FeatureKind::Helix(_)
-        | FeatureKind::Rib(_)
-        | FeatureKind::DeleteFace(_)
-        | FeatureKind::Emboss(_)
-        | FeatureKind::MoveFace(_)
-        | FeatureKind::Draft(_)
-        | FeatureKind::ReplaceFace(_) => Vec::new(),
+        FeatureKind::Solid(SolidFeature::Sweep(sweep)) => sweep_values(sweep),
+        FeatureKind::Pipe(pipe) => pipe_values(pipe),
+        FeatureKind::Coil(coil) => coil_values(coil),
+        FeatureKind::Helix(helix) => helix_values(helix),
+        FeatureKind::Rib(rib) => rib_values(rib),
+        FeatureKind::Emboss(emboss) => emboss_values(emboss),
+        FeatureKind::MoveFace(moving) => move_face_values(moving),
+        FeatureKind::Draft(draft) => draft_values(draft),
+        FeatureKind::Scale(scale) => scale_values(scale),
+        FeatureKind::Loft(_) | FeatureKind::DeleteFace(_) | FeatureKind::ReplaceFace(_) => {
+            Vec::new()
+        }
         FeatureKind::Blend(blend) => blend_values(blend),
         FeatureKind::Shell(shell) => vec![found(
             ValueSlot::ShellThickness,
@@ -287,12 +630,14 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
             length(Rule::AboveZero),
         )],
         FeatureKind::Hole(hole) => {
-            let diameter = found(
-                ValueSlot::HoleDiameter,
-                "Diameter",
-                &hole.diameter,
-                length(Rule::AboveZero),
-            );
+            let diameter = (!hole.sizing.by_circles()).then(|| {
+                found(
+                    ValueSlot::HoleDiameter,
+                    "Diameter",
+                    &hole.diameter,
+                    length(Rule::AboveZero),
+                )
+            });
             let depth = match &hole.depth {
                 HoleDepth::Blind(depth) => Some(found(
                     ValueSlot::HoleDepth,
@@ -302,7 +647,7 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
                 )),
                 _ => None,
             };
-            [Some(diameter), depth].into_iter().flatten().collect()
+            [diameter, depth].into_iter().flatten().collect()
         }
         FeatureKind::Pattern(pattern) => match &pattern.kind {
             PatternKind::Linear { first, second } => {
@@ -337,7 +682,8 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
                     (Dimension::ANGLE, Rule::Turn),
                 ),
             ],
-            PatternKind::Curve(_) | PatternKind::Points(_) => Vec::new(),
+            PatternKind::Curve(curve) => curve_pattern_values(curve),
+            PatternKind::Points(_) => Vec::new(),
         },
         FeatureKind::OffsetFace(offset) => vec![found(
             ValueSlot::OffsetDistance,
@@ -362,7 +708,6 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
         | FeatureKind::Mate(_)
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
-        | FeatureKind::Scale(_)
         | FeatureKind::Datum(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
@@ -452,17 +797,23 @@ fn face_box(solid: &Solid, face: &Face) -> Option<Aabb> {
         .reduce(Aabb::union)
 }
 
-fn anchor_of(evaluation: &Evaluation, feature: FeatureId) -> Option<Point3> {
-    let body = evaluation
-        .feature(feature)?
-        .result
-        .as_deref()
-        .and_then(FeatureResult::solid)?;
-    made_faces(&body.solid, feature)
-        .map(|(_, bounds)| bounds)
-        .reduce(Aabb::union)
-        .or_else(|| body.bounding_box())
-        .map(|bounds| bounds.center())
+fn anchor_of(model: &Model, feature: FeatureId) -> Option<Point3> {
+    let evaluation = model.evaluation();
+
+    if let Some(body) = evaluation
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::solid)
+    {
+        return made_faces(&body.solid, feature)
+            .map(|(_, bounds)| bounds)
+            .reduce(Aabb::union)
+            .or_else(|| body.bounding_box())
+            .map(|bounds| bounds.center());
+    }
+
+    let points = helix_tools::points(evaluation, feature);
+    points.get(points.len() / 2).copied()
 }
 
 pub fn body_of(evaluation: &Evaluation, feature: FeatureId) -> Option<&Solid> {
@@ -506,8 +857,8 @@ pub fn of(model: &Model, feature: FeatureId) -> Vec<FeatureValue> {
             .find(|(shaped, _)| *shaped == slot)
             .map_or(Drawn::Stacked, |(_, drawn)| drawn.clone())
     };
-    let Some(anchor) = anchor_of(model.evaluation(), feature)
-        .or_else(|| shapes.iter().find_map(|(_, drawn)| drawn.middle()))
+    let Some(anchor) =
+        anchor_of(model, feature).or_else(|| shapes.iter().find_map(|(_, drawn)| drawn.middle()))
     else {
         return Vec::new();
     };
@@ -593,6 +944,36 @@ fn set_pattern(kind: &mut PatternKind, slot: ValueSlot, value: Expression) -> bo
         ) => &mut second.spacing,
         (PatternKind::Circular(circular), ValueSlot::Count) => &mut circular.count,
         (PatternKind::Circular(circular), ValueSlot::PatternAngle) => &mut circular.angle,
+        (PatternKind::Curve(curve), ValueSlot::Count) => &mut curve.count,
+        (PatternKind::Curve(curve), ValueSlot::CurveSpacing) => &mut curve.spacing,
+        _ => return false,
+    };
+
+    *target = value;
+    true
+}
+
+fn set_coil_length(
+    length: &mut CoilLength,
+    [turns_slot, pitch_slot, height_slot]: [ValueSlot; 3],
+    slot: ValueSlot,
+    value: Expression,
+) -> bool {
+    let target = match (length, slot) {
+        (CoilLength::TurnsAndPitch { turns, .. } | CoilLength::HeightAndTurns { turns, .. }, s)
+            if s == turns_slot =>
+        {
+            turns
+        }
+        (CoilLength::TurnsAndPitch { pitch, .. } | CoilLength::HeightAndPitch { pitch, .. }, s)
+            if s == pitch_slot =>
+        {
+            pitch
+        }
+        (
+            CoilLength::HeightAndTurns { height, .. } | CoilLength::HeightAndPitch { height, .. },
+            s,
+        ) if s == height_slot => height,
         _ => return false,
     };
 
@@ -640,6 +1021,112 @@ fn rebuilt(kind: &FeatureKind, slot: ValueSlot, value: Expression) -> Option<Fea
         }
         (FeatureKind::Solid(SolidFeature::Revolve(revolve)), _) => {
             set_revolve(&mut revolve.extent, slot, value)
+        }
+        (FeatureKind::Solid(SolidFeature::Sweep(sweep)), ValueSlot::SweepTwist) => {
+            sweep.twist = value;
+            true
+        }
+        (FeatureKind::Solid(SolidFeature::Sweep(sweep)), ValueSlot::SweepScale) => {
+            sweep.scale = value;
+            true
+        }
+        (FeatureKind::Pipe(pipe), ValueSlot::PipeSize) => {
+            pipe.size = value;
+            true
+        }
+        (FeatureKind::Pipe(pipe), ValueSlot::PipeWall) => match &mut pipe.wall {
+            Some(wall) => {
+                *wall = value;
+                true
+            }
+            None => false,
+        },
+        (FeatureKind::Pipe(pipe), ValueSlot::PipeBend) => {
+            pipe.bend = value;
+            true
+        }
+        (FeatureKind::Coil(coil), ValueSlot::CoilDiameter) => {
+            coil.diameter = value;
+            true
+        }
+        (FeatureKind::Coil(coil), ValueSlot::CoilSection) => {
+            coil.size = value;
+            true
+        }
+        (FeatureKind::Coil(coil), ValueSlot::CoilTaper) => {
+            coil.taper = value;
+            true
+        }
+        (FeatureKind::Coil(coil), _) => set_coil_length(
+            &mut coil.length,
+            [
+                ValueSlot::CoilTurns,
+                ValueSlot::CoilPitch,
+                ValueSlot::CoilHeight,
+            ],
+            slot,
+            value,
+        ),
+        (FeatureKind::Helix(helix), ValueSlot::HelixDiameter) => {
+            helix.diameter = value;
+            true
+        }
+        (FeatureKind::Helix(helix), ValueSlot::HelixTaper) => {
+            helix.taper = value;
+            true
+        }
+        (FeatureKind::Helix(helix), ValueSlot::HelixStart) => {
+            helix.start = value;
+            true
+        }
+        (FeatureKind::Helix(helix), _) => set_coil_length(
+            &mut helix.length,
+            [
+                ValueSlot::HelixTurns,
+                ValueSlot::HelixPitch,
+                ValueSlot::HelixHeight,
+            ],
+            slot,
+            value,
+        ),
+        (FeatureKind::Rib(rib), ValueSlot::RibThickness) => {
+            rib.thickness = value;
+            true
+        }
+        (FeatureKind::Rib(rib), ValueSlot::RibDraft) => {
+            rib.draft = value;
+            true
+        }
+        (FeatureKind::Emboss(emboss), ValueSlot::EmbossDepth) => {
+            emboss.depth = value;
+            true
+        }
+        (FeatureKind::Emboss(emboss), ValueSlot::EmbossDraft) => {
+            emboss.draft = value;
+            true
+        }
+        (FeatureKind::MoveFace(moving), ValueSlot::MoveFaceDistance) => {
+            moving.distance = value;
+            true
+        }
+        (FeatureKind::MoveFace(moving), ValueSlot::MoveFaceAngle) => {
+            moving.angle = value;
+            true
+        }
+        (FeatureKind::Draft(draft), ValueSlot::DraftAngle) => {
+            draft.angle = value;
+            true
+        }
+        (FeatureKind::Draft(draft), ValueSlot::DraftBeyond) => match &mut draft.beyond {
+            Some(beyond) => {
+                *beyond = value;
+                true
+            }
+            None => false,
+        },
+        (FeatureKind::Scale(scale), ValueSlot::ScaleFactor) => {
+            scale.factor = value;
+            true
         }
         (FeatureKind::Blend(blend), ValueSlot::BlendSize) => {
             blend.size = value;
@@ -776,5 +1263,96 @@ mod tests {
             rebuilt(&shell, ValueSlot::BlendSize, millimetres(3.0)),
             None
         );
+    }
+
+    #[test]
+    fn sweep_pipe_rib_emboss_move_face_draft_scale_and_circle_hole_offer_their_values() {
+        let body = FeatureId::from_raw(1);
+        let sketch = FeatureId::from_raw(2);
+        let parameters = ParameterValues::default();
+        let degrees = |value: f64| Expression::measure(value, Unit::Degree);
+
+        let sweep = FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            sketch,
+            regions: caditor_document::RegionChoice::All,
+            path: caditor_document::SweepPath::Unchosen,
+            orientation: caditor_kernel::SweepOrientation::default(),
+            twist: degrees(15.0),
+            scale: Expression::number(1.2),
+            shape_law: Vec::new(),
+            operation: caditor_document::BodyOperation::NewBody,
+            other_bodies: Vec::new(),
+        }));
+        let pipe = FeatureKind::Pipe(Pipe {
+            path: caditor_document::SweepPath::Unchosen,
+            shape: caditor_kernel::PipeShape::Round,
+            size: millimetres(6.0),
+            wall: Some(millimetres(1.0)),
+            bend: millimetres(4.0),
+            operation: caditor_document::BodyOperation::NewBody,
+        });
+        let scale = FeatureKind::Scale(Scale {
+            body,
+            factor: Expression::number(1.5),
+            center: [millimetres(0.0), millimetres(0.0), millimetres(0.0)],
+            frame: None,
+        });
+        let moving = FeatureKind::MoveFace(MoveFace {
+            body,
+            faces: Vec::new(),
+            direction: None,
+            distance: millimetres(3.0),
+            axis: None,
+            angle: degrees(10.0),
+        });
+        let circle_hole = FeatureKind::Hole(caditor_document::Hole {
+            body,
+            sketch,
+            diameter: millimetres(6.0),
+            sizing: caditor_document::HoleSizing::Circles,
+            depth: HoleDepth::Blind(millimetres(10.0)),
+            style: caditor_document::HoleStyle::Plain,
+            shape: caditor_document::HoleShape::Round,
+            bottom: caditor_document::HoleBottom::Flat,
+            reversed: false,
+            standard: None,
+            thread: caditor_document::TappedThread::default(),
+        });
+
+        let sweep_slots: Vec<_> = values_of(&parameters, &sweep)
+            .into_iter()
+            .map(|found| found.slot)
+            .collect();
+        let pipe_slots: Vec<_> = values_of(&parameters, &pipe)
+            .into_iter()
+            .map(|found| found.slot)
+            .collect();
+        let move_slots: Vec<_> = values_of(&parameters, &moving)
+            .into_iter()
+            .map(|found| found.slot)
+            .collect();
+        let hole_slots: Vec<_> = values_of(&parameters, &circle_hole)
+            .into_iter()
+            .map(|found| found.slot)
+            .collect();
+
+        assert_eq!(
+            sweep_slots,
+            vec![ValueSlot::SweepTwist, ValueSlot::SweepScale]
+        );
+        assert_eq!(
+            pipe_slots,
+            vec![
+                ValueSlot::PipeSize,
+                ValueSlot::PipeWall,
+                ValueSlot::PipeBend
+            ]
+        );
+        assert_eq!(move_slots, vec![ValueSlot::MoveFaceDistance]);
+        assert_eq!(hole_slots, vec![ValueSlot::HoleDepth]);
+        assert!(matches!(
+            rebuilt(&scale, ValueSlot::ScaleFactor, Expression::number(2.0)),
+            Some(FeatureKind::Scale(scaled)) if scaled.factor == Expression::number(2.0)
+        ));
     }
 }

@@ -422,3 +422,61 @@ fn a_sketch_on_a_hidden_body_with_no_shown_body_under_it_leaves_the_hidden_body_
     assert!((harness.body_volume(hidden) - 16000.0).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
+
+#[test]
+fn a_partial_revolve_detects_a_body_only_when_its_angle_reaches_it() {
+    let mut harness = Harness::new();
+
+    let block = plate_at(
+        &mut harness,
+        Point2::new(-30.0, -30.0),
+        Point2::new(-10.0, -10.0),
+    );
+    let mut section = Sketch::new(Plane::XZ);
+
+    rectangle(
+        &mut section,
+        Point2::new(15.0, 0.0),
+        Point2::new(25.0, 10.0),
+    );
+
+    let sketch = harness.add_sketch(section);
+
+    harness.settle();
+
+    let make = |degrees: f64| {
+        SolidFeature::Revolve(caditor_document::Revolve {
+            sketch,
+            regions: caditor_document::RegionChoice::All,
+            axis: caditor_document::RevolveAxis::Sketch(caditor_sketch::EntityId::VERTICAL_AXIS),
+            extent: caditor_document::RevolveExtent::OneSide {
+                angle: caditor_expression::Expression::measure(
+                    degrees,
+                    caditor_expression::Unit::Degree,
+                ),
+                reversed: false,
+            },
+            operation: BodyOperation::NewBody,
+            start: None,
+            side: None,
+            other_bodies: Vec::new(),
+            wall: None,
+        })
+    };
+
+    let short = crate::body_reach::reached_body(
+        harness.document(),
+        harness.model.evaluation(),
+        harness.model.parameters(),
+        &make(45.0),
+    );
+    let long = crate::body_reach::reached_body(
+        harness.document(),
+        harness.model.evaluation(),
+        harness.model.parameters(),
+        &make(270.0),
+    );
+
+    assert_eq!(short, None);
+    assert_eq!(long, Some(block));
+}

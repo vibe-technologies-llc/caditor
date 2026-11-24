@@ -1661,6 +1661,32 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Datum(result))
 }
 
+pub fn displayed_station_track(
+    document: &Document,
+    evaluation: &Evaluation,
+    feature: FeatureId,
+    station: &CurveStation,
+    samples: u32,
+) -> Option<(Vec<(f64, Point3)>, f64)> {
+    let body = evaluation.body_result_seen_by(feature, station.body)?;
+    let run = crate::split_edges::SplitEdges::new(document, &body.solid)
+        .run(&station.edge)
+        .ok()?;
+    let length = run.length();
+
+    if !length.is_finite() || length <= f64::EPSILON || samples == 0 {
+        return None;
+    }
+
+    let points = (0..=samples)
+        .map(|index| {
+            let along = length * f64::from(index) / f64::from(samples);
+            (along, run.at(along).0)
+        })
+        .collect();
+    Some((points, length))
+}
+
 pub fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {

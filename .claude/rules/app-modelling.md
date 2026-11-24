@@ -438,9 +438,10 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
   window of the face inside a circle is a piece of its own. Which are chosen comes from
   `selection::Offered::chosen` (`SketchResult::chosen_keys`), never from resolving references
   against the offered list in the app: a choice of whole regions made before lights every piece
-  within them, and the first click on one turns it into the pieces. `body_reach` still builds its
-  reach tool from the sketch's own curves, so a choice of pieces reaches as the regions holding
-  them.
+  within them, and the first click on one turns it into the pieces. `body_reach` resolves
+  `solid.regions()` through `SketchResult::chosen_regions` when a sketch result is present (so
+  chosen pieces reach accurately) and evaluates partial revolves (`OneSide`, `Symmetric`, `TwoSides`)
+  as well as full turns.
 - Under Result, a new body offers Separate pieces (`solid_panel::SEPARATE_PIECES`, One body or A body
   each, `Pieces::words`; `solid_tools::pieces_change`, one `Edit::SetFeaturePieces` checked first, so
   `PiecesInUse` is offered disabled with its reason). New extrusions and revolves
@@ -462,8 +463,9 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
     stands only where the face reached is flat.
 - Direction row (`solid_panel::SQUARE`, `ALONG`): Along takes the one selected edge, axis, round face or
   sketch line (`datum_tools::only_axis`), else chooses one in the view (`Slot::ExtrudeDirection`), with
-  a button back to square; an extrusion along a direction has no reach arrows and offers every end
-  kind as a square one does.
+  a button back to square; an extrusion along a direction shows reach arrows oriented along
+  `displayed_axis` (with positive dot against the sketch normal, omitted only if lying in the sketch
+  plane) and offers every end kind as a square one does.
 - An extrusion's and revolve's Start row (`solid_panel::start_rows`): the sketch plane with a Start
   offset field (key `start`, zero clears), or Face or plane, taken like an end
   (`solid_panel::start_change`, `Slot::StartPlane`). An extrusion then has a Taper field (key `taper`,
@@ -488,7 +490,9 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
   step, dragging back through the start flips it (below). Arrows follow a typed distance's preview
   (`Model::draft_kind`, `Model::shown_parameters`).
 - While a revolve turning by angles is open, each end set by an angle has an arrow (`turn_handles.rs`,
-  `Handle::Revolve`, `TurnEnd`) at the middle of its sketch's bounds turned about the axis to that end:
+  `Handle::Revolve`, `TurnEnd`) at the middle of `revolved_bounds` (the chosen regions and `AxisSide`,
+  falling back to the farthest corner when the centroid lies on the axis) turned about the axis to that end,
+  with per-grip `per_point` scaling and `END_ON` sight culling:
   positive angles sweep toward the sketch normal, a reversed one-sided turn the other way, a symmetric
   turn shows its forward half and drags the total twice as fast, two angles an arrow each. A drag
   follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn (a
@@ -531,9 +535,11 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
   in `feature_tree::feature_commands`' changes) acts on the open feature, else the tree's current one,
   doing what its panel's reverse control does (an extrusion's one-sided end, a revolve's one-sided or
   up-to turn, a hole, a primitive not centred on its place, a pattern's first direction, a mate's
-  facing or side, a split's kept side, a rib's side or way) as one "Reverse <feature>" change. An extrusion or revolve
-  running both ways and a full turn are refused saying which Extent to choose, an angle or point mate
-  saying it has no side (`MATE_HAS_NO_SIDE`); other kinds `NOTHING_TO_REVERSE`.
+  facing or side, a split's kept side, a coil, helix or rib's side or way, a draft's pull direction,
+  an emboss's raised/recessed form, or an asymmetric/angle chamfer's measured face) as one
+  "Reverse <feature>" change. An extrusion or revolve running both ways, a full turn and an equal
+  chamfer (`EqualChamfer`) are refused in words, an angle or point mate saying it has no side
+  (`MATE_HAS_NO_SIDE`); other kinds `NOTHING_TO_REVERSE`.
 - A revolve can also take two angles (refusing a pair turning more than a full turn), turn Up to
   next (`solid_panel::TURN_UP_TO_NEXT`, offered disabled with `UpToNextNeedsABody` for a new body),
   or turn Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane (`UpTo`), else a
@@ -824,11 +830,13 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
 - A failed fillet's, chamfer's, shell's, offset face's, move face's, draft's, replace face's or
   delete face's row callout offers Leave this edge out or Leave this face out when the failure
   names one of its picks (`FeatureError::pick`, `document-recompute.md`): `leaving_out::listed`
-  finds that reference in the feature's list (a blend's edges, a shell's opened faces, a draft's
-  faces then its own-angle faces) and `leaving_out::leave_out` returns the panel's own removal
-  (`blend_panel::leave_out` and the like, the remove buttons of the rows calling the same), one
-  undoable change; leaving out an own-angle face of a draft drops it from both lists. Emboss and
-  split face failures name the sketch or tool rather than a pick and offer none.
+  (taking `&Model`) finds that reference in the feature's list (a blend's explicit edges or any
+  `EdgeGroup` via `blend_tools::grouped_edge`, a shell's opened faces then its own-thickness faces,
+  a draft's faces then its own-angle faces) and `leaving_out::leave_out` returns the panel's own
+  removal (or `blend_tools::toggle_edge` for `LeaveTarget::BlendEdge`, expanding the group into
+  explicit edges without the failing one), one undoable change; leaving out an own-angle face of a
+  draft drops it from both lists. Emboss and split face failures name the sketch or tool rather than
+  a pick and offer none.
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
   stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
   changes.
@@ -1152,8 +1160,14 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
     chosen flat face (the line where the face meets the neutral plane, worked out as the kernel's
     `tilt` does) standing at the face's middle, its radial turned back by the face's current slope
     so the foot follows where the face's middle lands, and held to the kernel's steepest draft
-    less a step. Own angle and Angle beyond have no arrow. An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
-    `ARROW_POINTS` from the axis).
+    less a step; each face in `Own angle` also has its own turn arrow (`Measured::DraftFaceAngle(index)`,
+    captioned `draft_panel::own_angle_caption`). Angle beyond has no arrow. An offset face's Distance;
+    a datum plane's Offset and Angle (an arrow along the turn at an arm of `ARROW_POINTS` from the
+    axis), and a `Datum::PointBy(Along)` or `Datum::PlaneThrough(SquareToCurve)`'s distance along an
+    edge (`Measured::CurveDistance` on a `Track::Curve` from `displayed_station_track`); a `Thread`
+    with `ThreadLength::Depth`'s depth (`Measured::ThreadedDepth`); and a `Scale`'s `Factor`
+    (`Measured::ScaleFactor`, `Amount::Factor`, stepping by `FACTOR_STEP` along the body's arm from
+    the scale centre).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the
     rounded or cut face: `1/cos(a/2) - 1` or `sin(a/2)` of the size for faces turned by `a`, from the
     faces' normals at the edge's middle, which holds for convex and concave edges alike). A chamfer
@@ -1272,25 +1286,32 @@ Shell, Split face, Thread, Mirror faces, Datum plane). Panel rows, keys and word
   within `MAGNET_STEPS` steps of it and the value lies that near where the drag would be
   (`Snap::holds_on_track`). The value set is measured, never a
   reference, and the readout ends with what it snapped to ("to a corner").
+  - `handle_snap.rs` also resolves `Pickable::Origin` (`SnapKind::Origin`), `Pickable::Plane`,
+    `Pickable::FramePlane` and datum planes (`SnapKind::Plane`, line guides only), datum points and
+    frames (`SnapKind::Point`), and visible sketch `Entity::Point`s (`SnapKind::Point`).
 - Typing a digit while a handle is hovered or held (outside a sketch) opens the typed-point field
   (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`; a
   square takes "x, y"), dropping a drag in progress; the text previews as typed and Enter commits the
   expression as typed, parameters included, into the slot a drag writes (`Typing::transaction`, through
   `field::checked`). Each value is held to the `feature_fields::Rule` its panel field holds
   (`Typing::parse`, rules from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`,
-  none for positions and moves), since the trial apply checks no ranges: a refusal stays in the field in
-  the panel's words, Escape drops the preview. A driven value opens no field.
+  none for positions and moves), except that any `Measured` whose `reversed` is `Some` accepts
+  negative typed values (`Rule::FlipWhenNegative` / `Rule::FlipTurnWhenNegative`) and flips the
+  feature via `value_handles::written` + `reversing::unsigned`, matching dragging past zero. A refusal
+  stays in the field in the panel's words, Escape drops the preview. A driven value opens no field.
 - With no handle hovered or held and no drag running, the same typing reaches the open feature's
   main value (`manipulator::primary_typing`), chosen from the feature's kind and never from the
   arrows the view happens to show, so looking along an extrusion still sets its distance: an
-  extrusion's first distance (`reach_handles::primary`), a revolve's first angle
-  (`turn_handles::primary`), else `value_gauges::primary`, an exhaustive match a new kind must
-  answer (a hole's diameter, or depth when sized by circles; a fillet's or chamfer's size; a
-  shell's thickness; an offset or moved face's distance; a draft's angle; an emboss's depth; a
-  primitive's first size; a pipe's size; a coil's or helix's diameter; a rib's thickness; a datum
-  plane's offset, else its angle; a linear pattern's first spacing, a circular one's count, a
-  curve one's spacing or count). Every other kind, an end that is not a distance or an angle, and
-  a driven value take no typing, and the prompt then names no field (`app-input.md`).
+  extrusion's first distance (`reach_handles::primary`, falling back to `value_handles::primary` for
+  `EndOffset`, `WallThickness` or `Taper` on `ThroughAll`/`UpTo*`), a revolve's first angle
+  (`turn_handles::primary`, falling back to `WallThickness`), else `value_gauges::primary`, an
+  exhaustive match a new kind must answer (a hole's diameter, or depth when sized by circles; a
+  fillet's or chamfer's size; a shell's thickness; an offset or moved face's distance; a draft's angle
+  or `DraftFaceAngle(0)` when only own-angle faces exist; an emboss's depth; a thread's depth; a
+  scale's factor; a primitive's first size; a pipe's size; a coil's or helix's diameter; a rib's
+  thickness; a datum plane's offset, angle or curve distance; a linear pattern's first spacing, a
+  circular one's count, a curve one's spacing or count). Every other kind and a driven value take no
+  typing, and the prompt then names no field (`app-input.md`).
 
 ## Thread
 

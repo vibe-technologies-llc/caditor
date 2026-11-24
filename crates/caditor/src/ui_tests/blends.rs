@@ -688,3 +688,47 @@ fn a_failing_fillet_leaves_the_edge_its_callout_names_out_with_one_click() {
     assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
     assert_eq!(harness.model.evaluation().failed_count(), 1);
 }
+
+#[test]
+fn leaving_out_a_failing_edge_from_a_face_group_expands_the_group() {
+    let mut harness = Harness::new();
+
+    let (plate, top) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+
+    harness.select([top]);
+    harness.click("Fillet");
+    harness.settle();
+
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+
+    assert_eq!(blend_of(&harness, fillet).groups.len(), 1);
+    assert!(blend_of(&harness, fillet).edges.is_empty());
+
+    let body_before = crate::bodies::input(harness.model.evaluation(), fillet)
+        .expect("the fillet has a body before it");
+    let edge_id = crate::bodies::find_edge(body_before, front).expect("the front edge exists");
+
+    let edge_ref = caditor_kernel::EdgeReference::capture(&body_before.solid, edge_id)
+        .expect("the edge captures");
+    let feature = harness.document().feature(fillet).unwrap();
+    let pick = caditor_document::FailingPick::Edge(edge_ref);
+
+    let listed = crate::leaving_out::listed(&harness.model, feature, &pick)
+        .expect("an edge inside an edge group is listed for Leave out");
+    let action = crate::leaving_out::leave_out(&harness.model, feature, listed.target)
+        .expect("leaving out produces an action");
+
+    harness.perform(action);
+    harness.settle();
+
+    let after = blend_of(&harness, fillet);
+
+    assert!(after.groups.is_empty());
+    assert_eq!(after.edges.len(), 3);
+    assert!(after.edges.iter().all(|edge| edge.name() != front));
+}

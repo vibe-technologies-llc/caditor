@@ -13,6 +13,7 @@ use crate::{
         ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HEAD_HALF_POINTS, HIT_POINTS, Handle,
         HandleSegment, segment_distance, segments_apart,
     },
+    reversing,
     scene_palette::ScenePalette,
     turn_handles::Swing,
     units::Units,
@@ -271,7 +272,18 @@ pub fn written(
     measured: Measured,
     value: Expression,
 ) -> Option<Transaction> {
-    let kind = committed_kind(model.document(), feature)?.clone();
+    let committed = committed_kind(model.document(), feature)?;
+    let (kind, value) = if measured.reversed(committed).is_some() {
+        let (unsigned, negative) = reversing::unsigned(model.parameters(), value);
+        let kind = if negative {
+            measured.reversed(committed)?
+        } else {
+            committed.clone()
+        };
+        (kind, unsigned)
+    } else {
+        (committed.clone(), value)
+    };
     written_into(model, feature, measured, kind, value)
 }
 

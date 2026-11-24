@@ -1,14 +1,17 @@
-use caditor_document::{FeatureId, FeatureKind, SolidResult, face_plane};
+use caditor_document::{
+    DatumResult, FeatureId, FeatureKind, SolidResult, displayed_frame, face_plane,
+};
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2, Vector3, larger};
 use caditor_kernel::{
     Curve, EdgeName, FaceContainment, FaceId, Interval, Line, intersect_curve_surface,
 };
 use caditor_render::View;
+use caditor_sketch::Entity;
 
 use crate::{
-    bodies,
+    bodies, datum_tools,
     model::Model,
-    scene::{BuiltScene, PickPriority},
+    scene::{self, BuiltScene, PickPriority},
     selection::Pickable,
 };
 
@@ -30,7 +33,10 @@ pub enum SnapKind {
     Corner,
     EdgeMiddle,
     RoundCentre,
+    Origin,
+    Point,
     Face,
+    Plane,
 }
 
 impl SnapKind {
@@ -39,15 +45,18 @@ impl SnapKind {
             Self::Corner => "to a corner",
             Self::EdgeMiddle => "to an edge's middle",
             Self::RoundCentre => "to a round edge's centre",
+            Self::Origin => "to the origin",
+            Self::Point => "to a point",
             Self::Face => "to a face",
+            Self::Plane => "to a plane",
         }
     }
 
     fn rank(self) -> PickPriority {
         match self {
-            Self::Corner | Self::RoundCentre => PickPriority::Point,
+            Self::Corner | Self::RoundCentre | Self::Origin | Self::Point => PickPriority::Point,
             Self::EdgeMiddle => PickPriority::Curve,
-            Self::Face => PickPriority::Surface,
+            Self::Face | Self::Plane => PickPriority::Surface,
         }
     }
 }
@@ -70,8 +79,12 @@ impl Snap {
         let near = pulled.is_some_and(|pulled| (snapped - pulled).abs() <= MAGNET_STEPS * step);
         let reaching_out = off_track.is_some_and(|off| off > OFF_TRACK_STEPS * step);
         match self.kind {
-            SnapKind::Face => near,
-            SnapKind::Corner | SnapKind::EdgeMiddle | SnapKind::RoundCentre => near || reaching_out,
+            SnapKind::Face | SnapKind::Plane => near,
+            SnapKind::Corner
+            | SnapKind::EdgeMiddle
+            | SnapKind::RoundCentre
+            | SnapKind::Origin
+            | SnapKind::Point => near || reaching_out,
         }
     }
 
@@ -96,8 +109,12 @@ impl Snap {
 
     pub fn pinned_point(&self) -> Option<Point3> {
         match self.kind {
-            SnapKind::Face => None,
-            SnapKind::Corner | SnapKind::EdgeMiddle | SnapKind::RoundCentre => Some(self.point),
+            SnapKind::Face | SnapKind::Plane => None,
+            SnapKind::Corner
+            | SnapKind::EdgeMiddle
+            | SnapKind::RoundCentre
+            | SnapKind::Origin
+            | SnapKind::Point => Some(self.point),
         }
     }
 }
@@ -152,8 +169,60 @@ impl Probe<'_> {
             Pickable::ShellFace { feature, face } => {
                 self.face(before(self.model, feature)?, face, at, ray)
             }
+            Pickable::Origin => Some(Snap {
+                kind: SnapKind::Origin,
+                point: Point3::ZERO,
+                normal: None,
+            }),
+            Pickable::Plane(plane) => self.plane(&plane.plane(), at, ray),
+            Pickable::FramePlane { feature, plane } => {
+                let frame = displayed_frame(self.model.evaluation(), feature)?;
+                self.plane(&plane.in_frame(&frame)?, at, ray)
+            }
+            Pickable::Datum(feature) => {
+                match datum_tools::result(self.model.evaluation(), feature)? {
+                    DatumResult::Plane(plane) => self.plane(&plane, at, ray),
+                    DatumResult::Point(point) => Some(Snap {
+                        kind: SnapKind::Point,
+                        point,
+                        normal: None,
+                    }),
+                    DatumResult::Frame(frame) => Some(Snap {
+                        kind: SnapKind::Point,
+                        point: frame.origin(),
+                        normal: None,
+                    }),
+                    DatumResult::Axis(_) => None,
+                }
+            }
+            Pickable::SketchEntity { feature, entity } => {
+                let owner = self.model.document().feature(feature)?;
+                let displayed = self.model.displayed_sketch(owner)?;
+                let Entity::Point(point) = displayed.entity(entity)? else {
+                    return None;
+                };
+                let plane =
+                    scene::sketch_plane(self.model.document(), self.model.evaluation(), feature)?;
+                Some(Snap {
+                    kind: SnapKind::Point,
+                    point: plane.to_world(*point),
+                    normal: None,
+                })
+            }
             _ => None,
         }
+    }
+
+    fn plane(&self, plane: &Plane, at: Point3, ray: &Ray) -> Option<Snap> {
+        let Guide::Line { .. } = self.guide else {
+            return None;
+        };
+        let meets = ray.intersect_plane(plane).map_or(at, |along| ray.at(along));
+        Some(Snap {
+            kind: SnapKind::Plane,
+            point: meets,
+            normal: Some(plane.normal()),
+        })
     }
 
     fn hides_behind(&self, pickable: Pickable) -> bool {
@@ -279,4 +348,39 @@ pub fn before(model: &Model, feature: FeatureId) -> Option<&SolidResult> {
         let body = model.document().feature(feature)?.body()?;
         evaluation.body_result_seen_by(feature, body)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn origin_point_and_plane_snaps_hold_and_word_their_targets() {
+        let origin = Snap {
+            kind: SnapKind::Origin,
+            point: Point3::ZERO,
+            normal: None,
+        };
+        let point = Snap {
+            kind: SnapKind::Point,
+            point: Point3::new(10.0, 0.0, 0.0),
+            normal: None,
+        };
+        let plane = Snap {
+            kind: SnapKind::Plane,
+            point: Point3::new(0.0, 0.0, 12.0),
+            normal: Some(Vector3::Z),
+        };
+
+        assert_eq!(origin.kind.words(), "to the origin");
+        assert_eq!(point.kind.words(), "to a point");
+        assert_eq!(plane.kind.words(), "to a plane");
+        assert_eq!(origin.pinned_point(), Some(Point3::ZERO));
+        assert_eq!(point.pinned_point(), Some(Point3::new(10.0, 0.0, 0.0)));
+        assert_eq!(plane.pinned_point(), None);
+        assert_eq!(plane.along(Point3::ZERO, Vector3::Z), Some(12.0));
+        assert!(point.holds(10.0, Some(0.0), Some(10.0), 1.0));
+        assert!(!plane.holds(12.0, Some(0.0), Some(10.0), 1.0));
+        assert!(plane.holds(12.0, Some(11.0), Some(10.0), 1.0));
+    }
 }

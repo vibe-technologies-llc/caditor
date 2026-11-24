@@ -84,3 +84,50 @@ fn the_thread_command_refuses_a_flat_face_and_several_faces() {
 
     assert!(no_thread(&harness));
 }
+
+#[test]
+fn a_thread_to_a_depth_shows_its_depth_arrow() {
+    let mut harness = Harness::new();
+
+    harness.perform(Action::ShowThreadsAsCosmetic(true));
+
+    let side = extruded_shaft(&mut harness);
+
+    harness.select([side]);
+    harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+
+    let thread = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the thread is open");
+    let mut definition = thread_of(&harness, thread).clone();
+
+    definition.length = caditor_document::ThreadLength::Depth(
+        caditor_expression::Expression::measure(8.0, caditor_expression::Unit::Millimetre),
+    );
+    harness.perform(Action::Apply(caditor_document::Transaction::single(
+        "Set thread depth",
+        caditor_document::Edit::SetFeatureKind {
+            id: thread,
+            kind: caditor_document::FeatureKind::Thread(definition),
+        },
+    )));
+    harness.settle();
+    harness.workspace.viewport.advance(super::CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(
+                crate::move_manipulator::Handle::Value(
+                    crate::value_gauges::Measured::ThreadedDepth
+                ),
+                0.0
+            )
+            .is_some()
+    );
+}

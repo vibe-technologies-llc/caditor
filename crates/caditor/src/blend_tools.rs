@@ -555,6 +555,27 @@ pub fn chosen_edges(document: &Document, solid: &Solid, blend: &Blend) -> Chosen
     }
 }
 
+pub fn grouped_edge(
+    model: &Model,
+    feature: FeatureId,
+    blend: &Blend,
+    edge: &EdgeReference,
+) -> bool {
+    let Some(input) = bodies::input(model.evaluation(), feature) else {
+        return false;
+    };
+    let Some(found) = bodies::find_edge(input, edge.name()) else {
+        return false;
+    };
+    let solid = &input.solid;
+    let document = model.document();
+    blend
+        .entry_edges(document, solid)
+        .into_iter()
+        .skip(blend.edges.len())
+        .any(|group| blend_chain(solid, &group).contains(&found))
+}
+
 pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<Transaction> {
     let document = model.document();
     let owner = document.feature(feature)?;

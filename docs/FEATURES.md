@@ -16,17 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   refused. Delete face closes a gap only from the faces around it: not a face with several loops
   that are not whole loops of the faces around it (a hole breaking out through a side), a riser
   chosen with fillets along its foot, nor a gap that only faces further away could close.
-- [medium · medium] 3D manipulators, drag-snapping and on-model value coverage:
-  - `reach_handles.rs`, `value_gauges.rs`, `value_handles.rs` and `manipulator.rs`: custom-direction
-    `Extrude` drag arrows and fallback `primary_typing` on `ThroughAll`/`UpTo*`; 3D value handles
-    and `primary_typing` for `ThreadLength::Depth`, `Scale`, `Datum::PointBy(Along)`,
-    `Datum::PlaneThrough(SquareToCurve)` and per-face `Draft` `Own angle`; allow typing negative
-    values to flip direction wherever dragging the handle past zero already flips it.
-  - `handle_snap.rs`: extend `Probe::snap_to` to snap line guides to Principal, Datum and Frame
-    planes and point-snaps to the Origin, Datum points and visible sketch points.
-  - `feature_values.rs`: populate on-model editable dimensions for `Pipe`, `Coil`, `Helix`, `Rib`,
-    `Emboss`, `MoveFace`, `Draft`, `CurvePattern`, `Scale` and `Sweep`, and respect
-    `hole.sizing.by_circles()`.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -119,8 +108,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   face, by the flat faces of that one body in its plane: a sketch on a datum or principal plane
   level with a face, or other bodies' faces in the plane, do not cut it (it would make every such
   sketch depend on every body before it). A spline or other curved edge cuts as a spline through
-  sampled points, so the sides of a piece swept from it are near, not on, the body's face. The
-  app's reach check (`body_reach.rs`) sweeps a chosen piece as the whole region holding it.
+  sampled points, so the sides of a piece swept from it are near, not on, the body's face.
 - [medium · medium] The sketch patterns' panel (`sketch_pattern_panel.rs`) takes every value as
   text, a direction from a line, sides, flips and extent, and leaves out copies clicked in the
   preview, but there are no arrows on the canvas dragging the distance of each direction with

@@ -1,9 +1,9 @@
 use caditor_document::{
-    FeatureId, FeatureKind, Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction,
-    displayed_axis,
+    AxisSide, FeatureId, FeatureKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+    SolidFeature, Transaction, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
-use caditor_geometry::{Point3, Ray, Vector2, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 use caditor_sketch::Reference;
 
@@ -13,13 +13,14 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ARROW_POINTS, Arrow, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, segment_distance,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, HandleSegment,
+        segment_distance,
     },
     reach_handles::start_offset,
     reversing::Flip,
     scene,
     scene_palette::ScenePalette,
-    solid_panel,
+    selection, solid_panel,
     units::Units,
 };
 
@@ -197,6 +198,7 @@ struct Grip {
     end: TurnEnd,
     degrees: f64,
     sign: f64,
+    per_point: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -204,7 +206,6 @@ pub struct TurnHandles {
     pub feature: FeatureId,
     swing: Swing,
     grips: [Option<Grip>; 2],
-    per_point: f64,
     forward: Vector3,
 }
 
@@ -261,16 +262,110 @@ fn axis_line(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<(Po
     }
 }
 
+fn on_axis_side(side: AxisSide, signed_distance: f64) -> bool {
+    match side {
+        AxisSide::Left => signed_distance > SMALLEST_RADIUS,
+        AxisSide::Right => signed_distance < -SMALLEST_RADIUS,
+    }
+}
+
+fn revolved_bounds(
+    model: &Model,
+    revolve: &Revolve,
+    plane: &Plane,
+    local_axis: Option<(Point2, Vector2)>,
+) -> Option<Aabb2> {
+    let document = model.document();
+    let chosen = match (&revolve.regions, revolve.wall.as_deref()) {
+        (RegionChoice::Chosen(_), None) => selection::offered(model.evaluation(), revolve.sketch),
+        (_, None) if revolve.side.is_some() => {
+            selection::offered(model.evaluation(), revolve.sketch)
+        }
+        _ => None,
+    }
+    .and_then(|offered| {
+        let keys = offered.chosen(&revolve.regions);
+        let bounds: Vec<Aabb2> = offered
+            .regions
+            .iter()
+            .filter(|region| keys.contains(&region.region.key()))
+            .filter_map(|region| region.region.bounds())
+            .collect();
+        let on_side = match (revolve.side, local_axis) {
+            (Some(side), Some((axis_origin, axis_dir))) => bounds
+                .iter()
+                .copied()
+                .filter(|box2| on_axis_side(side, axis_dir.perp_dot(box2.center() - axis_origin)))
+                .reduce(Aabb2::union),
+            _ => None,
+        };
+        on_side.or_else(|| bounds.into_iter().reduce(Aabb2::union))
+    });
+    chosen.or_else(|| {
+        let bounds = model.sketch_bounds(document.feature(revolve.sketch)?)?;
+        let centre = plane.to_local(bounds.center());
+
+        let half = plane.to_local(bounds.max()) - centre;
+        let half = Vector2::new(half.x.abs(), half.y.abs());
+        Aabb2::from_points([centre - half, centre + half])
+    })
+}
+
 fn swing(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<Swing> {
     let document = model.document();
     let plane = scene::sketch_plane(document, model.evaluation(), revolve.sketch)?;
-    let bounds = model.sketch_bounds(document.feature(revolve.sketch)?)?;
-
-    let middle = plane.to_world(plane.to_local(bounds.center()));
     let (origin, along) = axis_line(model, feature, revolve)?;
 
-    let foot = origin + along * (middle - origin).dot(along);
-    let offset = middle - foot;
+    let local_origin = plane.to_local(origin);
+    let local_axis = (plane.to_local(origin + along) - local_origin)
+        .try_normalize()
+        .map(|direction| (local_origin, direction));
+    let bounds = revolved_bounds(model, revolve, &plane, local_axis)?;
+
+    let offset_of = |local: Point2| {
+        let point = plane.to_world(local);
+        let foot = origin + along * (point - origin).dot(along);
+        (foot, point - foot)
+    };
+    let center = bounds.center();
+    let center_fits_side = match (revolve.side, local_axis) {
+        (Some(side), Some((axis_origin, axis_dir))) => {
+            on_axis_side(side, axis_dir.perp_dot(center - axis_origin))
+        }
+        _ => true,
+    };
+
+    let (foot, offset) = offset_of(center);
+
+    let (foot, offset) = if center_fits_side && offset.length() > SMALLEST_RADIUS {
+        (foot, offset)
+    } else {
+        let corners = [
+            bounds.min(),
+            Point2::new(bounds.max().x, bounds.min().y),
+            bounds.max(),
+            Point2::new(bounds.min().x, bounds.max().y),
+        ];
+        let farthest = |only_side: bool| {
+            corners
+                .into_iter()
+                .filter(|corner| {
+                    if !only_side {
+                        return true;
+                    }
+                    match (revolve.side, local_axis) {
+                        (Some(side), Some((axis_origin, axis_dir))) => {
+                            on_axis_side(side, axis_dir.perp_dot(*corner - axis_origin))
+                        }
+                        _ => true,
+                    }
+                })
+                .map(offset_of)
+                .max_by(|a, b| a.1.length().total_cmp(&b.1.length()))
+        };
+        farthest(true).or_else(|| farthest(false))?
+    };
+
     let radius = offset.length();
     let started = plane.normal() * start_offset(model, feature, &plane, revolve.start.as_ref())?;
     (radius > SMALLEST_RADIUS).then_some(Swing {
@@ -287,6 +382,7 @@ fn grips(model: &Model, feature: FeatureId, extent: &RevolveExtent) -> [Option<G
             end,
             degrees: sign * value * share,
             sign,
+            per_point: 1.0,
         })
     };
     match extent {
@@ -364,19 +460,25 @@ impl TurnHandles {
     ) -> Option<Self> {
         let revolve = shown_revolve(model, feature)?;
         let swing = swing(model, feature, revolve)?;
-        let grips = grips(model, feature, &revolve.extent);
-        let depth = view.view_depth(swing.foot + swing.radial * swing.radius);
-        let per_point = pixels_per_point * view.units_per_pixel_at(depth);
 
-        let shown = view.is_drawn_at(depth)
-            && per_point.is_finite()
-            && per_point > 0.0
-            && grips.iter().any(Option::is_some);
-        shown.then_some(Self {
+        let grips = grips(model, feature, &revolve.extent).map(|found| {
+            let grip = found?;
+            let at = swing.at(grip.degrees);
+            let direction = swing.tangent(grip.degrees) * grip.sign;
+            let depth = view.view_depth(at);
+            let per_point = pixels_per_point * view.units_per_pixel_at(depth);
+
+            let shown = view.is_drawn_at(depth)
+                && per_point.is_finite()
+                && per_point > 0.0
+                && direction.dot(view.sight_at(at)).abs() < END_ON;
+            shown.then_some(Grip { per_point, ..grip })
+        });
+
+        grips.iter().any(Option::is_some).then_some(Self {
             feature,
             swing,
             grips,
-            per_point,
             forward: view.forward(),
         })
     }
@@ -393,8 +495,8 @@ impl TurnHandles {
         let at = self.swing.at(grip.degrees);
         let direction = self.swing.tangent(grip.degrees) * grip.sign;
         (
-            at + direction * GAP_POINTS * self.per_point,
-            at + direction * ARROW_POINTS * ARROW_SHARE * self.per_point,
+            at + direction * GAP_POINTS * grip.per_point,
+            at + direction * ARROW_POINTS * ARROW_SHARE * grip.per_point,
             direction,
         )
     }
@@ -488,7 +590,7 @@ impl TurnHandles {
                 from,
                 tip,
                 direction,
-                per_point: self.per_point,
+                per_point: grip.per_point,
                 forward: self.forward,
             }
             .add_to(batch, colour);

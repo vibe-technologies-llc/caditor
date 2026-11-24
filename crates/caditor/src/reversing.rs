@@ -1,6 +1,7 @@
 use caditor_document::{
-    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, Feature, FeatureKind, ParameterValues,
-    PatternKind, PrimitiveAnchor, RevolveExtent, SolidFeature, Transaction,
+    BlendKind, BodyOperation, Document, Edit, EmbossForm, Extrude, ExtrudeExtent, Feature,
+    FeatureKind, ParameterValues, PatternKind, PrimitiveAnchor, RevolveExtent, SolidFeature,
+    Transaction,
 };
 use caditor_expression::Expression;
 
@@ -13,12 +14,17 @@ use crate::{
 };
 
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, \
-                                      mate, split, coil, helix or rib has a direction to reverse";
+                                      mate, split, coil, helix, rib, draft, emboss or asymmetric \
+                                      chamfer has a direction to reverse";
 
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ReverseError {
     #[error("{}", NOTHING_TO_REVERSE)]
     NothingToReverse,
+    #[error(
+        "{name} bevels both faces by the same distance; switch Distances to Two or Angle to flip it"
+    )]
+    EqualChamfer { name: String },
     #[error("{name} runs both ways from its sketch; set its Extent to One side to reverse it")]
     ExtrudeBothWays { name: String },
     #[error("{name} turns a full turn, so it has no direction to reverse")]
@@ -137,14 +143,37 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
             split.flipped = !split.flipped;
             Ok(FeatureKind::Split(split))
         }
+        FeatureKind::Draft(draft) => {
+            let mut draft = draft.clone();
+
+            draft.flipped = !draft.flipped;
+            Ok(FeatureKind::Draft(draft))
+        }
+        FeatureKind::Emboss(emboss) => {
+            let mut emboss = emboss.clone();
+
+            emboss.form = match emboss.form {
+                EmbossForm::Raised => EmbossForm::Recessed,
+                EmbossForm::Recessed => EmbossForm::Raised,
+            };
+            Ok(FeatureKind::Emboss(emboss))
+        }
+        FeatureKind::Blend(blend) if blend.kind == BlendKind::Chamfer => {
+            if blend.form.is_equal() {
+                return Err(ReverseError::EqualChamfer { name: name() });
+            }
+
+            let mut blend = blend.clone();
+
+            blend.flipped = !blend.flipped;
+            Ok(FeatureKind::Blend(blend))
+        }
         FeatureKind::Sketch(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::DeleteFace(_)
-        | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
-        | FeatureKind::Draft(_)
         | FeatureKind::ReplaceFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Combine(_)
@@ -434,5 +463,115 @@ mod tests {
         let after = extrude(one_side(false), BodyOperation::Remove(body));
 
         assert_eq!(Flip::between(&before, &after), None);
+    }
+
+    #[test]
+    fn draft_emboss_and_asymmetric_chamfer_reverse_while_equal_chamfer_refuses() {
+        let mut document = Document::default();
+        let five = Expression::measure(5.0, Unit::Millimetre);
+        let two = Expression::measure(2.0, Unit::Millimetre);
+        let mut transaction = document.transaction("Features");
+
+        let sketch = transaction.add_feature(
+            "Sketch 1",
+            FeatureKind::from(caditor_sketch::Sketch::new(caditor_geometry::Plane::XY)),
+        );
+        let body = transaction.add_feature(
+            "Box 1",
+            FeatureKind::Primitive(caditor_document::Primitive {
+                shape: caditor_document::PrimitiveShape::Box {
+                    length: five.clone(),
+                    width: five.clone(),
+                    height: five.clone(),
+                },
+                plane: caditor_document::PlaneReference::Principal(
+                    caditor_document::PrincipalPlane::Xy,
+                ),
+                at: [Expression::number(0.0), Expression::number(0.0)],
+                anchor: PrimitiveAnchor::BaseCentre,
+                reversed: false,
+                operation: BodyOperation::NewBody,
+            }),
+        );
+        let draft = transaction.add_feature(
+            "Draft 1",
+            FeatureKind::Draft(caditor_document::Draft {
+                body,
+                faces: Vec::new(),
+                own: Vec::new(),
+                neutral: caditor_document::PlaneReference::Principal(
+                    caditor_document::PrincipalPlane::Xy,
+                ),
+                angle: Expression::measure(3.0, Unit::Degree),
+                flipped: false,
+                tangent: false,
+                beyond: None,
+            }),
+        );
+
+        let emboss = transaction.add_feature(
+            "Emboss 1",
+            FeatureKind::Emboss(caditor_document::Emboss {
+                body,
+                faces: Vec::new(),
+                sketch: Some(sketch),
+                regions: RegionChoice::All,
+                form: EmbossForm::Raised,
+                depth: two.clone(),
+                draft: Expression::measure(0.0, Unit::Degree),
+            }),
+        );
+        let asymmetric = transaction.add_feature(
+            "Chamfer 1",
+            FeatureKind::Blend(caditor_document::Blend {
+                kind: BlendKind::Chamfer,
+                body,
+                edges: Vec::new(),
+                groups: Vec::new(),
+                size: two.clone(),
+                form: caditor_document::ChamferForm::TwoDistances { second: five },
+                flipped: false,
+                sizing: caditor_document::FilletSizing::Radius,
+            }),
+        );
+        let equal = transaction.add_feature(
+            "Chamfer 2",
+            FeatureKind::Blend(caditor_document::Blend {
+                kind: BlendKind::Chamfer,
+                body,
+                edges: Vec::new(),
+                groups: Vec::new(),
+                size: two,
+                form: caditor_document::ChamferForm::Equal,
+                flipped: false,
+                sizing: caditor_document::FilletSizing::Radius,
+            }),
+        );
+
+        document.apply(transaction.finish()).unwrap();
+
+        let reversed_draft = reversed(document.feature(draft).unwrap()).unwrap();
+        let reversed_emboss = reversed(document.feature(emboss).unwrap()).unwrap();
+        let reversed_chamfer = reversed(document.feature(asymmetric).unwrap()).unwrap();
+        let equal_error = reversed(document.feature(equal).unwrap());
+
+        assert!(matches!(
+            reversed_draft,
+            FeatureKind::Draft(draft) if draft.flipped
+        ));
+        assert!(matches!(
+            reversed_emboss,
+            FeatureKind::Emboss(emboss) if emboss.form == EmbossForm::Recessed
+        ));
+        assert!(matches!(
+            reversed_chamfer,
+            FeatureKind::Blend(blend) if blend.flipped
+        ));
+        assert_eq!(
+            equal_error,
+            Err(ReverseError::EqualChamfer {
+                name: "Chamfer 2".to_owned(),
+            })
+        );
     }
 }

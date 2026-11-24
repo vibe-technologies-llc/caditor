@@ -65,15 +65,17 @@ a face is not cut by its edges; place it on the face itself.
   first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
   **Thickness**, which dragged back through the curves switches the wall between Inside and
   Outside.
-- A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer
-  when the arrow nears its level, or at once when the pointer leaves the arrow's line to reach for
-  it, so dragging along the arrow over holes and corners goes where the pointer is; it pulls to a
-  face it passes, flat or curved, stopping where its line meets the face (on a
-  cylinder, the side nearer the pointer); the readout says what it stopped at. Hold Ctrl to drag
-  freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
-  with the pointer anywhere else, typing sets the distance, as the line under the view says. It
-  is previewed as you type, and Escape leaves it as it was. A value the field itself would
-  refuse, such as zero, is refused there too, saying why.
+- A dragged arrow stops on a corner, an edge's middle, a round edge's centre, the origin, a datum
+  point or a visible sketch point under the pointer when the arrow nears its level, or at once when
+  the pointer leaves the arrow's line to reach for it, so dragging along the arrow over holes and
+  corners goes where the pointer is; it pulls to a face or plane it passes, flat or curved, stopping
+  where its line meets the face or plane (on a cylinder, the side nearer the pointer); the readout
+  says what it stopped at. Hold Ctrl to drag freely. With the pointer on an arrow, type a value and
+  press Enter to set that field exactly (typing a negative value on a reversible arrow flips it, just
+  like dragging back past zero); with the pointer anywhere else, typing sets the distance (or the
+  offset, wall thickness or taper when the end is not a distance), as the line under the view says.
+  It is previewed as you type, and Escape leaves it as it was. A value the field itself would refuse,
+  such as zero, is refused there too, saying why.
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.
 - Typing a **negative distance** on one side goes the other way. The distance becomes its positive
@@ -94,8 +96,8 @@ of several pieces can.
 
 **Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
 edge, sketch line or axis you select, measuring the distance along it. Every end works along it,
-Up to next and a curved face too, finding the face the outline meets as it leans; such an
-extrusion has no arrows in the view, so its distances and taper are set in the panel. A taper
+Up to next and a curved face too, finding the face the outline meets as it leans, and its distance
+arrow runs along that direction in the view. A taper
 along a direction is measured from it: the outline steps in by the taper for every unit travelled
 along the direction, keeping its shape in each slice parallel to the sketch, so a side running
 along the lean slopes by the taper from the direction and one facing the lean a little less.

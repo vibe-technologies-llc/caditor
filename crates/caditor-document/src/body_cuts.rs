@@ -195,6 +195,15 @@ impl SketchResult {
         Ok(chosen)
     }
 
+    pub fn chosen_regions(&self, choice: &RegionChoice) -> Option<Vec<Region>> {
+        match choice {
+            RegionChoice::All => self.profile().ok()?.select(&Selection::EvenDepth).ok(),
+            RegionChoice::Chosen(references) => {
+                self.resolve_choice(references).ok()?.regions().ok()
+            }
+        }
+    }
+
     pub fn chosen_keys(&self, choice: &RegionChoice) -> BTreeSet<RegionKey> {
         let Some(Ok(offered)) = self.regions() else {
             return BTreeSet::new();

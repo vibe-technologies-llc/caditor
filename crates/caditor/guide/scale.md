@@ -5,7 +5,8 @@
 {command:model.scale} scales one body by a factor about a centre. Select the body, then choose the
 command (with only one body shown, nothing needs selecting); it starts at a factor of 1 about the
 body's centre with the **Factor** field ready to type. The panel sets the **Factor**, a plain number
-above zero, and the **Centre**, its three coordinates measured in the world or in a
+above zero (which can also be dragged on its handle in the view or typed directly), and the
+**Centre**, its three coordinates measured in the world or in a
 [coordinate system](coordinate-systems).
 
 **Centre at** fills in those coordinates: **Use selected** (or **Choose in the view**) takes a

@@ -17,9 +17,10 @@ holding nothing they can use, such as a sketch region, a constraint or a centre 
 refused with the choices that would work.
 
 A datum follows what it was made from. Its panel shows what it is defined by and its offsets and
-angles, previewed in the view as you type them; an open offset plane also has an arrow to drag
-its offset, and a turned plane an arrow along its turn that drags its angle, turning the plane onto a corner
-or an edge's middle under the pointer. {command:model.datum_use_selected} defines it again from the selection. Double-click a
+angles, previewed in the view as you type them; an open offset plane has an arrow to drag
+its offset, a turned plane an arrow along its turn that drags its angle, turning the plane onto a corner
+or an edge's middle under the pointer, and a point along an edge or plane square to a curve has an
+arrow along the curve to drag its distance. {command:model.datum_use_selected} defines it again from the selection. Double-click a
 datum in the view to open it.
 
 A point at the middle of an edge, or at a distance along one, and a plane square to an edge keep to
