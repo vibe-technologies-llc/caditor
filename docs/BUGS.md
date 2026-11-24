@@ -208,18 +208,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Parameters, Completion popup, Configurations and Menu bar defects:
-  - Clicking `ParameterUser::Drawing(_)` in `parameter_table.rs` does nothing instead of opening the
-    Drawings panel; parameter expression `value_field`s skip `.problem(ui, document, enter)` live
-    validation, clipped expressions lack full-expression hover, `refusal_row` and `owner_row` do not
-    span the table width, and `delete_unused_button` stays shown on an empty filter.
-  - `completion.rs` opens downward off-screen near the bottom edge (notably in the bottom-docked
-    Parameters panel) and does not clamp width to `fitting_width`.
-  - `configurations.rs` lacks disabled hover text on `Configure a value`, and clicking a
-    configuration name does not activate it (double-click to rename).
-  - `menu_bar.rs` omits toggle checkmarks (`self.choice(...)`) on Measure, Interference, Face
-    analyses, Curvature comb, Isocurves, Drawings, Lighting, FullScreen and Assistant, and
-    duplicates `Command::Assistant`.
 - [medium · easy] Inspection panels and Technical Drawings defects:
   - `section_panel.rs` and `analysis_panel.rs` omit `.on_disabled_hover_text(hover)` on disabled
     `Use selected` and `Add a plane` buttons and do not apply valid `field.edited` values live while

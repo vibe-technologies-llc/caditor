@@ -705,7 +705,11 @@ impl Menus<'_> {
     }
 
     fn item(&mut self, ui: &mut Ui, command: Command) {
-        self.entries.item(ui, command);
+        if self.entries.toggles.shown(command).is_some() {
+            self.entries.choice(ui, command);
+        } else {
+            self.entries.item(ui, command);
+        }
     }
 
     fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
@@ -717,7 +721,9 @@ impl Menus<'_> {
     }
 
     fn items(&mut self, ui: &mut Ui, commands: impl IntoIterator<Item = Command>) {
-        self.entries.items(ui, commands);
+        for command in commands {
+            self.item(ui, command);
+        }
     }
 
     fn edit(&mut self, ui: &mut Ui) {
@@ -1027,8 +1033,6 @@ impl Menus<'_> {
             self.group(ui, Command::RollToHere, "Rollback", &MODEL_ROLLBACK);
             self.group(ui, Command::AddParameter, "Parameters", &MODEL_PARAMETERS);
             self.group(ui, Command::Recompute, "Recompute", &MODEL_RECOMPUTE);
-            ui.separator();
-            self.item(ui, Command::Assistant);
         });
     }
 

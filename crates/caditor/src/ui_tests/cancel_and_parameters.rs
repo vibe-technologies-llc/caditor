@@ -301,7 +301,6 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
     let filter_shown = harness.shows(parameter_table::FILTER_HINT);
 
     harness.type_into_field(Id::unique("parameter-filter"), "SPAN");
-    harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
 
@@ -311,6 +310,18 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
     assert!(harness.shows("gap"));
     assert!(!harness.shows("rise"));
     assert!(!harness.shows("width"));
+
+    let count = harness.document().parameters().len();
+
+    assert!(harness.shows(&format!("2 of {count}")));
+
+    harness.focus_field(Id::unique("parameter-filter"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.panels.parameter_filter.is_empty());
+    assert!(harness.shows("rise"));
 
     harness.type_into_field(Id::unique("parameter-filter"), "nothing like it");
     harness.frame();

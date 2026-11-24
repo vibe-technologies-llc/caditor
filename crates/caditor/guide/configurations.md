@@ -3,7 +3,8 @@
 A configuration is a named set of values for one model, so the sizes of one part (a bracket for M4,
 M6 and M8 screws) live in one file. {command:model.configurations} opens the table.
 
-- Each row is a configuration; the one marked active is the one the model shows.
+- Each row is a configuration; the one marked active is the one the model shows. Click a
+  configuration's name to switch to it, or double-click it to rename it.
 - **Configure a value** adds a column: a [parameter](parameters)'s expression, whether a feature is
   suppressed, or a body's colour.
 - **Add configuration**, rename, duplicate and delete manage the rows. Deleting the active

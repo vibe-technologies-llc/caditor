@@ -1,6 +1,7 @@
 use caditor_render::ProjectionMode;
 
 use crate::{
+    analysis::{AnalysisCommand, Kind},
     commands::Command,
     display_style::DisplayStyle,
     section::SectionCommand,
@@ -54,6 +55,20 @@ pub struct ToggleStates {
     pub sketch_slice: bool,
     pub cosmetic_threads: bool,
     pub principal_when_needed: bool,
+    pub panels: OpenPanels,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OpenPanels {
+    pub measure: bool,
+    pub interference: bool,
+    pub analysis: Option<Kind>,
+    pub comb: bool,
+    pub isocurves: bool,
+    pub drawings: bool,
+    pub lighting: bool,
+    pub full_screen: bool,
+    pub assistant: bool,
 }
 
 impl ToggleStates {
@@ -79,7 +94,12 @@ impl ToggleStates {
             sketch_slice: viewport.sketch_slice(),
             cosmetic_threads: false,
             principal_when_needed: false,
+            panels: OpenPanels::default(),
         }
+    }
+
+    pub fn with_panels(self, panels: OpenPanels) -> Self {
+        Self { panels, ..self }
     }
 
     pub fn with_cosmetic_threads(self, cosmetic_threads: bool) -> Self {
@@ -123,6 +143,15 @@ impl ToggleStates {
             Command::ShowPrincipalWhenNeeded => toggle(self.principal_when_needed),
             Command::Section(SectionCommand::Toggle) => toggle(self.sectioning),
             Command::Section(SectionCommand::SliceSketch) => toggle(self.sketch_slice),
+            Command::Measure => toggle(self.panels.measure),
+            Command::Interference => toggle(self.panels.interference),
+            Command::Analysis(AnalysisCommand::Comb) => toggle(self.panels.comb),
+            Command::Analysis(AnalysisCommand::Isocurves) => toggle(self.panels.isocurves),
+            Command::Analysis(analysis) => toggle(self.panels.analysis == Some(analysis.kind()?)),
+            Command::Drawings => toggle(self.panels.drawings),
+            Command::Lighting => toggle(self.panels.lighting),
+            Command::FullScreen => toggle(self.panels.full_screen),
+            Command::Assistant => toggle(self.panels.assistant),
             _ => return None,
         })
     }
@@ -197,6 +226,11 @@ mod tests {
             sketch_slice: false,
             cosmetic_threads: true,
             principal_when_needed: true,
+            panels: OpenPanels {
+                measure: true,
+                analysis: Some(Kind::Zebra),
+                ..OpenPanels::default()
+            },
         };
 
         assert_eq!(states.shown(Command::ToggleSnapping), Some(Shown::On));
@@ -214,6 +248,16 @@ mod tests {
         assert!(states.is_on(Command::ToggleCosmeticThreads));
         assert!(states.is_on(Command::ShowPrincipalWhenNeeded));
         assert!(!states.is_on(Command::Save));
+
+        assert!(states.is_on(Command::Measure));
+        assert!(!states.is_on(Command::Interference));
+        assert!(states.is_on(Command::Analysis(AnalysisCommand::Zebra)));
+        assert!(!states.is_on(Command::Analysis(AnalysisCommand::Draft)));
+        assert_eq!(
+            states.shown(Command::Analysis(AnalysisCommand::Reverse)),
+            None
+        );
+        assert!(!states.is_on(Command::Assistant));
     }
 
     #[test]

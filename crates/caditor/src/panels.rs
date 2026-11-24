@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, FeatureId, FixTarget, TreeRow};
+use caditor_document::{Document, DrawingId, FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
 use caditor_geometry::Point3;
 use caditor_sketch::ConstraintId;
@@ -133,6 +133,7 @@ pub struct PanelState {
     pub bodies_in_view: BTreeSet<FeatureId>,
     view_selection: Option<(u64, u64)>,
     pub shown_place: Option<Point3>,
+    pub shown_drawing: Option<DrawingId>,
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
     pub tree_offers: TreeOffers,

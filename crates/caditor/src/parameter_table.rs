@@ -6,15 +6,15 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use egui::{
-    Align2, Grid, Id, InnerResponse, Label, Rect, RichText, Role, TextEdit, TextStyle,
-    TextWrapMode, Ui, UiBuilder, Vec2, WidgetText, vec2,
+    Align, Align2, Grid, Id, InnerResponse, Label, Layout, Rect, RichText, Role, Sides, TextEdit,
+    TextStyle, TextWrapMode, Ui, UiBuilder, Vec2, WidgetText, vec2,
 };
 
 use crate::{
     appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
     commands::{Command, CommandFrame, Reason},
     completion,
-    field::{self, CheckError, ExpressionError},
+    field::{self, CheckError, ExpressionError, Problem},
     icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
@@ -169,6 +169,14 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
                 state.parameter_filter.clear();
             }
         });
+        return;
+    }
+    if !query.is_empty() {
+        let matched = own.len() + named.len();
+        let count = document.parameters().len();
+
+        ui.add(Label::new(widgets::muted(format!("{matched} of {count}"), ui)).wrap());
+        ui.add_space(SPACE_XS);
     }
     if !own.is_empty() {
         table(ui, OWN_TABLE, model, state, actions, &own, widths);
@@ -191,22 +199,34 @@ fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
     if count < FILTER_FROM_PARAMETERS && state.parameter_filter.is_empty() && !focused {
         return String::new();
     }
-    ui.horizontal(|ui| {
-        let muted = appearance::tokens(ui).text_muted;
 
-        widgets::icon_label(ui, icons::SEARCH, muted);
-        widgets::text_field(ui, |ui| {
-            widgets::spoken_as(
-                ui.add(
-                    TextEdit::singleline(&mut state.parameter_filter)
-                        .id(id)
-                        .hint_text(FILTER_HINT)
-                        .desired_width(f32::INFINITY),
-                ),
-                FILTER_HINT,
-            )
-        });
-    });
+    let has_text = !state.parameter_filter.is_empty();
+    let (escaped, clicked_clear) = Sides::new().shrink_left().show(
+        ui,
+        |ui| {
+            let muted = appearance::tokens(ui).text_muted;
+
+            widgets::icon_label(ui, icons::SEARCH, muted);
+
+            let field = widgets::text_field(ui, |ui| {
+                widgets::spoken_as(
+                    ui.add(
+                        TextEdit::singleline(&mut state.parameter_filter)
+                            .id(id)
+                            .hint_text(FILTER_HINT)
+                            .desired_width(f32::INFINITY),
+                    ),
+                    FILTER_HINT,
+                )
+            });
+            has_text && widgets::escape_cancels(ui, &field)
+        },
+        |ui| has_text && widgets::icon_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL).clicked(),
+    );
+
+    if escaped || clicked_clear {
+        state.parameter_filter.clear();
+    }
     ui.add_space(SPACE_XS);
     state.parameter_filter.trim().to_lowercase()
 }
@@ -398,6 +418,7 @@ fn table(
     parameters: &[&Parameter],
     widths: FieldWidths,
 ) {
+    let right = ui.cursor().min.x + ui.available_width();
     let scope = ui.scope_builder(
         UiBuilder::new()
             .accessibility_role(Role::Table)
@@ -439,12 +460,12 @@ fn table(
                                 model.document(),
                                 state,
                                 (parameter, owner),
-                                (widths, row_index),
+                                (right, row_index),
                             );
                         }
-                        if let Some(error) = error {
+                        if let Some(problem) = error {
                             row_index += 1;
-                            refusal_row(ui, &error, row_index);
+                            refusal_row(ui, &problem, (right, row_index));
                         }
                     }
                     row_index + 1
@@ -459,19 +480,32 @@ fn table(
     });
 }
 
-fn refusal_row(ui: &mut Ui, text: &str, row_index: usize) {
-    let (_, row) = first_cell(ui, Kind::Data, row_index, |ui| {
-        ui.label("");
-    });
-    let place = Place {
-        row: row_index,
-        column: 1,
-    };
-
-    cell(ui, Kind::Data, Some(row), place, |ui| {
-        widgets::error_text(ui, text);
+fn refusal_row(ui: &mut Ui, problem: &Problem, (right, row_index): (f32, usize)) {
+    first_cell(ui, Kind::Data, row_index, |ui| {
+        spanning(ui, right, |ui| problem.show(ui));
     });
     ui.end_row();
+}
+
+fn spanning<R>(ui: &mut Ui, right: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let top_left = ui.cursor().min;
+    let room = Rect::from_min_max(
+        top_left,
+        egui::pos2(
+            right.max(top_left.x),
+            top_left.y + ui.ctx().content_rect().height(),
+        ),
+    );
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            .max_rect(room)
+            .layout(Layout::top_down(Align::Min)),
+    );
+
+    let inner = add(&mut child);
+
+    ui.allocate_space(vec2(0.0, child.min_rect().height()));
+    inner
 }
 
 fn owner_row(
@@ -479,11 +513,10 @@ fn owner_row(
     document: &Document,
     state: &mut PanelState,
     (parameter, owner): (&Parameter, &ParameterOwner),
-    (widths, row_index): (FieldWidths, usize),
+    (right, row_index): (f32, usize),
 ) {
     first_cell(ui, Kind::Data, row_index, |ui| {
-        ui.set_max_width(widths.name);
-        match document.owner_text(owner) {
+        spanning(ui, right, |ui| match document.owner_text(owner) {
             Some(text) => {
                 let hover = format!(
                     "{} is the value of {text}. Edit it here, or in its field as {} = value. \
@@ -506,7 +539,7 @@ fn owner_row(
                 ui.add(Label::new(widgets::muted(OWNER_GONE, ui)).truncate())
                     .on_hover_text(hover);
             }
-        }
+        });
     });
     ui.end_row();
 }
@@ -678,7 +711,7 @@ fn row(
     actions: &mut Vec<Action>,
     parameter: &Parameter,
     (widths, row_index): (FieldWidths, usize),
-) -> Option<String> {
+) -> Option<Problem> {
     let document = model.document();
     let id = parameter.id();
 
@@ -719,6 +752,33 @@ fn row(
 
     completion::editing_parameter(ui, value_focus.field_id(), id);
 
+    let enter = |text: &str| -> Result<_, ValueEditError> {
+        if let Some(measurement) = &measured_by {
+            return Err(ValueEditError::MeasuredReading {
+                parameter: parameter.name.clone(),
+                measurement: measurement.clone(),
+            });
+        }
+
+        let current = match model.parameters().get(id) {
+            Some(Ok(value)) => Some(value.dimension),
+            _ => None,
+        };
+        let expression = field::parameter_expression(
+            document,
+            model.parameters(),
+            text,
+            current,
+            model.units(),
+        )?;
+        field::checked(
+            document,
+            Transaction::single(
+                format!("Edit {}", parameter.name),
+                Edit::SetParameterExpression { id, expression },
+            ),
+        )
+    };
     let expression = cell(ui, Kind::Data, Some(row_id), place(1), |ui| {
         field::value_field(
             ui,
@@ -726,39 +786,20 @@ fn row(
             &expression_text,
             widths.expression,
             state.wants_focus(value_focus),
-            |text| -> Result<_, ValueEditError> {
-                if let Some(measurement) = &measured_by {
-                    return Err(ValueEditError::MeasuredReading {
-                        parameter: parameter.name.clone(),
-                        measurement: measurement.clone(),
-                    });
-                }
-
-                let current = match model.parameters().get(id) {
-                    Some(Ok(value)) => Some(value.dimension),
-                    _ => None,
-                };
-                let expression = field::parameter_expression(
-                    document,
-                    model.parameters(),
-                    text,
-                    current,
-                    model.units(),
-                )?;
-                field::checked(
-                    document,
-                    Transaction::single(
-                        format!("Edit {}", parameter.name),
-                        Edit::SetParameterExpression { id, expression },
-                    ),
-                )
-            },
+            enter,
         )
     })
     .inner;
 
+    let problem = expression.problem(ui, document, enter);
+
     if ellipsize_clipped_name(ui, &name.response, &parameter.name) {
         name.response.clone().on_hover_text(&parameter.name);
+    }
+    if expression.typing.is_none()
+        && ellipsize_clipped_name(ui, &expression.response, &expression_text)
+    {
+        expression.response.clone().on_hover_text(&expression_text);
     }
     state.focus_reached(name_focus, name.response.has_focus());
     state.focus_reached(value_focus, expression.response.has_focus());
@@ -834,7 +875,10 @@ fn row(
     cell(ui, Kind::Data, Some(row_id), place(3), |ui| {
         delete_button(ui, document, actions, parameter, hovered, used);
     });
-    name.error.or(expression.error)
+    name.error
+        .or(expression.error)
+        .map(Problem::Wrong)
+        .or(problem)
 }
 
 fn insertable_into_focused(ui: &Ui, document: &Document, parameter: ParameterId) -> bool {
@@ -958,8 +1002,15 @@ fn users_menu(
                     }
                     state.request_focus(focus);
                 }
-                None if matches!(user, ParameterUser::Drawing(_)) => {}
-                None => actions.push(Action::Preferences(PreferencesCommand::ShowConfigurations)),
+                None => match *user {
+                    ParameterUser::Drawing(drawing) => state.shown_drawing = Some(drawing),
+                    ParameterUser::Parameter(_)
+                    | ParameterUser::Feature(_)
+                    | ParameterUser::Configuration(_)
+                    | ParameterUser::Configurations => {
+                        actions.push(Action::Preferences(PreferencesCommand::ShowConfigurations));
+                    }
+                },
             }
             ui.close();
         }

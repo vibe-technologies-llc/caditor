@@ -2,7 +2,7 @@ use caditor_document::{
     Configuration, ConfigurationId, ConfiguredValue, Document, EditError,
     MAX_CONFIGURATION_NAME_CHARS, Rgb, Setting, Transaction,
 };
-use egui::{Grid, Id, Key, ScrollArea, TextEdit, Ui};
+use egui::{Grid, Id, Key, Label, RichText, ScrollArea, Sense, TextEdit, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -33,6 +33,9 @@ const NO_VALUES: &str = "No value is configured yet, so every configuration is t
 const DIALOG_ID: &str = "configurations";
 const CELL_WIDTH: f32 = 96.0;
 const RENAME_HOVER: &str = "Rename it";
+const NAME_HOVER_ACTIVE: &str = "This is the model as it stands; double-click to rename it";
+pub const NOTHING_TO_CONFIGURE: &str =
+    "Every parameter, feature and body colour the model has is configured already";
 const DUPLICATE_HOVER: &str = "Add a copy of it";
 const DELETE_HOVER: &str = "Delete it";
 const DELETED_PARAMETER: &str = "a deleted parameter";
@@ -327,10 +330,31 @@ fn table_row(
         if let Some(renamed) = renaming_cell(ui, document, draft) {
             outcome = Some(renamed);
         }
-    } else if active {
-        ui.label(widgets::strong(&row.name));
     } else {
-        ui.label(&row.name);
+        let text = if active {
+            widgets::strong(&row.name)
+        } else {
+            RichText::new(&row.name)
+        };
+        let hover = if active {
+            NAME_HOVER_ACTIVE.to_owned()
+        } else {
+            format!("Click to switch to {}; double-click to rename it", row.name)
+        };
+
+        let name = ui
+            .add(Label::new(text).sense(Sense::click()))
+            .on_hover_text(hover);
+
+        if name.double_clicked() {
+            draft.renaming = Some(Renaming {
+                id: row.id,
+                to: row.name.clone(),
+                focus_pending: true,
+            });
+        } else if name.clicked() && !active {
+            outcome = applying(draft, switching(document, row.id));
+        }
     }
     ui.horizontal(|ui| {
         if widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked() {
@@ -536,13 +560,17 @@ fn adding(ui: &mut Ui, document: &Document, draft: &mut ConfigurationsDraft) -> 
         let mut chosen = None;
 
         ui.add_enabled_ui(!offered.is_empty(), |ui| {
-            widgets::combo((DIALOG_ID, "configure"), CONFIGURE_LABEL).show(ui, |ui| {
-                for value in &offered {
-                    if widgets::menu_option(ui, false, &value_name(document, *value)).clicked() {
-                        chosen = Some(*value);
+            widgets::combo((DIALOG_ID, "configure"), CONFIGURE_LABEL)
+                .show(ui, |ui| {
+                    for value in &offered {
+                        if widgets::menu_option(ui, false, &value_name(document, *value)).clicked()
+                        {
+                            chosen = Some(*value);
+                        }
                     }
-                }
-            });
+                })
+                .response
+                .on_disabled_hover_text(NOTHING_TO_CONFIGURE);
         });
         if let Some(value) = chosen {
             let built = document.configuring(value);

@@ -105,7 +105,7 @@ use crate::{
     themes::{Look, Resolved, Theme, UserThemes},
     tidy_panel,
     tidying::Tidying,
-    toggles::ToggleStates,
+    toggles::{OpenPanels, ToggleStates},
     toolbar::{self, ToolbarContext},
     undo_history,
     upload_badge::UploadRequest,
@@ -806,9 +806,23 @@ pub fn show(
     }
 
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
+    let shown_panels = OpenPanels {
+        measure: measure.open,
+        interference: interference.open,
+        analysis: analysis.open.then_some(analysis.kind),
+        comb: comb.open,
+        isocurves: isocurves.open,
+        drawings: drawings.open,
+        lighting: lighting.open,
+        full_screen: ui
+            .ctx()
+            .input(|input| input.viewport().fullscreen.unwrap_or(false)),
+        assistant: assistant.open,
+    };
     let toggles = ToggleStates::of(viewport, section.open)
         .with_cosmetic_threads(model.threads_shown_cosmetic())
-        .with_principal_when_needed(preferences.view_details.principal_when_needed);
+        .with_principal_when_needed(preferences.view_details.principal_when_needed)
+        .with_panels(shown_panels);
     let menu = MenuContext {
         views: model.document().saved_views(),
         sets: model.document().selection_sets(),
@@ -1050,6 +1064,10 @@ pub fn show(
     viewport.hover_from_tree(panels.hovered_in_tree.take());
     viewport.show_chosen_rows(panels.chosen());
     viewport.hover_row(panels.hovered_row.take());
+    if let Some(drawing) = panels.shown_drawing.take() {
+        drawings.open = true;
+        drawings.chosen = Some(drawing);
+    }
     if let Some(place) = panels.shown_place.take() {
         viewport.show_place(place);
     }
@@ -1465,7 +1483,8 @@ pub fn show(
 
     let menu_toggles = ToggleStates::of(viewport, section.open)
         .with_cosmetic_threads(model.threads_shown_cosmetic())
-        .with_principal_when_needed(preferences.view_details.principal_when_needed);
+        .with_principal_when_needed(preferences.view_details.principal_when_needed)
+        .with_panels(shown_panels);
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
 
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
@@ -1543,7 +1562,8 @@ pub fn show(
 
         let toggles = ToggleStates::of(viewport, section.open)
             .with_cosmetic_threads(model.threads_shown_cosmetic())
-            .with_principal_when_needed(preferences.view_details.principal_when_needed);
+            .with_principal_when_needed(preferences.view_details.principal_when_needed)
+            .with_panels(shown_panels);
 
         palette.show(
             ui.ctx(),

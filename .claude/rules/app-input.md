@@ -151,7 +151,8 @@ paths:
   letter or `_`, so units glued to a number and the name in `name = …` are never completed) is
   matched case-insensitively, at most `MAX_SHOWN`, leaving out an exact match and, for a field
   editing a parameter (`completion::editing_parameter`), any name that is that parameter or would
-  depend on it (`DependencyGraph::cycle`). The list is an `Area` (`completion::list`), a `ListBox`
+  depend on it (`DependencyGraph::cycle`). The list is an `Area` (`completion::list`, opening above the field when it would run past the
+  window's bottom and there is room above, its width held to `widgets::fitting_width`), a `ListBox`
   named `LIST_NAME` of `ListBoxOption`s; the field keeps focus and carries `has_popup`, `expanded`
   and the active descendant. While open (known from last frame's `Suggesting`) Up and Down choose a
   row instead of stepping, Tab inserts the first or chosen one, Enter only one chosen with the

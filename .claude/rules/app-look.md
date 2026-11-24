@@ -422,7 +422,11 @@ paths:
   New from template, Open recent, Open sample, Versions and details, Import and Export, Edit's
   Select, View's Projection and snapping, Selection tools, Show and hide, Inspect and Window and
   interface, Model's Modify shape and Sketch's Drawing tools, Modify geometry, Select geometry and
-  Constrain automatically. Then come the model title, a Preferences icon button (the gear; no menu
+  Constrain automatically. An entry whose command `ToggleStates::shown` answers is drawn with its
+  checkmark wherever it sits (`Menus::item`), the open panels (Measure, Interference, each face
+  analysis, comb, isocurves, Drawings, Lighting, the AI assistant) and full screen included through
+  `toggles::OpenPanels`, which the palette reads for its On and Off pills too; the AI assistant is
+  listed once, under View › Window and interface. Then come the model title, a Preferences icon button (the gear; no menu
   entry) and the Search commands field (opens the palette on click; keys as `widgets::key_cap`s)
   and, with caditor's title bar, the logo (leading) and window buttons. Model keeps its creation
   tools (New sketch, Extrude, Revolve, Sweep, Hole, Thread, Primitives) at the top level and groups
@@ -688,8 +692,15 @@ paths:
   the value back into its field.
 - A filter field (`PanelState::parameter_filter`) heads both tables once there are
   `FILTER_FROM_PARAMETERS` parameters, or while it holds text or focus, keeping rows whose name,
-  expression text or owner text contains it in any case, plus a row wanted for focus or holding it;
-  with no match an empty state offers Clear the filter.
+  expression text or owner text contains it in any case, plus a row wanted for focus or holding it,
+  with an inline `×` clear button, Escape clearing it and a muted "N of M" count under it; with no
+  match an empty state offers Clear the filter and Delete unused is not shown.
+- Owner and refusal lines span the whole table (`parameter_table::spanning`, a child laid out to the
+  table's right edge that allocates only its height in the grid's first column, so no column widens
+  for it). An expression field tells a typed problem live (`FieldResponse::problem` with the same
+  Enter check) on the refusal line, and a clipped expression ends in an ellipsis with the whole
+  expression on hover, as a long name does. A drawing in a parameter's Used by list opens the
+  Drawings panel on that drawing (`PanelState::shown_drawing`).
 - Delete N unused parameters (`Command::DeleteUnusedParameters`, the button under the tables while
   there are any, Model › Parameters, palette; `parameter_table::UnusedDeletion`) removes in one
   transaction every parameter `ParameterUses` finds unreferenced, owned ones included, with a notice

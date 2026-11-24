@@ -19,7 +19,8 @@ the model has none, the section says what a parameter is and offers the same but
   menu also lists what uses it, the [configurations](configurations) included; choose one to go
   to it.
 - With six or more parameters a filter field heads the section; it keeps the rows whose name,
-  expression or owner contains what is typed.
+  expression or owner contains what is typed, and says how many of them it shows. The cross beside
+  it, or Escape in it, clears it.
 - {command:model.delete_unused_parameters}, also the button under the tables, deletes every
   parameter nothing refers to in one change.
 - Deleting a parameter in use writes its expression into each place that used it, so nothing

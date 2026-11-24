@@ -222,8 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Application
 
 - [medium · easy] Workspace, parameter, palette, inspection and assistant ergonomics:
-  - Inline `×` clear button, `Escape`-to-clear and `"N of M"` match count on the parameter filter
-    (`parameter_table.rs`).
   - Expression completion popup (`completion.rs`) listing built-in functions (`Function::ALL`) and
     constants (`pi`, `tau`, `e`) after parameter matches; concise hover tooltip on scrubbable
     captions (`field.rs`); custom `colour_selector` for configured body colours

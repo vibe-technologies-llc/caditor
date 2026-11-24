@@ -13,6 +13,7 @@ use crate::{
     appearance::{self, FOCUS_WIDTH, SPACE_M, SPACE_XS, WIDGET_RADIUS},
     model::Model,
     units::Units,
+    widgets,
 };
 
 pub const MAX_SHOWN: usize = 8;
@@ -411,16 +412,30 @@ pub fn list(ui: &Ui, field: &Response, shown: &[Candidate], selected: usize) -> 
         .map(|galley| galley.size().y)
         .fold(0.0, f32::max)
         + 2.0 * ROW_PADDING.y;
-    let width =
+    let wanted =
         (name_width + COLUMN_GAP + value_width + 2.0 * ROW_PADDING.x).max(field.rect.width());
+    let width = wanted.min(widgets::fitting_width(ui.ctx(), wanted));
+    let frame = Frame::menu(ui.style());
+
+    let height = row_height * shown.len() as f32 + frame.total_margin().sum().y;
+    let screen = ui.ctx().content_rect();
+    let below = field.rect.left_bottom() + vec2(0.0, SPACE_XS);
+    let above = field.rect.left_top() - vec2(0.0, SPACE_XS + height);
+
+    let fits_below = below.y + height <= screen.bottom();
+    let at = if fits_below || above.y < screen.top() {
+        below
+    } else {
+        above
+    };
     let mut rows = Vec::new();
 
     Area::new(field.id.with("suggestions"))
         .order(Order::Foreground)
-        .fixed_pos(field.rect.left_bottom() + vec2(0.0, SPACE_XS))
+        .fixed_pos(at)
         .constrain(true)
         .show(ui.ctx(), |ui| {
-            Frame::menu(ui.style()).show(ui, |ui| {
+            frame.show(ui, |ui| {
                 ui.scope(|ui| {
                     ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
                         node.set_role(Role::ListBox);
