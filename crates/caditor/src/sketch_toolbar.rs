@@ -136,6 +136,7 @@ impl Partners {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn contents(&self) -> String {
         menu_contents(&self.tools(), Some(self.host))
     }

@@ -48,6 +48,7 @@ fn sketch_bar_buttons() -> Vec<String> {
             sketch_toolbar::ARC_WAYS_LABEL,
             sketch_toolbar::CURVE_LABEL,
             sketch_toolbar::CURVE_WAYS_LABEL,
+            sketch_toolbar::POLYGON_WAYS_LABEL,
             sketch_toolbar::CONSTRUCTION_LABEL,
             sketch_toolbar::MOVE_LABEL,
             sketch_toolbar::SELECT_ALL_LABEL,
@@ -58,10 +59,7 @@ fn sketch_bar_buttons() -> Vec<String> {
             sketch_toolbar::MODEL_GEOMETRY_TOOLS.name,
         ])
         .map(str::to_owned)
-        .chain(
-            [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot]
-                .map(sketch_toolbar::modes_label),
-        )
+        .chain([Tool::Rectangle, Tool::Circle, Tool::Slot].map(sketch_toolbar::modes_label))
         .collect()
 }
 
