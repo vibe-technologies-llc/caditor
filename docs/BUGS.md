@@ -10,12 +10,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1136, 1214, 1225, 1272, 1344, 1383, 1398, 1402 and
-  1483) gave are pinned by tests and combine. Seeds 20 to 1114 all combined when last surveyed,
-  those from 61 to 985 before an earlier marching change and all of them before the fixes for 1398
-  and 1483, and were not run again. With those two fixes, the survey's own seed 2 and seeds 1115 to
-  1444 all combine; seeds 1445 to 1700 combined but for 1483 on the build before them and were not
-  run again, and seeds beyond 1700 are unsurveyed.
+  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1136, 1214, 1225, 1272, 1344, 1383, 1398, 1402,
+  1483, 1827 and 2008) gave are pinned by tests and combine. With the fixes for 1827 and 2008, the
+  survey's own seed 2, seeds 20 to 259 and seeds 1445 to 2500 all combine but 1963, and none
+  hangs; seeds 260 to 1114 all combined when last surveyed, those from 61 to 985 before an
+  earlier marching change and all of them before the fixes for 1398 and 1483, and seeds 1115 to
+  1444 combined with those two fixes, and neither range was run again. Seeds beyond 2500 are
+  unsurveyed. Seed 1963 fails `Unfollowable` in every operation: a sphere of radius 4 and a torus
+  (6, 2) turned 2.6184948483327046 radians about (0.8850402778235873, 0.5468644663968192,
+  -0.568044893273137) and moved by (-2.855303481999147e-5, -7.514472743545222e-5,
+  -3.223061658147419e-5). The sphere lies along the torus's inner equator, of the same radius, all
+  round, its centre 8.6e-5 along the torus's axis and 1.3e-5 across it, so the surfaces overlap by
+  at most 1.3e-5 in a lens about 0.006 wide along half the equator, too far off coaxial for
+  `coaxial.rs`. A section seeded at one end of the lens, 90 degrees round the equator from its
+  deepest point, where the normals turn parallel, collapses on its first step (6.5e-9) with no
+  boundary ahead.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (the four `a_torus_and_its_copy_turned_…_combine` tests), as
