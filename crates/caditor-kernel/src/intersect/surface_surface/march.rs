@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3, larger};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     coordinates::angle_between,
@@ -14,6 +14,7 @@ use crate::{
             Raw, RawCurve, RawPoint,
             isolated::{IsolatedTouch, isolated_touch},
             recognize::recognize,
+            subdivision::{MIN_LEAF, Subdivision},
         },
         wrap_into,
     },
@@ -25,10 +26,6 @@ use crate::{
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
 const MAX_SEED_PAIRS: usize = 1 << 17;
 const MAX_SEED_DEPTH: usize = 40;
-const LEAF_CURVATURE: f64 = 0.5;
-const MIN_LEAF_FRACTION: f64 = 1.0 / 512.0;
-const MAX_LEAF_FRACTION: f64 = 0.25;
-const MIN_LEAF: f64 = 1e3 * LINEAR_RESOLUTION;
 const TOUCH_SINE: f64 = STOP_SINE;
 const TOUCH_SEARCH_SINE: f64 = 0.05;
 const STOP_SINE: f64 = 1e-6;
@@ -49,57 +46,12 @@ const MAX_STEPS: usize = 1 << 15;
 const GRID: usize = 3;
 const EXIT_BISECTIONS: usize = 48;
 const PERIOD_SLACK: f64 = 1e-9;
-const CURVATURE_SAMPLES: [f64; 3] = [0.1, 0.5, 0.9];
 const TOUCH_SLACK: f64 = 0.1;
-const FIELD_CURVATURE_REACH: f64 = 0.5;
-const FOOT_ALONG_NORMAL: f64 = 1e-6;
 
 #[derive(Clone, Copy, Debug)]
 struct Seed {
     contact: Contact,
     sine: f64,
-}
-
-fn surface_curvature(surface: &Surface, uv: Point2) -> f64 {
-    let derivatives = surface.evaluate(uv.x, uv.y);
-    let Some(normal) = surface.normal(uv.x, uv.y) else {
-        return 0.0;
-    };
-    let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
-    let ratio = |value: f64, scale: f64| {
-        if scale > f64::MIN_POSITIVE {
-            value.abs() / scale
-        } else {
-            0.0
-        }
-    };
-    ratio(derivatives.duu.dot(normal), su * su)
-        .max(ratio(derivatives.dvv.dot(normal), sv * sv))
-        .max(ratio(derivatives.duv.dot(normal), su * sv))
-}
-
-fn leaf_size(patch: &SurfacePatch) -> f64 {
-    let diagonal = patch.bounding_box().diagonal();
-    let (u, v) = (patch.u_range(), patch.v_range());
-
-    let curvature = CURVATURE_SAMPLES
-        .iter()
-        .flat_map(|a| {
-            CURVATURE_SAMPLES
-                .iter()
-                .map(move |b| Point2::new(u.at(*a), v.at(*b)))
-        })
-        .map(|uv| surface_curvature(patch.surface(), uv))
-        .fold(0.0, larger);
-    let by_curvature = if curvature > 0.0 {
-        LEAF_CURVATURE / curvature
-    } else {
-        f64::INFINITY
-    };
-    by_curvature
-        .min(diagonal * MAX_LEAF_FRACTION)
-        .max(diagonal * MIN_LEAF_FRACTION)
-        .max(MIN_LEAF)
 }
 
 fn signed_distance(surface: &Surface, point: Point3) -> f64 {
@@ -111,163 +63,38 @@ fn signed_distance(surface: &Surface, point: Point3) -> f64 {
     }
 }
 
-fn apart(other: &Surface, patch: &SurfacePatch, bounds: &Aabb) -> bool {
-    match other {
-        Surface::BSpline(spline) => spline.hulls_miss(&bounds.expanded(TOLERANCE)),
-        _ => {
-            other.distance(bounds.center()) > bounds.half_extent().length() + TOLERANCE
-                || apart_to_second_order(other, patch)
-        }
-    }
-}
-
-pub(super) fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
-    let derivatives = surface.evaluate(uv.x, uv.y);
-    let normal = surface.normal(uv.x, uv.y)?;
-    let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
-
-    if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
-        return None;
-    }
-
-    let curvature = (derivatives.duu.dot(normal).abs() / (su * su))
-        .max(derivatives.dvv.dot(normal).abs() / (sv * sv))
-        .max(derivatives.duv.dot(normal).abs() / (su * sv));
-    curvature.is_finite().then_some(curvature)
-}
-
-fn largest_curvature(surface: &Surface, uvs: &[Point2]) -> Option<f64> {
-    uvs.iter()
-        .map(|uv| curvature_bound(surface, *uv))
-        .try_fold(0.0, |largest: f64, curvature| {
-            Some(larger(largest, curvature?))
-        })
-}
-
-fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
-    let surface = patch.surface();
-    let uv = patch.bounds().center();
-
-    let point = surface.point_at(uv);
-    let foot = other.project(point, None);
-
-    let offset = point - other.point_at(foot);
-    let distance = offset.length();
-
-    let (Some(normal), Some(other_normal)) =
-        (surface.normal(uv.x, uv.y), other.normal(foot.x, foot.y))
-    else {
-        return false;
-    };
-
-    if offset.cross(other_normal).length() > FOOT_ALONG_NORMAL * distance + TOLERANCE {
-        return false;
-    }
-
-    let (u, v) = (patch.u_range(), patch.v_range());
-
-    let corners = [
-        Point2::new(u.start(), v.start()),
-        Point2::new(u.end(), v.start()),
-        Point2::new(u.start(), v.end()),
-        Point2::new(u.end(), v.end()),
-    ];
-    let reach = corners
-        .iter()
-        .map(|corner| surface.point_at(*corner).distance(point))
-        .fold(0.0, larger);
-    let Some(own) = largest_curvature(
-        surface,
-        &[uv, corners[0], corners[1], corners[2], corners[3]],
-    ) else {
-        return false;
-    };
-
-    let derivatives = other.evaluate(foot.x, foot.y);
-    let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
-
-    if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
-        return false;
-    }
-
-    let (du, dv) = (reach / su, reach / sv);
-
-    let Some(field) = largest_curvature(
-        other,
-        &[
-            foot,
-            foot + Vector2::new(du, 0.0),
-            foot - Vector2::new(du, 0.0),
-            foot + Vector2::new(0.0, dv),
-            foot - Vector2::new(0.0, dv),
-        ],
-    ) else {
-        return false;
-    };
-
-    if field * (distance + reach) >= FIELD_CURVATURE_REACH {
-        return false;
-    }
-
-    let sine = normal.cross(other_normal).length();
-    let bending = own + 2.0 * field;
-    distance > sine * reach + bending * reach * reach + TOLERANCE
-}
-
-struct Node<'a> {
-    patch: SurfacePatch<'a>,
-    bounds: Aabb,
-    apart: bool,
-    children: Option<[usize; 2]>,
-}
-
-struct Arena<'a> {
-    nodes: Vec<Node<'a>>,
+struct Arena<'s, 'a> {
+    subdivision: &'s mut Subdivision<'a>,
     other: &'a Surface,
+    apart: Vec<Option<bool>>,
     leaf: f64,
 }
 
-impl<'a> Arena<'a> {
-    fn new(patch: SurfacePatch<'a>, other: &'a Surface) -> Self {
-        let mut arena = Self {
-            nodes: Vec::new(),
+impl<'s, 'a> Arena<'s, 'a> {
+    fn new(subdivision: &'s mut Subdivision<'a>, other: &'a Surface) -> Self {
+        let leaf = subdivision.leaf();
+        Self {
+            subdivision,
             other,
-            leaf: leaf_size(&patch),
-        };
-
-        arena.push(patch);
-        arena
+            apart: Vec::new(),
+            leaf,
+        }
     }
 
-    fn push(&mut self, patch: SurfacePatch<'a>) -> usize {
-        let bounds = patch.bounding_box();
-        let apart = apart(self.other, &patch, &bounds);
-
-        self.nodes.push(Node {
-            patch,
-            bounds,
-            apart,
-            children: None,
-        });
-        self.nodes.len() - 1
-    }
-
-    fn children(&mut self, index: usize) -> [usize; 2] {
-        if let Some(children) = self.nodes.get(index).and_then(|node| node.children) {
-            return children;
+    fn apart(&mut self, index: usize) -> bool {
+        if let Some(Some(apart)) = self.apart.get(index) {
+            return *apart;
         }
 
-        let Some(patch) = self.nodes.get(index).map(|node| node.patch) else {
-            return [index, index];
-        };
-        let [low, high] = patch.halves();
+        let apart = self.subdivision.apart_from(index, self.other);
 
-        let children = [self.push(low), self.push(high)];
-
-        if let Some(node) = self.nodes.get_mut(index) {
-            node.children = Some(children);
+        if self.apart.len() <= index {
+            self.apart.resize(index + 1, None);
         }
-        children
+        if let Some(slot) = self.apart.get_mut(index) {
+            *slot = Some(apart);
+        }
+        apart
     }
 }
 
@@ -423,12 +250,16 @@ impl<'a> Tracer<'a> {
         None
     }
 
-    fn seeds(&self) -> Result<Vec<Seed>, IntersectionError> {
+    fn seeds(
+        &self,
+        subdivisions: [&mut Subdivision<'a>; 2],
+    ) -> Result<Vec<Seed>, IntersectionError> {
         let [first, second] = self.patches;
+        let [first_subdivision, second_subdivision] = subdivisions;
 
         let mut arenas = [
-            Arena::new(first, second.surface()),
-            Arena::new(second, first.surface()),
+            Arena::new(first_subdivision, second.surface()),
+            Arena::new(second_subdivision, first.surface()),
         ];
         let mut pending = vec![(0usize, 0usize, 0usize)];
         let mut seeds: Vec<Seed> = Vec::new();
@@ -441,27 +272,26 @@ impl<'a> Tracer<'a> {
                 return Err(IntersectionError::TooComplex(MAX_SEED_PAIRS));
             }
 
-            let [first_arena, second_arena] = &arenas;
+            let [first_arena, second_arena] = &mut arenas;
 
-            let (Some(a_node), Some(b_node)) =
-                (first_arena.nodes.get(a), second_arena.nodes.get(b))
-            else {
+            let (Some(a_box), Some(b_box)) = (
+                first_arena.subdivision.bounds(a),
+                second_arena.subdivision.bounds(b),
+            ) else {
                 continue;
             };
 
-            if a_node.apart
-                || b_node.apart
-                || !boxes_overlap(&a_node.bounds, &b_node.bounds, TOLERANCE)
+            if first_arena.apart(a)
+                || second_arena.apart(b)
+                || !boxes_overlap(&a_box, &b_box, TOLERANCE)
             {
                 continue;
             }
 
-            let a_ratio = a_node.bounds.diagonal() / first_arena.leaf;
-            let b_ratio = b_node.bounds.diagonal() / second_arena.leaf;
+            let a_ratio = a_box.diagonal() / first_arena.leaf;
+            let b_ratio = b_box.diagonal() / second_arena.leaf;
 
             if (a_ratio <= 1.0 && b_ratio <= 1.0) || depth >= MAX_SEED_DEPTH {
-                let (a_box, b_box) = (a_node.bounds, b_node.bounds);
-
                 let covered = seeds.iter().any(|known| {
                     known.sine > COVERED_SINE
                         && boxes_overlap(&a_box, &Aabb::from_point(known.contact.point), TOLERANCE)
@@ -471,7 +301,15 @@ impl<'a> Tracer<'a> {
                 if covered {
                     continue;
                 }
-                if let Some(seed) = self.leaf_seeds(&a_node.patch, &b_node.patch)
+
+                let (Some(a_patch), Some(b_patch)) = (
+                    first_arena.subdivision.patch(a),
+                    second_arena.subdivision.patch(b),
+                ) else {
+                    continue;
+                };
+
+                if let Some(seed) = self.leaf_seeds(&a_patch, &b_patch)
                     && !seeds
                         .iter()
                         .any(|known| known.contact.point.distance(seed.contact.point) <= SEED_MERGE)
@@ -481,14 +319,13 @@ impl<'a> Tracer<'a> {
                 continue;
             }
 
-            let [first_arena, second_arena] = &mut arenas;
             if a_ratio >= b_ratio {
-                let [low, high] = first_arena.children(a);
+                let [low, high] = first_arena.subdivision.children(a);
 
                 pending.push((high, b, depth + 1));
                 pending.push((low, b, depth + 1));
             } else {
-                let [low, high] = second_arena.children(b);
+                let [low, high] = second_arena.subdivision.children(b);
 
                 pending.push((a, high, depth + 1));
                 pending.push((a, low, depth + 1));
@@ -1336,16 +1173,20 @@ fn closes(seed: &Contact, seed_tangent: Vector3, current: &Contact, next: &Step)
     crossing.distance(seed.point) <= chord * (0.25 * next.turn + 0.05) + TOLERANCE
 }
 
-pub(crate) fn intersect(
-    first: &SurfacePatch,
-    second: &SurfacePatch,
+pub(crate) fn intersect<'a>(
+    first: &SurfacePatch<'a>,
+    second: &SurfacePatch<'a>,
     hints: &[Point3],
     touches: Vec<Point3>,
+    subdivisions: [&mut Subdivision<'a>; 2],
 ) -> Result<Raw, IntersectionError> {
-    let smallest = first
-        .bounding_box()
+    let [first_subdivision, second_subdivision] = subdivisions;
+
+    let smallest = first_subdivision
+        .root_bounds()
         .diagonal()
-        .min(second.bounding_box().diagonal());
+        .min(second_subdivision.root_bounds().diagonal());
+    let touch_merge = 0.5 * first_subdivision.leaf().min(second_subdivision.leaf());
     let mut tracer = Tracer {
         patches: [*first, *second],
         max_step: (STEP_FRACTION * smallest).max(MIN_LEAF),
@@ -1354,7 +1195,7 @@ pub(crate) fn intersect(
         touches,
     };
 
-    let seeds = tracer.seeds()?;
+    let seeds = tracer.seeds([first_subdivision, second_subdivision])?;
     let mut isolated = tracer.isolated_touches(&seeds)?;
 
     for hint in hints {
@@ -1377,7 +1218,6 @@ pub(crate) fn intersect(
         }
     }
 
-    let touch_merge = 0.5 * leaf_size(first).min(leaf_size(second));
     let mut touches: Vec<Seed> = Vec::new();
 
     for seed in &seeds {
@@ -1540,11 +1380,17 @@ mod tests {
             let rolling: Surface = Cylinder::new(axis, 1.5).unwrap().into();
             let expected = Point3::new(12.0 + 0.5 * gap, 0.0, height);
 
+            let rolling_patch = around(&rolling, (-20.0, 20.0));
+
             let raw = intersect(
                 &corner_patch,
-                &around(&rolling, (-20.0, 20.0)),
+                &rolling_patch,
                 &[],
                 Vec::new(),
+                [
+                    &mut Subdivision::new(corner_patch),
+                    &mut Subdivision::new(rolling_patch),
+                ],
             )
             .unwrap();
 

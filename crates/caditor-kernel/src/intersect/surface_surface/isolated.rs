@@ -5,7 +5,7 @@ use caditor_geometry::{Maths, Point2, Point3};
 use crate::{
     intersect::{
         solve::{Contact, SeparationForm, parallel_normals},
-        surface_surface::march::curvature_bound,
+        surface_surface::subdivision::curvature_bound,
     },
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,

@@ -29,17 +29,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (5 mm inner radius, 5 mm pitch) 4.2 s and 277 s, one to three faces given up and taken from the
   mesh: the swept faces' integrals barely converge within `FACE_EVALUATIONS`.
 - [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
-  the eight-edge rim of a pocket with rounded corners in a cylinder takes about 53 ms
-  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 31 ms of
-  it the boolean, 13 ms rounding and 9 ms planning. About 18 ms of the boolean are the chord
-  spline's intersections with the cylinder and walls: 7 ms seeding (Gauss–Newton solves in each
-  subdivision leaf, a single branch often seeded by dozens of leaves, and the restricted control
-  nets that box the spline's halves, rebuilt for every face pair the spline meets), 5 ms marching
-  and building the intersection curves (three plane solves a segment to check the curve), the rest
-  clipping; edge hits, fragment selection and splitting take about 3.5 ms each. Validating volumes
-  by meshing the tool, the boolean's result and the rounded solid takes 11 ms, much of it sampling
-  the foot rows (757 seeds an edge from six a span of the 129-section rows, each probed for a
-  corner).
+  the eight-edge rim of a pocket with rounded corners in a cylinder takes about 49 ms
+  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored; 57 ms on
+  the same machine before subdivisions were shared and flat spline spans seeded as runs), 30 ms of
+  it the boolean, 10 ms rounding and 8 ms planning. About 16 ms of the boolean are the lofted
+  faces' intersections with the cylinder and walls: 5 ms seeding, 5 ms marching and building the
+  intersection curves, the rest clipping and recognising them; edge hits take about 6 ms,
+  fragment selection and splitting about 3.5 ms each, and validating volumes by meshing about
+  3.5 ms. Seeding is now mostly boxing and pruning subdivision pieces met for the first time
+  (each lofted face meets two or three faces, so sharing its subdivision saved about 2 ms) and
+  about 2 ms of leaf solves: 376 leaves gave 362 seeds for the 12 branches of 86 marched pairs.
+  Skipping the leaves of a branch already found needs that branch traced during subdivision,
+  ahead of the hints and of the isolated-touch search, which today see every seed before
+  anything is traced, so it was left for the 2 ms it would save at most.
 - [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
   points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
   its triangles in twelve: each strip triangulates its core and a reach of about the widest empty

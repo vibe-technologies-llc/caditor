@@ -7,8 +7,9 @@ use crate::{
     curve::Curve,
     interrupt::{self, Interrupted},
     intersect::{
-        CurveSurfaceOverlap, IntersectionBranch, IntersectionError, SurfaceIntersection,
-        SurfacePatch, intersect_curve_surface, intersect_curves, intersect_surfaces_through,
+        CurveSurfaceOverlap, IntersectionBranch, IntersectionError, Subdivision,
+        SurfaceIntersection, SurfacePatch, intersect_curve_surface, intersect_curves,
+        intersect_surfaces_sharing,
     },
     interval::Interval,
     naming::EdgeName,
@@ -691,6 +692,7 @@ fn shared_points(pool: &Pool, faces: [&FaceBounds; 2], surfaces: [&Surface; 2]) 
 
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
     let mut branches = Vec::new();
+    let mut kept_subdivisions: BTreeMap<FaceId, Subdivision<'_>> = BTreeMap::new();
 
     for first in input.faces(Operand::First) {
         let key = FaceKey {
@@ -701,6 +703,9 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
         if !input.imprints_on(key) {
             continue;
         }
+
+        let mut first_subdivision: Option<Subdivision<'_>> = None;
+
         for second in input.faces_near(Operand::Second, &first.bounds) {
             interrupt::check()?;
 
@@ -725,7 +730,26 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
             let found = SurfacePatch::new(first_face.surface(), first.uv)
                 .and_then(|first_patch| {
                     let second_patch = SurfacePatch::new(second_face.surface(), second.uv)?;
-                    intersect_surfaces_through(&first_patch, &second_patch, &hints)
+
+                    let first_subdivision =
+                        first_subdivision.get_or_insert_with(|| Subdivision::new(first_patch));
+                    let mut passing;
+
+                    let second_subdivision = if Subdivision::worth_keeping(second_face.surface()) {
+                        kept_subdivisions
+                            .entry(second.id)
+                            .or_insert_with(|| Subdivision::new(second_patch))
+                    } else {
+                        passing = Subdivision::new(second_patch);
+                        &mut passing
+                    };
+
+                    intersect_surfaces_sharing(
+                        &first_patch,
+                        &second_patch,
+                        &hints,
+                        [first_subdivision, second_subdivision],
+                    )
                 })
                 .map_err(|error| {
                     BooleanError::from(error)

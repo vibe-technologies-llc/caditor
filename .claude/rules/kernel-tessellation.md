@@ -18,6 +18,15 @@ paths:
   chord's end moved) and measured again only when that bound nears the tolerance, so a long run
   costs linear time, not quadratic. A traced thread edge with a knot at every node so gets the
   points its angle asks for, not one per seed. Validation and profiles keep `Curve::sample`.
+- A non-rational spline edge is seeded by runs of up to `MAX_FLAT_SPANS` knot spans
+  (`BSpline::flat_seeds`) instead of 2×degree points a span wherever a run's control points lie
+  within the chord tolerance of the chord between its ends and every leg of its control polygon
+  turns at most half the angle from that chord: the convex hull then holds the curve within the
+  chord and the hodograph its tangents within the angle of each other, so no sample inside could
+  split it. A run never passes a knot of multiplicity at least the degree (where the tangent may
+  jump), and a span that is not flat alone keeps its 2×degree seeds. A lofted blend's foot rows,
+  129 sections, took 757 seeds and some 4,500 evaluations each for the validation mesh and now
+  take a handful of runs.
 - Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v) plus an
   interior tensor grid (`density.rs`) kept clear of the boundary. Grid lines are graded per
   direction by curvature: the need (cells per unit parameter) is sampled on a lattice (at most

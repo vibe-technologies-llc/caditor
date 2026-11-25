@@ -6,7 +6,10 @@ use super::*;
 use crate::{
     bspline::BSpline,
     curve::Curve,
-    intersect::{IntersectionError, SurfaceIntersection, intersect_surfaces},
+    intersect::{
+        IntersectionError, Subdivision, SurfaceIntersection, intersect_surfaces,
+        intersect_surfaces_sharing,
+    },
     sense::Sense,
     surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus},
 };
@@ -865,5 +868,61 @@ fn a_section_leaving_its_patch_between_two_steps_ends_where_it_leaves() {
                 "branch {index} runs along another"
             );
         }
+    }
+}
+
+fn bumpy_spline() -> Surface {
+    let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0, 1.0, 1.0, 1.0];
+    let points = (0..6)
+        .flat_map(|row| {
+            (0..6).map(move |column| {
+                let height = 0.8 * f64::from((column * row) % 3) - 0.4;
+                Point3::new(f64::from(column), f64::from(row), height)
+            })
+        })
+        .collect();
+    crate::surface::BSplineSurface::new(3, 3, knots.clone(), knots, 6, points, None)
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn a_spline_patch_subdivided_once_is_shared_by_the_surfaces_it_meets_with_the_same_result() {
+    let sheet_surface = bumpy_spline();
+    let sheet = patch(&sheet_surface, (0.0, 1.0), (0.0, 1.0));
+    let post = cylinder(Point3::new(2.5, 2.5, -3.0), Vector3::Z, 1.6);
+    let slant = tilted_plane(0.2, 0.1);
+
+    let cutters = [around(&post, (0.0, 6.0)), square(&slant, 10.0)];
+
+    let mut shared = Subdivision::new(sheet);
+
+    for cutter in cutters {
+        let fresh = intersect_surfaces(&sheet, &cutter).unwrap();
+        let mut alone = Subdivision::new(sheet);
+        let before = shared.pieces();
+
+        let sharing = intersect_surfaces_sharing(
+            &sheet,
+            &cutter,
+            &[],
+            [&mut shared, &mut Subdivision::new(cutter)],
+        )
+        .unwrap();
+        let separate = intersect_surfaces_sharing(
+            &sheet,
+            &cutter,
+            &[],
+            [&mut alone, &mut Subdivision::new(cutter)],
+        )
+        .unwrap();
+
+        check_all(&sharing, &sheet_surface, cutter.surface());
+
+        assert!(!sharing.branches().is_empty());
+        assert_eq!(sharing, fresh);
+        assert_eq!(separate, fresh);
+        assert!(alone.pieces() > 1);
+        assert!(shared.pieces() - before < alone.pieces());
     }
 }

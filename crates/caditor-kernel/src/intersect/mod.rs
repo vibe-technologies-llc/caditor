@@ -15,7 +15,7 @@ pub(crate) use self::{
     clip::{guided_intervals, inside_intervals},
     linear::solve_dense,
     patch::{boxes_overlap, parameter_slack, patch_bounds, wrap_into},
-    surface_surface::line_window,
+    surface_surface::{Subdivision, intersect_surfaces_sharing, line_window},
 };
 pub use self::{
     curve_curve::{
@@ -28,7 +28,6 @@ pub use self::{
     patch::SurfacePatch,
     surface_surface::{
         IntersectionBranch, IntersectionPoint, SurfaceIntersection, intersect_surfaces,
-        intersect_surfaces_through,
     },
 };
 use crate::{error::GeometryError, interrupt::Interrupted};

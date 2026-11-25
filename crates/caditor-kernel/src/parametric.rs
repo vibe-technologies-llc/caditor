@@ -174,7 +174,15 @@ pub(crate) fn adaptive_parameters<C: Parametric>(
     range: Interval,
     tolerance: &SamplingTolerance,
 ) -> Vec<f64> {
-    let seeds = curve.seeds(range);
+    adaptive_parameters_from(curve, &curve.seeds(range), range, tolerance)
+}
+
+pub(crate) fn adaptive_parameters_from<C: Parametric>(
+    curve: &C,
+    seeds: &[f64],
+    range: Interval,
+    tolerance: &SamplingTolerance,
+) -> Vec<f64> {
     let evaluated: Vec<Sampled<C::Point>> = seeds
         .iter()
         .map(|parameter| Sampled::at(curve, *parameter))

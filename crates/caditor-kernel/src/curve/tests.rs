@@ -193,6 +193,137 @@ fn sampling_holds_the_chord_and_angle_tolerances() {
     }
 }
 
+fn foot_row(sections: usize) -> BSplineCurve {
+    let points = (0..sections)
+        .map(|index| {
+            let angle = 1.2 * index as f64 / (sections - 1) as f64;
+            Point3::new(
+                40.0 * angle.cos_libm(),
+                40.0 * angle.sin_libm(),
+                20.0 + 0.5 * (3.0 * angle).sin_libm(),
+            )
+        })
+        .collect();
+    BSpline::clamped_uniform(3, points).unwrap()
+}
+
+fn holds_tolerance(curve: &Curve, samples: &[CurveSample], tolerance: &SamplingTolerance) {
+    for pair in samples.windows(2) {
+        let [a, b] = pair else {
+            panic!("windows of two")
+        };
+
+        for fraction in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] {
+            let middle = curve.point(a.parameter + (b.parameter - a.parameter) * fraction);
+            let deviation = crate::coordinates::distance_to_segment(middle, a.point, b.point);
+
+            assert!(
+                deviation <= tolerance.chord() * 1.05,
+                "deviates by {deviation}"
+            );
+        }
+
+        let turning = crate::coordinates::angle_between(
+            curve.evaluate(a.parameter).first,
+            curve.evaluate(b.parameter).first,
+        );
+
+        assert!(turning <= tolerance.angle() + 1e-9, "turns by {turning}");
+    }
+}
+
+#[test]
+fn a_spline_of_many_flat_spans_is_seeded_by_runs_of_spans_and_sampled_within_the_tolerance() {
+    let tolerance = SamplingTolerance::new(0.5, 0.35).unwrap();
+    let spline = foot_row(129);
+    let range = spline.domain();
+    let curve: Curve = spline.clone().into();
+
+    let seeds = spline.flat_seeds(range, tolerance.chord(), tolerance.angle());
+    let samples = curve.sample_sparingly(range, &tolerance);
+
+    assert_eq!(spline.seeds(range).len(), 757);
+    assert!(seeds.len() <= 8, "{seeds:?}");
+    assert_eq!(seeds.first(), Some(&range.start()));
+    assert_eq!(seeds.last(), Some(&range.end()));
+    assert!(samples.len() >= 3);
+
+    holds_tolerance(&curve, &samples, &tolerance);
+
+    let fine = SamplingTolerance::new(1e-4, 0.05).unwrap();
+
+    let finely = spline.flat_seeds(range, fine.chord(), fine.angle());
+
+    assert_eq!(finely, spline.seeds(range));
+
+    holds_tolerance(&curve, &curve.sample_sparingly(range, &fine), &fine);
+}
+
+#[test]
+fn a_flat_run_of_spans_stops_where_the_tangent_may_jump() {
+    let tolerance = SamplingTolerance::new(0.5, 0.35).unwrap();
+    let kinked = BSpline::new(
+        3,
+        vec![
+            0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0, 3.0, 4.0, 4.0, 4.0, 4.0,
+        ],
+        vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(5.0, 0.05, 0.0),
+            Point3::new(6.0, 0.1, 0.0),
+            Point3::new(7.0, 0.15, 0.0),
+            Point3::new(8.0, 0.2, 0.0),
+        ],
+    )
+    .unwrap();
+    let range = kinked.domain();
+    let curve: Curve = kinked.clone().into();
+
+    let seeds = kinked.flat_seeds(range, tolerance.chord(), tolerance.angle());
+    let samples = curve.sample_sparingly(range, &tolerance);
+
+    assert_eq!(seeds, vec![0.0, 2.0, 4.0]);
+    assert!(samples.iter().any(|sample| sample.parameter == 2.0));
+}
+
+#[test]
+fn a_rational_spline_keeps_every_seed_and_a_closed_one_is_never_one_run() {
+    let tolerance = SamplingTolerance::new(100.0, 3.0).unwrap();
+    let rational = spline();
+    let range = Interval::new(0.0, 4.0).unwrap();
+
+    let ring = BSpline::clamped_uniform(
+        3,
+        (0..=24)
+            .map(|index| {
+                let angle = TAU * f64::from(index) / 24.0;
+                Point3::new(angle.cos_libm(), angle.sin_libm(), 0.0)
+            })
+            .collect(),
+    )
+    .unwrap();
+    let whole = ring.domain();
+    let ring_curve: Curve = ring.clone().into();
+
+    let ring_seeds = ring.flat_seeds(whole, tolerance.chord(), tolerance.angle());
+
+    assert_eq!(
+        rational.flat_seeds(range, tolerance.chord(), tolerance.angle()),
+        rational.seeds(range)
+    );
+    assert!(ring_seeds.len() >= 3, "{ring_seeds:?}");
+
+    holds_tolerance(
+        &ring_curve,
+        &ring_curve.sample_sparingly(whole, &tolerance),
+        &tolerance,
+    );
+}
+
 #[test]
 fn sampling_stays_bounded_for_extreme_tolerances() {
     let tolerance = SamplingTolerance::new(1e-300, 1e-300).unwrap();

@@ -130,6 +130,14 @@ paths:
     patch running across a closed surface's seam (a face widened past it) is bounded by the boxes
     of its pieces either side (`BSplineSurface::bounds`, `seam_pieces`), never the whole net,
     or subdivision near the seam would never prune.
+  - A patch's subdivision (`subdivision.rs`, `Subdivision`) keeps what depends on the patch alone:
+    each piece's box (for a spline its restricted control net, the costly part), centre, normal,
+    reach and curvature; only whether a piece lies apart from the other surface is judged per pair.
+    The boolean passes one per face to `intersect_surfaces_sharing`: a first operand's face keeps
+    it while it meets the second's faces, a sampled-kind face of the second (spline, extrusion,
+    revolution) for the whole imprint, so a lofted blend's spline faces are boxed once whatever
+    the faces they meet. A subdivision of another patch, or past `MAX_KEPT_PIECES`, starts again.
+    Sharing never changes a result, only what is evaluated again.
   - A leaf's closest approach within the resolution that `refine_contact` cannot bring onto both
     surfaces seeds nothing unless its normals' sine is at most `TOUCH_SINE`: the surfaces come near
     and do not meet there, and marching from it collapsed on its first step (`Unfollowable`), as
@@ -152,7 +160,7 @@ paths:
     Surfaces apart or overlapping by less than the resolution there touch the same way, so a leaf
     whose closest approach cannot be refined onto both surfaces seeds when it is such a touch.
   - Arrangement points lying on both surfaces (an edge of one solid piercing a face of the other)
-    are also seeds (`intersect_surfaces_through`), so a short branch near a patch corner is found
+    are also seeds (`intersect_surfaces_sharing`), so a short branch near a patch corner is found
     when no subdivision leaf seeds it; a failing hint is ignored.
   - Branches march both ways from each seed not already on a branch, stop exactly on the box
     boundary, close loops through the seed and end where the normals become parallel (tangent

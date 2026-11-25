@@ -138,6 +138,20 @@ impl Surface {
         }
     }
 
+    pub(crate) fn normal_evaluated(
+        &self,
+        u: f64,
+        v: f64,
+        derivatives: &SurfaceDerivatives,
+    ) -> Option<Vector3> {
+        match self {
+            Self::Extrusion(_) | Self::Revolution(_) | Self::BSpline(_) => {
+                derivatives.normal().or_else(|| self.nudged_normal(u, v))
+            }
+            _ => self.normal(u, v),
+        }
+    }
+
     fn nudged_normal(&self, u: f64, v: f64) -> Option<Vector3> {
         let nudge = |domain: Domain, value: f64| {
             let reach = domain

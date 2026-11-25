@@ -4,12 +4,13 @@ mod isolated;
 mod march;
 mod overlap;
 mod recognize;
+mod subdivision;
 
 use std::cell::Cell;
 
 use caditor_geometry::{Aabb, Point2, Point3};
 
-pub(crate) use self::analytic::line_window;
+pub(crate) use self::{analytic::line_window, subdivision::Subdivision};
 use crate::{
     curve::Curve,
     intersect::{IntersectionError, SurfacePatch, boxes_overlap, guided_intervals},
@@ -95,19 +96,36 @@ pub fn intersect_surfaces(
     first: &SurfacePatch,
     second: &SurfacePatch,
 ) -> Result<SurfaceIntersection, IntersectionError> {
-    intersect_surfaces_through(first, second, &[])
+    intersect_surfaces_sharing(
+        first,
+        second,
+        &[],
+        [
+            &mut Subdivision::new(*first),
+            &mut Subdivision::new(*second),
+        ],
+    )
 }
 
-pub fn intersect_surfaces_through(
-    first: &SurfacePatch,
-    second: &SurfacePatch,
+pub(crate) fn intersect_surfaces_sharing<'a>(
+    first: &SurfacePatch<'a>,
+    second: &SurfacePatch<'a>,
     hints: &[Point3],
+    subdivisions: [&mut Subdivision<'a>; 2],
 ) -> Result<SurfaceIntersection, IntersectionError> {
     if let Some(sense) = first.surface().same_surface(second.surface()) {
         return Ok(SurfaceIntersection::Coincident(sense));
     }
 
-    let (first_box, second_box) = (first.bounding_box(), second.bounding_box());
+    let [first_subdivision, second_subdivision] = subdivisions;
+
+    let (first_subdivision, second_subdivision) =
+        (first_subdivision.of(first), second_subdivision.of(second));
+
+    let (first_box, second_box) = (
+        first_subdivision.root_bounds(),
+        second_subdivision.root_bounds(),
+    );
 
     if !boxes_overlap(&first_box, &second_box, TOLERANCE) {
         return Ok(SurfaceIntersection::Branches {
@@ -125,7 +143,13 @@ pub fn intersect_surfaces_through(
     let window = shared_window(&first_box, &second_box);
     let raw = match analytic::intersect(first, second, &window) {
         Some(raw) => raw,
-        None => march::intersect(first, second, hints, analytic::touches(first, second))?,
+        None => march::intersect(
+            first,
+            second,
+            hints,
+            analytic::touches(first, second),
+            [first_subdivision, second_subdivision],
+        )?,
     };
     finish(first, second, &window, raw)
 }

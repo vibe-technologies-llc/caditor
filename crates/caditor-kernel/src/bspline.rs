@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use crate::{
-    coordinates::Coordinates, error::GeometryError, interval::Interval, shared::SharedBuffer,
+    coordinates::{Coordinates, angle_between, distance_to_segment},
+    error::GeometryError,
+    interval::Interval,
+    shared::SharedBuffer,
     tolerance::LINEAR_RESOLUTION,
 };
 
 pub const MAX_SPLINE_DEGREE: usize = 25;
 const MIN_PRUNED_SPANS: usize = 8;
+const MAX_FLAT_SPANS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BSpline<P> {
@@ -569,6 +573,90 @@ impl<P: Coordinates> BSpline<P> {
         }
         seeds.dedup();
         seeds
+    }
+
+    pub(crate) fn flat_seeds(&self, range: Interval, chord: f64, angle: f64) -> Vec<f64> {
+        if self.is_rational() {
+            return self.seeds(range);
+        }
+
+        let per_span = 2 * self.degree;
+        let mut breaks = vec![range.start()];
+
+        breaks.extend(
+            self.breakpoints()
+                .into_iter()
+                .filter(|knot| *knot > range.start() && *knot < range.end()),
+        );
+        breaks.push(range.end());
+
+        let at = |index: usize| breaks.get(index).copied();
+        let mut seeds = vec![range.start()];
+        let mut first = 0;
+
+        while let (Some(start), Some(next)) = (at(first), at(first + 1)) {
+            let mut last = first + 1;
+            let mut end = next;
+
+            while last - first < MAX_FLAT_SPANS
+                && !self.may_turn_at(end)
+                && let Some(further) = at(last + 1)
+                && self.flat_over(start, further, chord, angle)
+            {
+                last += 1;
+                end = further;
+            }
+
+            if last > first + 1 || self.flat_over(start, end, chord, angle) {
+                seeds.push(end);
+            } else if let Some(piece) = Interval::new(start, end) {
+                seeds.extend(piece.split(per_span).skip(1));
+            }
+            first = last;
+        }
+        seeds.dedup();
+        seeds
+    }
+
+    fn control_points_spanning(&self, range: Interval) -> &[P] {
+        let last_point = self.control_points.len() - 1;
+        let span_from = |after: usize| after.saturating_sub(1).clamp(self.degree, last_point);
+
+        let first = span_from(self.knots.partition_point(|knot| *knot <= range.start()));
+        let last = span_from(self.knots.partition_point(|knot| *knot < range.end()));
+        self.control_points
+            .get(first - self.degree..=last)
+            .unwrap_or(&self.control_points)
+    }
+
+    fn may_turn_at(&self, knot: f64) -> bool {
+        let first = self.knots.partition_point(|value| *value < knot);
+        let after = self.knots.partition_point(|value| *value <= knot);
+        after - first >= self.degree
+    }
+
+    fn flat_over(&self, start: f64, end: f64, chord: f64, angle: f64) -> bool {
+        let Some(range) = Interval::new(start, end) else {
+            return false;
+        };
+        let (from, to) = (self.point(start), self.point(end));
+
+        let along = to - from;
+
+        if along.norm() <= LINEAR_RESOLUTION {
+            return false;
+        }
+
+        let points = self.control_points_spanning(range);
+
+        let within_chord = points
+            .iter()
+            .all(|point| distance_to_segment(*point, from, to) <= chord);
+        let legs_along = points.windows(2).all(|pair| match pair {
+            [before, after] => 2.0 * angle_between(*after - *before, along) <= angle,
+            _ => false,
+        });
+        within_chord && legs_along
     }
 
     pub(crate) fn spans_within(&self, range: Interval) -> Vec<Interval> {

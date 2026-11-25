@@ -186,13 +186,17 @@ impl Curve {
         range: Interval,
         tolerance: &SamplingTolerance,
     ) -> Vec<CurveSample> {
-        let parameters = match self {
+        let fine = match self {
             Self::Line(_) | Self::Circle(_) => return self.sample(range, tolerance),
-            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
-                let fine = parametric::adaptive_parameters(self, range, tolerance);
-                parametric::merged_parameters(self, &fine, tolerance)
+            Self::BSpline(spline) => {
+                let seeds = spline.flat_seeds(range, tolerance.chord(), tolerance.angle());
+                parametric::adaptive_parameters_from(self, &seeds, range, tolerance)
+            }
+            Self::Ellipse(_) | Self::Intersection(_) => {
+                parametric::adaptive_parameters(self, range, tolerance)
             }
         };
+        let parameters = parametric::merged_parameters(self, &fine, tolerance);
         parameters
             .into_iter()
             .map(|parameter| CurveSample {
