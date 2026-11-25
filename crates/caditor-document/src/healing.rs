@@ -189,18 +189,48 @@ impl ReferenceVisitor for ReferredGeometry {
 
 pub fn referred_geometry(kind: &FeatureKind) -> ReferredGeometry {
     let mut referred = ReferredGeometry::default();
+
+    if let FeatureKind::Sketch(sketch) = kind {
+        if let Some(SketchAttachment::Face(attachment)) = &sketch.attachment {
+            referred
+                .faces
+                .push((attachment.body, attachment.face.clone()));
+        }
+        for source in sketch.projections.values() {
+            match source {
+                ProjectionSource::Edge { body, edge } => referred.edges.push((*body, *edge)),
+                ProjectionSource::Vertex { body, vertex } => {
+                    referred.vertices.push((*body, *vertex));
+                }
+                ProjectionSource::BodyOutline { body, part } => match &part.origin {
+                    OutlineOrigin::Edge(edge) => referred.edges.push((*body, *edge)),
+                    OutlineOrigin::Silhouette(face) => referred.faces.push((*body, face.clone())),
+                },
+                ProjectionSource::Section { .. }
+                | ProjectionSource::SketchEntity { .. }
+                | ProjectionSource::DatumPlane { .. }
+                | ProjectionSource::FramePlane { .. }
+                | ProjectionSource::PrincipalPlane { .. }
+                | ProjectionSource::DatumAxis { .. }
+                | ProjectionSource::FrameAxis { .. }
+                | ProjectionSource::PrincipalAxis { .. }
+                | ProjectionSource::DatumPoint { .. }
+                | ProjectionSource::Origin => {}
+            }
+        }
+        if sketch.attachment.is_none()
+            && let Some(plane) = PrincipalPlane::ALL
+                .into_iter()
+                .find(|plane| plane.plane() == sketch.sketch.plane())
+        {
+            referred.principal_plane(plane);
+        }
+        return referred;
+    }
+
     let mut visited = kind.clone();
 
     visit(&mut visited, &mut referred);
-    visit_projections(&mut visited, &mut referred);
-    if let FeatureKind::Sketch(sketch) = kind
-        && sketch.attachment.is_none()
-        && let Some(plane) = PrincipalPlane::ALL
-            .into_iter()
-            .find(|plane| plane.plane() == sketch.sketch.plane())
-    {
-        referred.principal_plane(plane);
-    }
     referred
 }
 

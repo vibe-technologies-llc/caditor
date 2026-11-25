@@ -416,3 +416,82 @@ fn capturing_an_edge_with_cached_vertex_names_matches_capture() {
         assert_eq!(cached, direct);
     }
 }
+
+#[test]
+fn resolving_by_indexed_names_matches_exact_name_resolution() {
+    let solid = plate_with_slot(4.0);
+    let vertex_names = super::vertex_names(&solid);
+    let vertex_name = |vertex| {
+        vertex_names
+            .get(&vertex)
+            .copied()
+            .unwrap_or_else(|| VertexName::of_faces([]))
+    };
+
+    for (id, face) in solid.faces() {
+        let reference = FaceReference::capture(&solid, id).unwrap();
+        let named: Vec<FaceId> = solid
+            .faces()
+            .filter(|(_, other)| other.name() == face.name())
+            .map(|(other, _)| other)
+            .collect();
+
+        assert_eq!(reference.resolve_named(&solid, &named), Ok(id));
+        assert_eq!(
+            reference.resolve_named(&solid, &[]),
+            Err(ReferenceError::Missing)
+        );
+    }
+
+    let hole = plate_with_hole((4.0, 4.0));
+    let bore = face_from(
+        &hole,
+        FaceOrigin::Side {
+            feature: 11,
+            entity: 5,
+        },
+    );
+
+    let strangers = FaceReference::new(
+        hole.face(bore).unwrap().name(),
+        hole.face(bore).unwrap().origin(),
+        [FaceName::from_digest(99)],
+    );
+
+    assert_eq!(
+        strangers.resolve_named(&hole, &[bore]),
+        Err(ReferenceError::Missing)
+    );
+
+    for (id, edge) in solid.edges() {
+        let reference = EdgeReference::capture(&solid, id).unwrap();
+        let named: Vec<EdgeId> = solid
+            .edges()
+            .filter(|(_, other)| other.name() == edge.name())
+            .map(|(other, _)| other)
+            .collect();
+
+        assert_eq!(reference.resolve_named(&solid, &named, vertex_name), Ok(id));
+        assert_eq!(
+            reference.resolve_named(&solid, &[], vertex_name),
+            Err(ReferenceError::Missing)
+        );
+    }
+
+    let edges: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let reference = EdgeReference::capture(&solid, edges[0]).unwrap();
+    let missing_ends = EdgeReference::new(
+        reference.name(),
+        reference.faces(),
+        [VertexName::from_digest(1), VertexName::from_digest(2)],
+    );
+
+    assert_eq!(
+        reference.resolve_named(&solid, &edges[..2], vertex_name),
+        Ok(edges[0])
+    );
+    assert_eq!(
+        missing_ends.resolve_named(&solid, &edges[..2], vertex_name),
+        Err(ReferenceError::Missing)
+    );
+}

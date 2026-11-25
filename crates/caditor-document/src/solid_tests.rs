@@ -1841,3 +1841,60 @@ fn a_closed_spline_of_a_chosen_degree_extrudes_into_a_body_the_polygon_bounds() 
         );
     }
 }
+
+#[test]
+fn name_index_lists_all_edges_per_name_and_sketch_referred_geometry_lists_projections() {
+    let (document, body) = single_body(
+        extruded(ExtrudeExtent::one_side(stored("4 mm"), false)),
+        rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0)),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let solid = evaluation.body_result(body).unwrap().solid().unwrap();
+    let names = solid.names();
+
+    for (id, edge) in solid.solid.edges() {
+        assert!(names.edges_named(edge.name()).contains(&id));
+        assert_eq!(
+            names.edge_named(edge.name()),
+            names.edges_named(edge.name()).first().copied()
+        );
+    }
+
+    let (face_id, _) = solid.solid.faces().next().unwrap();
+    let (edge_id, _) = solid.solid.edges().next().unwrap();
+    let (vertex_id, _) = solid.solid.vertices().next().unwrap();
+    let face_ref = caditor_kernel::FaceReference::capture(&solid.solid, face_id).unwrap();
+    let edge_ref = solid.edge_reference(edge_id).unwrap();
+    let vertex_name = names.vertex_name(vertex_id).unwrap();
+
+    let mut sketch = SketchFeature::on_face(
+        Sketch::new(Plane::XY),
+        FaceAttachment {
+            body,
+            face: face_ref.clone(),
+        },
+    );
+
+    sketch.projections.insert(
+        EntityId::from_raw(1),
+        ProjectionSource::Edge {
+            body,
+            edge: edge_ref,
+        },
+    );
+    sketch.projections.insert(
+        EntityId::from_raw(2),
+        ProjectionSource::Vertex {
+            body,
+            vertex: vertex_name,
+        },
+    );
+
+    let referred = referred_geometry(&FeatureKind::Sketch(sketch));
+
+    assert_eq!(referred.faces, vec![(body, face_ref)]);
+    assert_eq!(referred.edges, vec![(body, edge_ref)]);
+    assert_eq!(referred.vertices, vec![(body, vertex_name)]);
+    assert!(referred.planes.is_empty());
+}

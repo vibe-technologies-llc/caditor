@@ -927,10 +927,32 @@ pub struct ExactMass {
     pub accuracy: Accuracy,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum NamedEdges {
+    One(EdgeId),
+    Many(Vec<EdgeId>),
+}
+
+impl NamedEdges {
+    fn as_slice(&self) -> &[EdgeId] {
+        match self {
+            Self::One(id) => std::slice::from_ref(id),
+            Self::Many(ids) => ids.as_slice(),
+        }
+    }
+
+    fn push(&mut self, id: EdgeId) {
+        match self {
+            Self::One(first) => *self = Self::Many(vec![*first, id]),
+            Self::Many(ids) => ids.push(id),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NameIndex {
     faces: BTreeMap<FaceName, Vec<FaceId>>,
-    edges: BTreeMap<EdgeName, EdgeId>,
+    edges: BTreeMap<EdgeName, NamedEdges>,
     vertices: BTreeMap<VertexName, Vec<VertexId>>,
     vertex_names: BTreeMap<VertexId, VertexName>,
 }
@@ -943,10 +965,13 @@ impl NameIndex {
             faces.entry(face.name()).or_default().push(id);
         }
 
-        let mut edges = BTreeMap::new();
+        let mut edges: BTreeMap<EdgeName, NamedEdges> = BTreeMap::new();
 
         for (id, edge) in solid.edges() {
-            edges.entry(edge.name()).or_insert(id);
+            edges
+                .entry(edge.name())
+                .and_modify(|existing| existing.push(id))
+                .or_insert(NamedEdges::One(id));
         }
 
         let vertex_names = vertex_names(solid);
@@ -976,7 +1001,11 @@ impl NameIndex {
     }
 
     pub fn edge_named(&self, name: EdgeName) -> Option<EdgeId> {
-        self.edges.get(&name).copied()
+        self.edges_named(name).first().copied()
+    }
+
+    pub fn edges_named(&self, name: EdgeName) -> &[EdgeId] {
+        self.edges.get(&name).map_or(&[], NamedEdges::as_slice)
     }
 }
 

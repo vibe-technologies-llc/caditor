@@ -85,6 +85,25 @@ impl FaceReference {
         self.best_by_neighbours(solid, &same_origin, 1)
     }
 
+    pub fn resolve_named(
+        &self,
+        solid: &Solid,
+        named: &[FaceId],
+    ) -> Result<FaceId, ReferenceError<FaceId>> {
+        match named {
+            [] => Err(ReferenceError::Missing),
+            [only] => {
+                let found = neighbour_names(solid, *only);
+                if self.neighbours.is_empty() || !self.neighbours.is_disjoint(&found) {
+                    Ok(*only)
+                } else {
+                    Err(ReferenceError::Missing)
+                }
+            }
+            many => self.best_by_neighbours(solid, many, 0),
+        }
+    }
+
     fn best_by_neighbours(
         &self,
         solid: &Solid,
@@ -212,6 +231,30 @@ impl EdgeReference {
         naming: &EdgeNaming,
     ) -> Result<EdgeId, ReferenceError<EdgeId>> {
         self.resolve_with(naming, Fallback::None)
+    }
+
+    pub fn resolve_named(
+        &self,
+        solid: &Solid,
+        named: &[EdgeId],
+        vertex_name: impl Fn(VertexId) -> VertexName,
+    ) -> Result<EdgeId, ReferenceError<EdgeId>> {
+        match named {
+            [] => Err(ReferenceError::Missing),
+            [only] => Ok(*only),
+            many => {
+                let scored: Vec<(EdgeId, usize)> = many
+                    .iter()
+                    .filter_map(|id| {
+                        let edge = solid.edge(*id)?;
+                        let ends = [vertex_name(edge.start()), vertex_name(edge.end())];
+                        let matching = ends.iter().filter(|end| self.ends.contains(end)).count();
+                        (matching > 0).then_some((*id, matching))
+                    })
+                    .collect();
+                best_of(scored)
+            }
+        }
     }
 
     fn resolve_with(

@@ -661,3 +661,85 @@ fn a_fillet_row_draws_the_body_before_it_as_a_ghost_lighting_the_edge_it_rounded
 
     assert_eq!(ghosts(&mut harness), 0);
 }
+
+#[test]
+fn hovering_a_sketch_that_projects_a_faces_edges_lights_those_edges_and_its_attachment_face() {
+    let mut harness = Harness::new();
+
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { body, face } = top else {
+        panic!("expected a face pickable");
+    };
+
+    harness.perform(Action::Editing(
+        crate::editing::EditingCommand::NewSketchOnFace(crate::sketch_placement::FaceChoice {
+            body,
+            face,
+        }),
+    ));
+    harness.settle();
+    harness.frame();
+
+    let sketch = harness.workspace.editing.feature().expect("editing sketch");
+    let active = harness.workspace.editing.active().expect("active sketch");
+    let projection = crate::projecting::project(&harness.model, active, top, false).unwrap();
+
+    harness.perform(Action::Apply(projection.transaction));
+    harness.settle();
+    harness.perform(Action::Editing(crate::editing::EditingCommand::Finish));
+    harness.select([]);
+    harness.frame();
+
+    let face_colour = |harness: &mut Harness| {
+        let built = harness.built();
+        let pick = built.picks.id_of(top);
+        built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .find(|drawn| drawn.pick == pick)
+            .map(|drawn| drawn.color)
+            .expect("the top face is drawn")
+    };
+    let lit_body_edges = |harness: &mut Harness| {
+        let built = harness.built();
+        let edge_picks: std::collections::BTreeSet<_> = built
+            .picks
+            .pickables()
+            .filter(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate))
+            .map(|pickable| built.picks.id_of(pickable))
+            .collect();
+        built
+            .scene
+            .batches
+            .iter()
+            .flat_map(|batch| batch.all_lines())
+            .filter(|line| line.color == crate::scene_palette::STANDARD.lines.hovered)
+            .filter_map(|line| line.pick)
+            .filter(|pick| edge_picks.contains(&Some(*pick)))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    };
+
+    let plain_face = face_colour(&mut harness);
+    let plain_edges = lit_body_edges(&mut harness);
+
+    harness.workspace.panels.choose_only(sketch);
+    harness.frame();
+    harness.frame();
+
+    let lit_face = face_colour(&mut harness);
+    let lit_edges = lit_body_edges(&mut harness);
+
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(plate, body);
+    assert_eq!(plain_edges, 0);
+    assert_ne!(lit_face, plain_face);
+    assert_eq!(lit_edges, 4);
+    assert_eq!(face_colour(&mut harness), plain_face);
+    assert_eq!(lit_body_edges(&mut harness), 0);
+}

@@ -2,12 +2,12 @@ use std::{borrow::Cow, collections::BTreeSet, fmt::Display, sync::Arc, time::Dur
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
-    PasteOrigin, PatternKind, RegionChoice, Rgb, SavedView, SolidFeature, Transaction,
+    PasteOrigin, PatternKind, RegionChoice, Rgb, SavedView, SolidFeature, SolidResult, Transaction,
     displayed_frame, referred_geometry,
 };
 use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
-use caditor_kernel::{EdgeName, EdgeReference, FaceReference, Solid};
+use caditor_kernel::{EdgeName, EdgeReference, FaceReference, VertexName};
 use caditor_render::{
     Backdrop, Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection,
     ProjectionMode, Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect,
@@ -692,24 +692,22 @@ impl LitRows {
             let Some(shown) = bodies::shown(evaluation, body) else {
                 continue;
             };
-            let drawn = drawn_face_keys(&shown.solid, &face);
-
-            if drawn.is_empty() {
-                if let Some((ghost, before)) = ghost.as_mut().zip(before)
-                    && ghost.body == body
-                {
-                    ghost.faces.extend(drawn_face_keys(&before.solid, &face));
+            match drawn_face_key(shown, &face) {
+                Some(key) => self.made.push(Pickable::Face { body, face: key }),
+                None => {
+                    if let Some((ghost, before)) = ghost.as_mut().zip(before)
+                        && ghost.body == body
+                    {
+                        ghost.faces.extend(drawn_face_key(before, &face));
+                    }
                 }
-                continue;
             }
-            self.made
-                .extend(drawn.into_iter().map(|face| Pickable::Face { body, face }));
         }
         for (body, edge) in referred.edges {
             let Some(shown) = bodies::shown(evaluation, body) else {
                 continue;
             };
-            match found_edge(&shown.solid, &edge) {
+            match found_edge(shown, &edge) {
                 Some(drawn) => self
                     .made
                     .extend(drawn.map(|edge| Pickable::Edge { body, edge })),
@@ -719,7 +717,7 @@ impl LitRows {
                     {
                         ghost
                             .edges
-                            .extend(found_edge(&before.solid, &edge).into_iter().flatten());
+                            .extend(found_edge(before, &edge).into_iter().flatten());
                     }
                 }
             }
@@ -728,12 +726,14 @@ impl LitRows {
             let Some(shown) = bodies::shown(evaluation, body) else {
                 continue;
             };
-            let mut named = bodies::vertex_keys(shown)
-                .into_iter()
-                .map(|(_, key)| key)
-                .filter(|key| key.name == vertex);
-            if let (Some(key), None) = (named.next(), named.next()) {
-                self.made.push(Pickable::Vertex { body, vertex: key });
+            if shown.names().vertices_named(vertex).len() == 1 {
+                self.made.push(Pickable::Vertex {
+                    body,
+                    vertex: bodies::VertexKey {
+                        name: vertex,
+                        occurrence: 0,
+                    },
+                });
             }
         }
         self.made.extend(
@@ -750,30 +750,27 @@ impl LitRows {
     }
 }
 
-fn drawn_face_keys(solid: &Solid, face: &FaceReference) -> Vec<bodies::FaceKey> {
-    let Ok(found) = face.resolve(solid) else {
-        return Vec::new();
-    };
+fn drawn_face_key(body: &SolidResult, face: &FaceReference) -> Option<bodies::FaceKey> {
+    let named = body.names().faces_named(face.name());
+    let found = face.resolve_named(&body.solid, named).ok()?;
 
-    if solid
-        .face(found)
-        .is_none_or(|drawn| drawn.name() != face.name())
-    {
-        return Vec::new();
-    }
-    bodies::face_keys(solid)
-        .into_iter()
-        .filter(|(id, _)| *id == found)
-        .map(|(_, key)| key)
-        .collect()
+    let occurrence = named.iter().position(|id| *id == found)?;
+    Some(bodies::FaceKey {
+        name: face.name(),
+        occurrence: u32::try_from(occurrence).ok()?,
+    })
 }
 
-fn found_edge(solid: &Solid, edge: &EdgeReference) -> Option<Option<EdgeName>> {
-    let found = edge.resolve(solid).ok()?;
-    let drawn = solid
-        .edge(found)
-        .filter(|drawn| drawn.name() == edge.name())?;
-    Some((!bodies::is_seam(solid, found)).then(|| drawn.name()))
+fn found_edge(body: &SolidResult, edge: &EdgeReference) -> Option<Option<EdgeName>> {
+    let names = body.names();
+    let found = edge
+        .resolve_named(&body.solid, names.edges_named(edge.name()), |vertex| {
+            names
+                .vertex_name(vertex)
+                .unwrap_or_else(|| VertexName::of_faces([]))
+        })
+        .ok()?;
+    Some((!bodies::is_seam(&body.solid, found)).then(|| edge.name()))
 }
 
 #[derive(Clone, Debug, PartialEq)]
