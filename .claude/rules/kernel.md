@@ -289,6 +289,15 @@ paths:
   out open, self-folding and empty shells and a shell inside out within a larger one (a sealed
   hollow), counting each in `MeshRepairs`. A corner past `MAX_SIZE` is `FacetedError::TooFar`,
   since the weld's cells would no longer tell points apart.
+- A mesh that weld leaves with no closed shell is welded again along its edges only (`Welding`):
+  edges no longer than the weld's reach that two triangles share collapse, shortest first, onto
+  their lower-numbered end while the ends' only common neighbours are the two triangles' third
+  corners and those do not also span a triangle with each end (the link condition, so a
+  tetrahedron never flattens), and a vertex every edge of which two triangles share is never
+  welded by distance. A shared mesh of a spline face near its pole, rows of points a fraction of
+  the resolution apart, otherwise welds into edges three triangles use
+  (`a_shared_mesh_whose_sliver_welding_would_pinch_is_welded_only_along_its_edges`). The first
+  weld stays first, so every mesh it closed builds as before.
 - Edge-joined triangles with agreeing normals and corners within coordinate-magnitude noise of the
   first one's plane become one planar face; each shared corner moves to the least-squares point on
   the fitted planes, so every edge lies within `LINEAR_RESOLUTION` of its faces. A face whose

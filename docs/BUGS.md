@@ -180,25 +180,33 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     "powerswitch bracket" miss planes and cylinders by 1e-4 to 5e-4 mm.
   - 13 keep a traced edge that misses its vertex, tracing having failed across a near tangency:
     "gantry bottom" and "CPAP duct 15mm" (0.006 mm), "bottom (1)" (2.5e-5 mm).
-  - 6 ("M3 Nut", the knobs) fail validation by 2e-6 to 2e-4 mm after every side bends.
+  - 5 (the knobs) fail validation by 2e-6 to 2e-4 mm after every side bends.
   - 7 of the "PCB (1)" and "Blades (1)" splines have a target that jumps along a side (up to 0.0035
     mm) or a corner off the face it bends onto, as has "CPAP duct 18mm (1)" within 3.8e-7 mm.
   - 4 ("front handle1", "front handle2", "X motor mount part B (top)" and its mirror) have a vertex
     whose common point lies farther along the tangency than the precision.
-  - "Micro Switch" and its copy settle two vertices onto one point (an edge of no length), and
-    "Lead Screw lower bracket" has two edges overlapping along a side.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,980 copies) leaves 2
-  parts out, refused as "a vertex 0.00003 to 0.00008 mm away from the end of its edge", the exact
-  build's refusal at faces meeting tangentially further apart than the resolution, where the
-  faceted fallback then fails on its own: "front handle1" meshes a sliver 1.2e-6 mm wide whose
-  edges three triangles share (welding wider only opens more), and "Component25" (a thread whose
-  helical edges its exact build cannot follow) would need 20,266 flat faces. "Lead Screw lower
-  bracket" and "goliath heatsink fan duct (1)" import only as facets: exact, a thin spline strip
-  meets its neighbours nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm
-  edge traced 0.34 mm long, whose pcurve then needs more than 65,536 samples). "M3 Nut" also imports
-  only as facets (three faces meeting so nearly tangentially that their common point lies 0.0115 mm
-  along, on the next vertex, so the ellipse edge between them has no length; bending gets within
-  2e-6 mm). Reproduce by reading the file with `STEP_CORPUS` in release (about 65 s).
+  - "Micro Switch" and its copy settle the two vertices of each of four edges onto one point;
+    merging them (`step-read.md`) leaves a face whose boundary encloses no area, which would have
+    to be left out with them. "Lead Screw lower bracket" has two edges overlapping along a side.
+- [medium · hard] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,982 copies of 1,204
+  bodies) imports every body, but "front handle1", "Component25", "Lead Screw lower bracket" and
+  "goliath heatsink fan duct (1)" only as flat facets; each needs the bent build (entry above) to
+  hold where the exact build cannot. Reproduce by reading the file with `STEP_CORPUS` in release
+  (about 90 s).
+  - "front handle1": the exact build leaves a vertex 0.00003 mm off its edge where faces meet
+    tangentially further apart than the resolution; bending would move a face past the precision.
+  - "Component25" (a thread): the exact build leaves a vertex 0.00008 mm off a helical edge it
+    cannot follow; bent, a corner lies 0.0005 mm off the faces bent to meet it.
+  - "Lead Screw lower bracket": a triangular spline corner patch 0.003 mm across, one side a pole,
+    meets the large spline beside it nearly tangentially along a circle edge. Settling slides the
+    circle's two vertices 0.00037 and 0.0003 mm along that tangency, to 0.0001 mm apart, and the
+    trace between them fails; extended, the 0.057 mm edge of a thin strip beside it is traced 0.34
+    mm long, zigzagging, and its pcurve needs more than 65,536 samples; bent, two of the patch's
+    edges overlap along one side.
+  - "goliath heatsink fan duct (1)": a spline and a cylinder 2e-4 rad from tangent lie 2.7e-6 mm
+    apart where they meet a plane, so that corner settles 1.4e-6 mm off both, beyond the
+    0.75e-6 mm the trace of its plane edge pins an end within, and the edge ends 1.0e-6 mm short;
+    bent, three splines at another corner have no common point within 0.0006 mm.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

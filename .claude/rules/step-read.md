@@ -219,6 +219,13 @@ paths:
   from each other, onto the other common point of their faces, when that lies within the precision
   of where they are written and leaves them in order; else they move no farther than their worst gap
   (`vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_import_exact`).
+- An edge whose two vertices settle onto one point fails as an edge of no length: where three
+  faces meet at a shallow angle their common point at one corner is the next corner (an Autodesk
+  M3 nut's thread flank, top face and a chamfer of no width, 0.0115 mm apart as written). The same
+  build is then made again with that edge left out of its two loops and its vertices made one: the
+  one that settled the shorter way is kept and settles onto the faces of both. At most
+  `MAX_COLLAPSED_EDGES` edges a body are collapsed, and none when another edge would then join one
+  vertex to itself (`a_corner_written_off_its_faces_onto_the_next_corner_is_merged_with_it_and_imports_exact`).
 - A body the exact build refuses is built again in `Healing::Extended` before any looser mode: each
   spline face's surface is continued past its domain by a tenth of its boundary span
   (`BSplineSurface::extended`), except across a seam, a pole or sides within the file's precision of

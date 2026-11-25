@@ -35,6 +35,7 @@ const MAX_VERTEX_DAMPING: f64 = 1e6;
 const DAMPING_GROWTH: f64 = 10.0;
 const DAMPING_RELIEF: f64 = 0.1;
 const WELD_FRACTION: f64 = 1e-9;
+const MAX_COLLAPSED_EDGES: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Healing {
@@ -67,6 +68,8 @@ pub(crate) struct Topology<'g, 'a> {
     snapping: Snapping,
     conformed: Conformed,
     kept_in_order: BTreeMap<u64, Point3>,
+    collapsed: BTreeSet<u64>,
+    merged: BTreeMap<u64, u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -276,6 +279,8 @@ impl<'g, 'a> Topology<'g, 'a> {
             snapping: Snapping::default(),
             conformed: Conformed::default(),
             kept_in_order: BTreeMap::new(),
+            collapsed: BTreeSet::new(),
+            merged: BTreeMap::new(),
         }
     }
 
@@ -319,14 +324,26 @@ impl<'g, 'a> Topology<'g, 'a> {
             self.conform(id)?;
         }
         self.keep_vertex_order();
+        self.merge_ends_of_collapsed();
         for shell in &shells {
-            self.build_shell(shell)?;
+            if let Err(problem) = self.build_shell(shell) {
+                return match self.of_no_length(&problem) {
+                    Some(edge) => {
+                        let reversed_voids = self.reversed_voids.clone();
+                        let mut again = self.again();
+
+                        again.reversed_voids = reversed_voids;
+                        again.collapsed.insert(edge);
+                        again.solid(id, solid_shells)
+                    }
+                    None => Err(problem),
+                };
+            }
         }
         if self.reversed_voids.is_none() {
             let outward = self.outward_voids(voids, 1 + lumps.len());
             if !outward.is_empty() {
-                let mut again =
-                    Topology::new(self.geometry, self.healing).leaving_out(self.left_out);
+                let mut again = self.again();
 
                 again.reversed_voids = Some(outward);
                 return again.solid(id, solid_shells);
@@ -420,6 +437,122 @@ impl<'g, 'a> Topology<'g, 'a> {
             faces,
             lost: None,
         })
+    }
+
+    fn again(self) -> Self {
+        let mut again = Topology::new(self.geometry, self.healing).leaving_out(self.left_out);
+
+        again.collapsed = self.collapsed;
+        again
+    }
+
+    fn of_no_length(&self, problem: &Problem) -> Option<u64> {
+        let Fault::Build {
+            error: BuildError::ZeroLengthEdge,
+            ..
+        } = problem.fault
+        else {
+            return None;
+        };
+        let edge = problem.entity;
+        let (_, [first, second]) = self.written_edge(edge)?;
+
+        (first != second
+            && self.edge_faces.contains_key(&edge)
+            && !self.collapsed.contains(&edge)
+            && self.collapsed.len() < MAX_COLLAPSED_EDGES)
+            .then_some(edge)
+    }
+
+    fn merge_ends_of_collapsed(&mut self) {
+        let mut merged: BTreeMap<u64, u64> = BTreeMap::new();
+        let kept = |merged: &BTreeMap<u64, u64>, mut vertex: u64| {
+            while let Some(into) = merged.get(&vertex) {
+                vertex = *into;
+            }
+            vertex
+        };
+
+        for edge in &self.collapsed {
+            let Some((_, ends)) = self.written_edge(*edge) else {
+                continue;
+            };
+            let [first, second] = ends.map(|vertex| kept(&merged, vertex));
+
+            if first == second {
+                continue;
+            }
+
+            let (stays, goes) = if self.settling_move(first) <= self.settling_move(second) {
+                (first, second)
+            } else {
+                (second, first)
+            };
+
+            merged.insert(goes, stays);
+        }
+
+        let closes_another = self.edge_faces.keys().any(|edge| {
+            !self.collapsed.contains(edge)
+                && self
+                    .written_edge(*edge)
+                    .is_some_and(|(_, [first, second])| {
+                        first != second && kept(&merged, first) == kept(&merged, second)
+                    })
+        });
+
+        if closes_another {
+            return;
+        }
+        for goes in merged.keys() {
+            let stays = kept(&merged, *goes);
+            let faces = self.vertex_faces.get(goes).cloned().unwrap_or_default();
+            let edges = self.vertex_edges.get(goes).cloned().unwrap_or_default();
+
+            self.vertex_faces.entry(stays).or_default().extend(faces);
+            self.vertex_edges.entry(stays).or_default().extend(edges);
+        }
+        self.merged = merged;
+    }
+
+    fn settling_move(&self, vertex: u64) -> f64 {
+        let Some(written) = self.written_vertex(vertex) else {
+            return f64::INFINITY;
+        };
+        let surfaces = self.surfaces_of(self.vertex_faces.get(&vertex));
+
+        let placed = match self
+            .conformed
+            .vertices
+            .get(&vertex)
+            .or_else(|| self.kept_in_order.get(&vertex))
+        {
+            Some(placed) => *placed,
+            None => settle_on(written, &surfaces, self.vertex_reach(written, &surfaces)).0,
+        };
+        placed.distance(written)
+    }
+
+    fn vertex_reach(&self, point: Point3, surfaces: &[Surface]) -> f64 {
+        match self.healing {
+            Healing::Faceted => worst_gap(point, surfaces)
+                .min(self.geometry.units.precision.unwrap_or(f64::INFINITY)),
+            _ => f64::INFINITY,
+        }
+    }
+
+    fn merged_into_a_point(&self, edge: u64) -> bool {
+        self.collapsed.contains(&edge)
+            && self.written_edge(edge).is_some_and(|(_, [first, second])| {
+                self.kept_vertex(first) == self.kept_vertex(second)
+            })
+    }
+
+    fn kept_vertex(&self, mut vertex: u64) -> u64 {
+        while let Some(into) = self.merged.get(&vertex) {
+            vertex = *into;
+        }
+        vertex
     }
 
     fn outward_voids(&self, voids: &[u64], first_void_shell: usize) -> BTreeSet<u64> {
@@ -1078,7 +1211,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             let orientation = oriented_fields.logical(4)?;
             let edge_id = oriented_fields.reference(3)?;
 
-            if self.fins.contains(&edge_id) {
+            if self.fins.contains(&edge_id) || self.merged_into_a_point(edge_id) {
                 continue;
             }
 
@@ -1111,6 +1244,8 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 
     fn vertex(&mut self, id: u64) -> Read<VertexId> {
+        let id = self.kept_vertex(id);
+
         if let Some(existing) = self.vertices.get(&id) {
             return Ok(*existing);
         }
@@ -1126,11 +1261,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         {
             Some(placed) => *placed,
             None => {
-                let reach = match self.healing {
-                    Healing::Faceted => worst_gap(point, &surfaces)
-                        .min(self.geometry.units.precision.unwrap_or(f64::INFINITY)),
-                    _ => f64::INFINITY,
-                };
+                let reach = self.vertex_reach(point, &surfaces);
                 let (point, gap) = settle_on(point, &surfaces, reach);
 
                 self.note_repair(gap);

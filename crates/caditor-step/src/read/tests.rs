@@ -3518,6 +3518,64 @@ fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_i
     assert_volume(&exact.solid, area * height);
 }
 
+#[test]
+fn a_corner_written_off_its_faces_onto_the_next_corner_is_merged_with_it_and_imports_exact() {
+    use caditor_geometry::{Point3, Vector3};
+
+    let corners = [
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [10.0, 5.0, 0.0],
+        [20.0, 5.0, 0.0],
+        [20.0, 10.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [10.0, 0.0, 10.0],
+        [10.0, 5.0, 10.0],
+        [10.0, 5.005, 10.0],
+        [10.0, 10.0, 10.0],
+        [0.0, 10.0, 10.0],
+    ];
+    let loops: [&[usize]; 8] = [
+        &[0, 5, 4, 3, 2, 1],
+        &[6, 7, 8, 9, 10, 11],
+        &[0, 1, 7, 6],
+        &[0, 6, 11, 5],
+        &[5, 11, 10, 4],
+        &[1, 2, 8, 7],
+        &[3, 4, 10, 9],
+        &[2, 3, 9, 8],
+    ];
+    let step = loops.len() - 1;
+
+    let (text, brep) = polyhedron(
+        &corners,
+        &loops,
+        |face, entities| {
+            (face == step).then(|| {
+                let origin = entities.point(Point3::new(10.0, 5.0, 0.0));
+                let axis = entities.direction(-Vector3::Y);
+                let reference = entities.direction(Vector3::X);
+                let placement = entities.add(format!(
+                    "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+                ));
+                entities.add(format!("PLANE('',#{placement})"))
+            })
+        },
+        |_, _| None,
+    );
+
+    let exact = built_with(&text, brep, super::topology::Healing::Exact).unwrap();
+    let model = read_step(&text).unwrap();
+
+    assert_eq!(exact.solid.faces().count(), 8);
+    assert_eq!(exact.solid.vertices().count(), 11);
+    assert!(model.notes.iter().all(|note| !note.contains("facets")));
+
+    assert_volume(&exact.solid, 1250.0);
+    assert_volume(&model.solids[0].solid, 1250.0);
+}
+
 fn without_declared_precision(text: &str) -> String {
     let declaration = text.find("GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT(").unwrap();
     let end = declaration + text[declaration..].find("))").unwrap() + 2;

@@ -170,6 +170,116 @@ fn copies_of_a_corner_closer_than_the_resolution_are_welded_whatever_the_cells()
     assert!((volume(solid) - 1000.0).abs() < 1e-4);
 }
 
+fn cube_with_top(points: &[Point3], top: &[[usize; 3]]) -> TriangleMesh {
+    let mut mesh = cube();
+
+    let first = mesh.positions.len();
+
+    mesh.triangles.drain(2..4);
+    mesh.positions
+        .extend(points.iter().map(|point| *point + Vector3::Z * 10.0));
+    mesh.triangles.extend(top.iter().map(|triangle| {
+        triangle.map(|corner| match corner {
+            0..4 => corner + 4,
+            _ => corner - 4 + first,
+        })
+    }));
+    mesh
+}
+
+#[test]
+fn a_shared_mesh_whose_sliver_welding_would_pinch_is_welded_only_along_its_edges() {
+    let points = [
+        Point3::new(5.0, 5.0, 0.0),
+        Point3::new(5.0 + 8e-7, 5.0, 0.0),
+        Point3::new(5.0 + 4e-7, 5.0 - 3e-6, 0.0),
+        Point3::new(5.0 + 4e-7, 5.0 + 3e-6, 0.0),
+    ];
+    let (p, q, m, x) = (4, 5, 6, 7);
+
+    let top = [
+        [0, 1, m],
+        [0, m, p],
+        [1, q, m],
+        [p, m, x],
+        [m, q, x],
+        [1, 2, q],
+        [2, x, q],
+        [2, 3, x],
+        [3, p, x],
+        [3, 0, p],
+    ];
+    let mesh = cube_with_top(&points, &top);
+
+    assert!(matches!(
+        faceted_welded(&mesh, Welding::Near),
+        Err(FacetedError::NotClosed { .. })
+    ));
+
+    let built = faceted_solids(&mesh).unwrap();
+
+    let [solid] = built.solids.as_slice() else {
+        panic!("expected one solid");
+    };
+
+    assert_eq!(counts(solid), (6, 12, 8));
+    assert!((volume(solid) - 1000.0).abs() < 1e-6);
+}
+
+#[test]
+fn an_edge_shorter_than_the_resolution_is_collapsed_only_where_the_surface_stays_whole() {
+    let points = [
+        Point3::new(5.0, 5.0, 0.0),
+        Point3::new(5.0 + 5e-7, 5.0, 0.0),
+    ];
+    let (c, d) = (4, 5);
+
+    let top = [
+        [0, 1, c],
+        [1, d, c],
+        [1, 2, d],
+        [2, 3, d],
+        [3, c, d],
+        [3, 0, c],
+    ];
+    let mesh = cube_with_top(&points, &top);
+
+    let collapsed = collapsed_short_edges(&mesh, LINEAR_RESOLUTION)
+        .unwrap()
+        .unwrap();
+    let live: Vec<[usize; 3]> = collapsed
+        .triangles
+        .iter()
+        .copied()
+        .filter(|[a, b, c]| a != b && b != c && a != c)
+        .collect();
+
+    assert_eq!(collapsed.positions.len(), mesh.positions.len() - 1);
+    assert_eq!(live.len(), mesh.triangles.len() - 2);
+    assert!(
+        live.iter()
+            .flat_map(|triangle| half_edges(*triangle))
+            .all(|(a, b)| {
+                collapsed.positions[a].distance(collapsed.positions[b]) > LINEAR_RESOLUTION
+            })
+    );
+
+    let tetrahedron = TriangleMesh {
+        positions: vec![
+            Point3::ZERO,
+            Point3::new(5e-7, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+            Point3::new(0.0, 0.0, 10.0),
+        ],
+        triangles: vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
+    };
+
+    assert_eq!(
+        collapsed_short_edges(&tetrahedron, LINEAR_RESOLUTION).unwrap(),
+        None
+    );
+}
+
 #[test]
 fn triangles_against_their_neighbours_are_flipped_and_degenerate_ones_dropped() {
     let mut mesh = cube();

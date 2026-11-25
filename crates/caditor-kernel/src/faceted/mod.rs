@@ -83,10 +83,23 @@ pub enum FacetedError {
     Cancelled(#[from] Interrupted),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Welding {
+    Near,
+    AlongEdges,
+}
+
 pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError> {
+    match faceted_welded(mesh, Welding::Near) {
+        Err(FacetedError::NotClosed { .. }) => faceted_welded(mesh, Welding::AlongEdges),
+        built => built,
+    }
+}
+
+fn faceted_welded(mesh: &TriangleMesh, welding: Welding) -> Result<FacetedSolids, FacetedError> {
     let mut repairs = MeshRepairs::default();
 
-    let (welded, welded_sources) = weld(mesh, &mut repairs)?;
+    let (welded, welded_sources) = weld(mesh, welding, &mut repairs)?;
 
     interrupt::check()?;
 
@@ -143,6 +156,7 @@ pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError
 
 fn weld(
     mesh: &TriangleMesh,
+    welding: Welding,
     repairs: &mut MeshRepairs,
 ) -> Result<(TriangleMesh, Vec<usize>), FacetedError> {
     let finite: Vec<Point3> = mesh
@@ -161,13 +175,28 @@ fn weld(
 
     let bounds = Aabb::from_points(finite).ok_or(FacetedError::NoTriangles)?;
     let reach = (bounds.diagonal() * WELD_FRACTION).max(LINEAR_RESOLUTION);
+    let given = mesh.positions.len();
+    let collapsed = match welding {
+        Welding::Near => None,
+        Welding::AlongEdges => collapsed_short_edges(mesh, reach)?,
+    };
+    let mesh = collapsed.as_ref().unwrap_or(mesh);
+    let sealed = match welding {
+        Welding::Near => Vec::new(),
+        Welding::AlongEdges => sealed_vertices(mesh),
+    };
     let mut cells: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
     let mut positions: Vec<Point3> = Vec::new();
     let mut renumbered: Vec<Option<usize>> = Vec::with_capacity(mesh.positions.len());
 
-    for point in &mesh.positions {
+    for (index, point) in mesh.positions.iter().enumerate() {
         if !point.is_finite() {
             renumbered.push(None);
+            continue;
+        }
+        if sealed.get(index).copied().unwrap_or(false) {
+            positions.push(*point);
+            renumbered.push(Some(positions.len() - 1));
             continue;
         }
 
@@ -197,7 +226,7 @@ fn weld(
 
         renumbered.push(Some(index));
     }
-    repairs.welded = mesh.positions.len().saturating_sub(positions.len());
+    repairs.welded = given.saturating_sub(positions.len());
 
     let mut triangles = Vec::with_capacity(mesh.triangles.len());
     let mut sources = Vec::with_capacity(mesh.triangles.len());
@@ -219,6 +248,214 @@ fn weld(
         },
         sources,
     ))
+}
+
+fn collapsed_short_edges(
+    mesh: &TriangleMesh,
+    reach: f64,
+) -> Result<Option<TriangleMesh>, FacetedError> {
+    let short = |a: usize, b: usize| {
+        let (Some(from), Some(to)) = (mesh.positions.get(a), mesh.positions.get(b)) else {
+            return None;
+        };
+
+        let length = from.distance(*to);
+        (a != b && length <= reach).then_some((length, a.min(b), a.max(b)))
+    };
+    let mut pending: Vec<(f64, usize, usize)> = mesh
+        .triangles
+        .iter()
+        .flat_map(|triangle| half_edges(*triangle))
+        .filter_map(|(a, b)| short(a, b))
+        .collect();
+
+    if pending.is_empty() {
+        return Ok(None);
+    }
+
+    let mut corners = mesh.triangles.clone();
+    let mut at: Vec<Vec<usize>> = vec![Vec::new(); mesh.positions.len()];
+    let mut merged_into: Vec<usize> = (0..mesh.positions.len()).collect();
+    let mut collapses = 0usize;
+
+    for (index, triangle) in corners.iter().enumerate() {
+        for corner in triangle {
+            if let Some(list) = at.get_mut(*corner) {
+                list.push(index);
+            }
+        }
+    }
+    while !pending.is_empty() {
+        interrupt::check()?;
+
+        pending.sort_by(|first, second| {
+            first
+                .0
+                .total_cmp(&second.0)
+                .then((first.1, first.2).cmp(&(second.1, second.2)))
+        });
+        pending.dedup_by(|first, second| (first.1, first.2) == (second.1, second.2));
+
+        let mut next = Vec::new();
+
+        for (_, kept, gone) in pending {
+            let alive = |vertex: usize| merged_into.get(vertex) == Some(&vertex);
+
+            if !alive(kept) || !alive(gone) || !collapsible(&corners, &at, kept, gone) {
+                continue;
+            }
+
+            let moved: Vec<usize> = at
+                .get_mut(gone)
+                .map(std::mem::take)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|triangle| corners.get(*triangle).is_some_and(|c| !c.contains(&kept)))
+                .collect();
+
+            for triangle in &moved {
+                if let Some(slot) = corners.get_mut(*triangle) {
+                    for corner in slot.iter_mut().filter(|corner| **corner == gone) {
+                        *corner = kept;
+                    }
+                }
+            }
+            if let Some(list) = at.get_mut(kept) {
+                list.extend(moved);
+            }
+            if let Some(slot) = merged_into.get_mut(gone) {
+                *slot = kept;
+            }
+            collapses += 1;
+            next.extend(
+                neighbours(&corners, &at, kept)
+                    .into_iter()
+                    .filter_map(|neighbour| short(kept, neighbour)),
+            );
+        }
+        pending = next;
+    }
+    if collapses == 0 {
+        return Ok(None);
+    }
+
+    let root = |mut vertex: usize| {
+        while let Some(&into) = merged_into.get(vertex) {
+            if into == vertex {
+                break;
+            }
+            vertex = into;
+        }
+        vertex
+    };
+    let mut renumbered = vec![usize::MAX; mesh.positions.len()];
+    let mut positions = Vec::with_capacity(mesh.positions.len().saturating_sub(collapses));
+
+    for (vertex, point) in mesh.positions.iter().enumerate() {
+        if merged_into.get(vertex) == Some(&vertex)
+            && let Some(slot) = renumbered.get_mut(vertex)
+        {
+            *slot = positions.len();
+            positions.push(*point);
+        }
+    }
+
+    let triangles = corners
+        .iter()
+        .map(|triangle| {
+            triangle.map(|corner| renumbered.get(root(corner)).copied().unwrap_or(usize::MAX))
+        })
+        .collect();
+    Ok(Some(TriangleMesh {
+        positions,
+        triangles,
+    }))
+}
+
+fn live(corners: &[[usize; 3]], triangle: usize) -> Option<[usize; 3]> {
+    corners
+        .get(triangle)
+        .copied()
+        .filter(|[a, b, c]| a != b && b != c && a != c)
+}
+
+fn neighbours(corners: &[[usize; 3]], at: &[Vec<usize>], vertex: usize) -> BTreeSet<usize> {
+    at.get(vertex)
+        .into_iter()
+        .flatten()
+        .filter_map(|triangle| live(corners, *triangle))
+        .flatten()
+        .filter(|corner| *corner != vertex)
+        .collect()
+}
+
+fn collapsible(corners: &[[usize; 3]], at: &[Vec<usize>], kept: usize, gone: usize) -> bool {
+    let sharing: Vec<[usize; 3]> = at
+        .get(kept)
+        .into_iter()
+        .flatten()
+        .filter_map(|triangle| live(corners, *triangle))
+        .filter(|triangle| triangle.contains(&gone))
+        .collect();
+
+    if sharing.len() != 2 {
+        return false;
+    }
+
+    let opposite: BTreeSet<usize> = sharing
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|corner| *corner != kept && *corner != gone)
+        .collect();
+    let common: BTreeSet<usize> = neighbours(corners, at, kept)
+        .intersection(&neighbours(corners, at, gone))
+        .copied()
+        .collect();
+    let spans_opposite = |vertex: usize| {
+        at.get(vertex)
+            .into_iter()
+            .flatten()
+            .filter_map(|triangle| live(corners, *triangle))
+            .any(|triangle| opposite.iter().all(|corner| triangle.contains(corner)))
+    };
+
+    opposite.len() == 2 && common == opposite && !(spans_opposite(kept) && spans_opposite(gone))
+}
+
+fn sealed_vertices(mesh: &TriangleMesh) -> Vec<bool> {
+    let mut users: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+
+    for triangle in mesh
+        .triangles
+        .iter()
+        .filter(|[a, b, c]| a != b && b != c && a != c)
+    {
+        for edge in half_edges(*triangle) {
+            *users.entry(undirected(edge)).or_default() += 1;
+        }
+    }
+
+    let mut sealed = vec![false; mesh.positions.len()];
+    let mut open = vec![false; mesh.positions.len()];
+
+    for ((a, b), count) in users {
+        for vertex in [a, b] {
+            if let Some(slot) = sealed.get_mut(vertex) {
+                *slot = true;
+            }
+            if count != 2
+                && let Some(slot) = open.get_mut(vertex)
+            {
+                *slot = true;
+            }
+        }
+    }
+    sealed
+        .into_iter()
+        .zip(open)
+        .map(|(touched, open)| touched && !open)
+        .collect()
 }
 
 fn neighbouring_cells([x, y, z]: [i64; 3]) -> impl Iterator<Item = [i64; 3]> {
