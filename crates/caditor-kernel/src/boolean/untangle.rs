@@ -12,6 +12,7 @@ use crate::{
     interrupt,
     intersect::boxes_overlap,
     surface::Surface,
+    tally,
     tolerance::LINEAR_RESOLUTION,
     topology::{PcurveError, signed_area},
 };
@@ -45,36 +46,52 @@ struct Track {
     bounds: Aabb,
 }
 
+fn track(at: CoedgeAt, coedge: &Coedge) -> Option<Track> {
+    let segments: Vec<[Point2; 2]> = coedge
+        .pcurve
+        .samples()
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [a, b] if a.uv != b.uv => Some([a.uv, b.uv]),
+            _ => None,
+        })
+        .collect();
+
+    tally::add(1);
+
+    let bounds = segments
+        .iter()
+        .map(|segment| flat_box(*segment))
+        .reduce(Aabb::union)?;
+    Some(Track {
+        at,
+        segments,
+        bounds,
+    })
+}
+
 fn tracks(loops: &[TracedLoop]) -> Vec<Track> {
-    let mut found = Vec::new();
-
-    for (loop_index, traced) in loops.iter().enumerate() {
-        for (coedge_index, coedge) in traced.coedges.iter().enumerate() {
-            let segments: Vec<[Point2; 2]> = coedge
-                .pcurve
-                .samples()
-                .windows(2)
-                .filter_map(|pair| match pair {
-                    [a, b] if a.uv != b.uv => Some([a.uv, b.uv]),
-                    _ => None,
-                })
-                .collect();
-            let Some(bounds) = segments
+    loops
+        .iter()
+        .enumerate()
+        .flat_map(|(loop_index, traced)| {
+            traced
+                .coedges
                 .iter()
-                .map(|segment| flat_box(*segment))
-                .reduce(Aabb::union)
-            else {
-                continue;
-            };
+                .enumerate()
+                .filter_map(move |(coedge_index, coedge)| track((loop_index, coedge_index), coedge))
+        })
+        .collect()
+}
 
-            found.push(Track {
-                at: (loop_index, coedge_index),
-                segments,
-                bounds,
-            });
-        }
-    }
-    found
+fn reach(coedge: &Coedge) -> Option<Aabb> {
+    Aabb::from_points(
+        coedge
+            .pcurve
+            .samples()
+            .iter()
+            .map(|sample| Point3::new(sample.uv.x, sample.uv.y, 0.0)),
+    )
 }
 
 fn tracks_cross(first: &Track, second: &Track) -> bool {
@@ -104,8 +121,12 @@ fn tracks_cross(first: &Track, second: &Track) -> bool {
     })
 }
 
-fn crossed_coedges(loops: &[TracedLoop]) -> Result<BTreeSet<CoedgeAt>, BooleanError> {
-    let tracks = tracks(loops);
+fn crossed_coedges(
+    loops: &[TracedLoop],
+    carried_from: usize,
+) -> Result<BTreeSet<CoedgeAt>, BooleanError> {
+    let (fresh, carried) = loops.split_at(carried_from.min(loops.len()));
+    let tracks = tracks(fresh);
     let tree = BoxTree::new(tracks.iter().map(|track| track.bounds));
     let mut crossed = BTreeSet::new();
 
@@ -120,6 +141,29 @@ fn crossed_coedges(loops: &[TracedLoop]) -> Result<BTreeSet<CoedgeAt>, BooleanEr
             {
                 crossed.insert(track.at);
                 crossed.insert(other.at);
+            }
+        }
+    }
+    for (loop_index, traced) in carried.iter().enumerate() {
+        interrupt::check()?;
+        for (coedge_index, coedge) in traced.coedges.iter().enumerate() {
+            let near = reach(coedge)
+                .map(|bounds| tree.overlapping(&bounds, 0.0))
+                .unwrap_or_default();
+
+            if near.is_empty() {
+                continue;
+            }
+
+            let Some(own) = track((carried_from + loop_index, coedge_index), coedge) else {
+                continue;
+            };
+
+            for other in near.into_iter().filter_map(|other| tracks.get(other)) {
+                if tracks_cross(&own, other) {
+                    crossed.insert(own.at);
+                    crossed.insert(other.at);
+                }
             }
         }
     }
@@ -163,8 +207,19 @@ pub(super) fn untangle(
     chart: &Chart,
     loops: &mut [TracedLoop],
 ) -> Result<(), BooleanError> {
+    let count = loops.len();
+
+    untangle_beside_carried(arrangement, chart, loops, count)
+}
+
+pub(super) fn untangle_beside_carried(
+    arrangement: &Arrangement,
+    chart: &Chart,
+    loops: &mut [TracedLoop],
+    carried_from: usize,
+) -> Result<(), BooleanError> {
     for _ in 0..MAX_ROUNDS {
-        let crossed = crossed_coedges(loops)?;
+        let crossed = crossed_coedges(loops, carried_from)?;
         let mut refined_any = false;
 
         for (loop_index, coedge_index) in crossed {
@@ -248,22 +303,31 @@ pub(super) fn sharpen(
     Ok(())
 }
 
+fn loop_points(traced: &TracedLoop) -> impl Iterator<Item = Point2> + '_ {
+    traced
+        .coedges
+        .iter()
+        .flat_map(|coedge| coedge.pcurve.samples().iter().map(|sample| sample.uv))
+}
+
+fn loop_perimeter(traced: &TracedLoop) -> f64 {
+    let mut points = loop_points(traced);
+
+    let Some(first) = points.next() else {
+        return 0.0;
+    };
+    let (last, along) = points.fold((first, 0.0), |(previous, length), point| {
+        (point, length + previous.distance(point))
+    });
+    along + last.distance(first)
+}
+
 fn surely_deep(fragment: &Fragment, surface: &Surface, tolerance: f64) -> bool {
-    let polygons: Vec<Vec<Point2>> = fragment.loops.iter().map(TracedLoop::polygon).collect();
-    let Some(bounds) = Aabb2::from_points(polygons.iter().flatten().copied()) else {
+    let Some(bounds) = Aabb2::from_points(fragment.loops.iter().flat_map(loop_points)) else {
         return false;
     };
     let area: f64 = fragment.loops.iter().map(|traced| traced.area).sum();
-    let perimeter: f64 = polygons
-        .iter()
-        .map(|polygon| {
-            polygon
-                .iter()
-                .zip(polygon.iter().cycle().skip(1))
-                .map(|(a, b)| a.distance(*b))
-                .sum::<f64>()
-        })
-        .sum();
+    let perimeter: f64 = fragment.loops.iter().map(loop_perimeter).sum();
     let center = bounds.center();
     let derivatives = surface.evaluate(center.x, center.y);
     let speed = derivatives.du.length().min(derivatives.dv.length());

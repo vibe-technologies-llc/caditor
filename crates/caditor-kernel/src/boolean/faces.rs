@@ -5,7 +5,7 @@ use crate::{
         BooleanError, FaceKey, Input, Operand,
         imprint::Arrangement,
         trace::{Chart, Coedge, Fragment, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
-        untangle::{sharpen, untangle},
+        untangle::{sharpen, untangle_beside_carried},
     },
     interrupt,
     sense::Sense,
@@ -109,8 +109,10 @@ fn split_face(
         cuts.retain(|piece| !bridges.contains(piece));
     };
 
+    let carried_from = loops.len();
+
     loops.extend(quiet.into_values());
-    untangle(arrangement, &chart, &mut loops)?;
+    untangle_beside_carried(arrangement, &chart, &mut loops, carried_from)?;
 
     let mut fragments = group(&chart, loops)?;
 

@@ -8,6 +8,7 @@ use crate::{
     measure::faces_volume,
     sense::Sense,
     surface::Surface,
+    tally,
     tessellation::{FaceTriangles, MassProperties, TessellationError},
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE, SamplingTolerance},
     topology::{
@@ -159,20 +160,36 @@ impl ValidationError {
 
 type Checked<T> = Result<T, ValidationError>;
 
-pub(crate) fn validate(solid: &Solid) -> Checked<()> {
-    validate_settled(solid, &BTreeSet::new())
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Vouched {
+    pub(crate) coedges: BTreeSet<CoedgeId>,
+    pub(crate) loops: BTreeSet<LoopId>,
+    pub(crate) sided: BTreeSet<FaceId>,
 }
 
-pub(crate) fn validate_settled(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
+impl Vouched {
+    fn outward_shell(&self, solid: &Solid) -> bool {
+        solid.shells().nth(1).is_none() && self.sided.iter().any(|face| solid.face(*face).is_some())
+    }
+}
+
+pub(crate) fn validate(solid: &Solid) -> Checked<()> {
+    validate_vouched(solid, &Vouched::default())
+}
+
+pub(crate) fn validate_vouched(solid: &Solid, vouched: &Vouched) -> Checked<()> {
     structure(solid)?;
     vertices_used(solid)?;
     edges(solid)?;
     edge_uses(solid)?;
     loop_chains(solid)?;
-    coedge_geometry(solid, settled)?;
+    coedge_geometry(solid, &vouched.coedges)?;
     seams(solid)?;
-    face_domains(solid)?;
+    face_domains(solid, &vouched.loops)?;
     shells(solid)?;
+    if vouched.outward_shell(solid) {
+        return Ok(());
+    }
     volumes(solid)
 }
 
@@ -495,13 +512,18 @@ pub(crate) fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
         == 1
 }
 
-fn face_domains(solid: &Solid) -> Checked<()> {
+fn face_domains(solid: &Solid, vouched: &BTreeSet<LoopId>) -> Checked<()> {
     for (_, face) in solid.faces() {
         interrupt::check()?;
 
         let surface = face.surface();
 
         for (position, loop_id) in face.loops().iter().enumerate() {
+            if vouched.contains(loop_id) {
+                continue;
+            }
+            tally::add(1);
+
             let face_loop = solid
                 .face_loop(*loop_id)
                 .ok_or(ValidationError::MissingEntity)?;
@@ -535,11 +557,22 @@ fn face_domains(solid: &Solid) -> Checked<()> {
             }
         }
 
-        let Some(outer) = face.outer_loop() else {
+        let Some(outer_loop) = face.outer_loop() else {
             continue;
         };
-        let outer = loop_polygon(solid, outer)?;
-        for inner in face.inner_loops() {
+        let inners: Vec<LoopId> = face
+            .inner_loops()
+            .iter()
+            .copied()
+            .filter(|inner| !(vouched.contains(&outer_loop) && vouched.contains(inner)))
+            .collect();
+
+        if inners.is_empty() {
+            continue;
+        }
+
+        let outer = loop_polygon(solid, outer_loop)?;
+        for inner in &inners {
             let probe = loop_polygon(solid, *inner)?
                 .first()
                 .copied()
@@ -689,6 +722,8 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
 }
 
 fn volumes(solid: &Solid) -> Checked<()> {
+    tally::add(solid.faces().count());
+
     let extent = solid.outline_box().map_or(1.0, |bounds| bounds.diagonal());
     let mut result = Ok(());
 

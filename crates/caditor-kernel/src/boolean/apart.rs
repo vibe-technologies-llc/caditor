@@ -8,9 +8,9 @@ use crate::{
     topology::{Edge, FaceId, Solid, doubly_curved},
 };
 
-const APART: f64 = 10.0 * TOLERANCE;
+pub(super) const APART: f64 = 10.0 * TOLERANCE;
 
-fn enclosure(solid: &Solid) -> Option<Aabb> {
+pub(super) fn enclosure(solid: &Solid) -> Option<Aabb> {
     let bulges = solid
         .faces()
         .filter(|(_, face)| doubly_curved(face.surface()))
@@ -98,7 +98,7 @@ fn joinable_edges(solid: &Solid) -> bool {
         .any(|around| matches!(around, Around::Two(first, second) if first == second))
 }
 
-fn settled(solids: &[&Solid]) -> bool {
+pub(super) fn settled(solids: &[&Solid]) -> bool {
     let mut names = BTreeSet::new();
 
     let unique = solids

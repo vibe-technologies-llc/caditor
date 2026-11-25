@@ -16,6 +16,7 @@ mod split_faces_tests;
 #[cfg(test)]
 mod tests;
 mod trace;
+mod unreached;
 mod untangle;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +33,7 @@ use crate::{
     build::plan::PlanError,
     interrupt::{self, Interrupted},
     intersect::{IntersectionError, patch_bounds},
+    naming::EdgeName,
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
     topology::{BuildError, EdgeId, Face, FaceId, PcurveError, Solid, SolidClassifier},
@@ -471,7 +473,22 @@ fn combine(
     if let Some(result) = apart::combine_apart(first, second, operation) {
         return result;
     }
+    if let Some(result) = unreached::combine_reached(first, second, operation) {
+        return result;
+    }
+    combine_planned(first, second, operation).map(|planned| planned.solid)
+}
 
+struct Planned {
+    solid: Solid,
+    names: BTreeSet<EdgeName>,
+}
+
+fn combine_planned(
+    first: &Solid,
+    second: &Solid,
+    operation: BooleanOperation,
+) -> Result<Planned, BooleanError> {
     let mut plain = Input::new(first, second);
 
     let snapped_solid = snap::snapped(&plain);
@@ -502,16 +519,14 @@ fn combine(
     attempt(&mut plain, OverlapCuts::WhereverInside).unwrap_or(Err(reported))
 }
 
-fn settled(
-    result: Result<Solid, BooleanError>,
-) -> Result<Result<Solid, BooleanError>, BooleanError> {
+fn settled<T>(result: Result<T, BooleanError>) -> Result<Result<T, BooleanError>, BooleanError> {
     match result {
         Ok(_) | Err(BooleanError::Empty | BooleanError::Cancelled(_)) => Ok(result),
         Err(error) => Err(error),
     }
 }
 
-fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError> {
+fn run(input: &Input, operation: BooleanOperation) -> Result<Planned, BooleanError> {
     let mut arrangement = imprint::imprint(input)?;
 
     interrupt::check()?;
@@ -530,5 +545,5 @@ fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError
     let healed = heal::heal(&mut arrangement, kept)?;
 
     interrupt::check()?;
-    assemble::assemble(input, &arrangement, healed, &BTreeMap::new())
+    assemble::assemble_planned(input, &arrangement, healed, &BTreeMap::new())
 }

@@ -7,6 +7,7 @@ use crate::{
     build::{LinearExtent, extrude},
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
+    tally,
     test_support::{circle, rectangle},
     topology::PcurveSample,
 };
@@ -68,7 +69,7 @@ fn block_at(index: usize) -> Solid {
 }
 
 fn full(first: &Solid, second: &Solid, operation: BooleanOperation) -> Result<Solid, BooleanError> {
-    run(&Input::with_carrying(first, second, false), operation)
+    run(&Input::with_carrying(first, second, false), operation).map(|planned| planned.solid)
 }
 
 #[derive(Debug, PartialEq)]
@@ -286,6 +287,81 @@ fn separated_solids_that_the_pipeline_would_rename_go_through_it() {
     assert_same_in_every_operation("split side", &first, &steps);
 }
 
+fn row_of_blocks(count: usize) -> Solid {
+    let mut joined = block_at(0);
+
+    for index in 1..count {
+        joined = boolean(&joined, &block_at(index), BooleanOperation::Union).unwrap();
+    }
+    joined
+}
+
+#[test]
+fn lumps_the_tool_does_not_reach_match_the_full_pipeline() {
+    let row = row_of_blocks(4);
+    let last = 2.0 * PITCH * 3.0;
+    let overlapping = block(
+        (last + 0.5 * PITCH, 2.0, 2.0),
+        (last + 1.5 * PITCH, 8.0, 8.0),
+        5000,
+    );
+    let pocket = block((last + 2.0, 2.0, 2.0), (last + 8.0, 8.0, 8.0), 5001);
+    let bridge = block(
+        (2.0 * PITCH + 5.0, 2.0, 2.0),
+        (4.0 * PITCH + 5.0, 8.0, 8.0),
+        5002,
+    );
+    let swallowing = block(
+        (2.0 * PITCH - 1.0, -1.0, -1.0),
+        (3.0 * PITCH + 1.0, PITCH + 1.0, PITCH + 1.0),
+        5003,
+    );
+    let flush = block((last, 0.0, PITCH), (last + PITCH, PITCH, 2.0 * PITCH), 5004);
+
+    assert_eq!(row.shells().count(), 4);
+
+    for (name, tool) in [
+        ("overlapping one lump", &overlapping),
+        ("inside one lump", &pocket),
+        ("bridging two lumps", &bridge),
+        ("swallowing one lump", &swallowing),
+        ("flush on one lump", &flush),
+    ] {
+        assert_same_in_every_operation(name, &row, tool);
+    }
+
+    let hollowed = assert_same("void", &row, &pocket, BooleanOperation::Difference);
+
+    assert_eq!(hollowed.shells().count(), 5);
+
+    let into_void = block((last + 5.0, 4.0, 4.0), (last + 12.0, 6.0, 6.0), 5005);
+    let first_block = block((-1.0, 4.0, 4.0), (5.0, 6.0, 6.0), 5006);
+
+    assert_same_in_every_operation("into a void", &hollowed, &into_void);
+    assert_same_in_every_operation("beside a hollowed lump", &hollowed, &first_block);
+    assert_same_in_every_operation("a hollowed lump", &hollowed, &pocket);
+}
+
+#[test]
+fn lumps_with_the_same_names_match_the_full_pipeline() {
+    let first = block((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let copy = first
+        .transformed(&RigidTransform::translation(Vector3::new(30.0, 0.0, 0.0)).unwrap())
+        .unwrap();
+    let third = block((60.0, 0.0, 0.0), (70.0, 10.0, 10.0), 3);
+
+    let copies = assert_same("copies", &first, &copy, BooleanOperation::Union);
+    let row = assert_same("third", &copies, &third, BooleanOperation::Union);
+    let drill = drill_at((35.0, 5.0), 2.0, 9);
+    let across = block((5.0, 2.0, 2.0), (35.0, 8.0, 8.0), 10);
+
+    assert_eq!(row.shells().count(), 3);
+
+    assert_same_in_every_operation("one of the copies", &row, &drill);
+    assert_same_in_every_operation("the third", &row, &drill_at((65.0, 5.0), 2.0, 11));
+    assert_same_in_every_operation("across the copies", &row, &across);
+}
+
 fn pcurve_buffers(solid: &Solid) -> Vec<*const PcurveSample> {
     solid
         .coedges()
@@ -379,4 +455,55 @@ fn holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time() {
     );
 
     assert_eq!(grown.shells().count(), count);
+}
+
+fn union_with_the_last_of(count: usize) -> usize {
+    let row = row_of_blocks(count);
+    let last = 2.0 * PITCH * (count - 1) as f64;
+    let overlapping = block(
+        (last + 0.5 * PITCH, 2.0, 2.0),
+        (last + 1.5 * PITCH, 8.0, 8.0),
+        5000,
+    );
+
+    let (grown, units) = tally::measure(|| boolean(&row, &overlapping, BooleanOperation::Union));
+
+    assert_eq!(grown.map(|grown| grown.shells().count()), Ok(count));
+    units
+}
+
+#[test]
+fn work_follows_the_contact_rather_than_the_body() {
+    let columns = 8;
+    let mut body = plate(columns, columns);
+    let mut work = Vec::new();
+
+    for index in 0..columns * columns {
+        let tool = drill(index, columns);
+
+        let (drilled, units) =
+            tally::measure(|| boolean(&body, &tool, BooleanOperation::Difference));
+
+        body = drilled.unwrap();
+        work.push(units);
+    }
+
+    let (first, last) = (work.first().copied(), work.last().copied());
+
+    assert_eq!(body.faces().count(), 6 + columns * columns);
+    assert!(
+        first
+            .zip(last)
+            .is_some_and(|(first, last)| 10 * last <= 11 * first),
+        "the first hole took {first:?} units of work, the last {last:?}: meshing the body, \
+         checking every loop and untangling every hole again adds a fifth over 64 holes"
+    );
+
+    let (few, many) = (union_with_the_last_of(4), union_with_the_last_of(32));
+
+    assert!(
+        many <= 2 * few,
+        "a union with one of 32 blocks took {many} units of work, with one of 4 {few}: taking \
+         every block through the pipeline grows two and a half times"
+    );
 }

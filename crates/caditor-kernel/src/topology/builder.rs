@@ -18,7 +18,7 @@ use crate::{
         Coedge, CoedgeId, Edge, EdgeId, Face, FaceId, Loop, LoopId, Shell, ShellId, Solid, Vertex,
         VertexId,
         pcurve::{Pcurve, PcurveError, fit},
-        validate::{self, ValidationError},
+        validate::{self, ValidationError, Vouched},
     },
 };
 
@@ -85,7 +85,7 @@ pub(crate) struct Blamed {
 #[derive(Clone, Debug, Default)]
 pub struct SolidBuilder {
     solid: Solid,
-    settled: BTreeSet<CoedgeId>,
+    vouched: Vouched,
 }
 
 impl SolidBuilder {
@@ -310,7 +310,7 @@ impl SolidBuilder {
 
     pub(crate) fn settle(&mut self, face_loop: LoopId, settled: &[bool]) {
         if let Some(face_loop) = self.solid.face_loop(face_loop) {
-            self.settled.extend(
+            self.vouched.coedges.extend(
                 face_loop
                     .coedges
                     .iter()
@@ -321,8 +321,16 @@ impl SolidBuilder {
         }
     }
 
+    pub(crate) fn vouch_loop(&mut self, face_loop: LoopId) {
+        self.vouched.loops.insert(face_loop);
+    }
+
+    pub(crate) fn keeps_side(&mut self, face: FaceId) {
+        self.vouched.sided.insert(face);
+    }
+
     pub(crate) fn build_blamed(self) -> Result<Solid, Blamed> {
-        match validate::validate_settled(&self.solid, &self.settled) {
+        match validate::validate_vouched(&self.solid, &self.vouched) {
             Ok(()) => Ok(self.solid),
             Err(error) => Err(Blamed {
                 faces: error.faces(&self.solid),

@@ -267,9 +267,23 @@ paths:
   is returned; a solid of one shell is its own lump. The document makes a body of each separate
   piece through it. `Solid::joined` is the reverse, appending solids' arenas into one solid of their
   shells and validating it, so lumps that overlap are refused.
-- A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was carried
-  unchanged (edge curve, interval, face surface, pcurve) from a valid solid, so its geometry check
-  against the edge is skipped; nothing else is.
+- What a builder vouches for (`validate::Vouched`) skips the checks it already passed in a valid
+  solid; nothing else is skipped:
+  - a coedge marked settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was carried
+    unchanged (edge curve, interval, face surface, pcurve), so its geometry check against the edge
+    is skipped;
+  - a loop marked carried (`SolidBuilder::vouch_loop`, from `Provenance::carried_loops`) is a whole
+    loop of the valid solid's same face, every coedge settled and in the same order, so its
+    continuity and winding are not checked again, nor an inner loop's place when its outer loop is
+    carried too;
+  - a face marked as keeping its side (`SolidBuilder::keeps_side`, from `Provenance::keeps_side`)
+    has the surface and sense of a face of a valid solid and material behind it as there. A solid of
+    one shell holding such a face skips the volume check: its shell is consistently oriented
+    (`EdgeSenses`), so every normal points away from the material as that face's does, and a
+    bounded solid of one shell has its material on the shell's bounded side, so the volume is
+    positive. With two shells or more the sign tells a lump from a void and the lumps are placed,
+    so the mesh is made as before. The skip drops the mesh's triangulation of the faces; those it
+    can fail on are new faces, which the boolean builds from pieces split at every crossing.
 
 ## `Solid::find_crossing` (for importers)
 

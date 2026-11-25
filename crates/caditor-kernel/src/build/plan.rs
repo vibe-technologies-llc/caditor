@@ -204,6 +204,13 @@ pub(crate) struct Plan {
     edges: Vec<PlanEdge>,
     faces: Vec<PlanFace>,
     labels: Vec<(usize, Vec<u64>)>,
+    provenance: BTreeMap<usize, Provenance>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Provenance {
+    pub keeps_side: bool,
+    pub carried_loops: BTreeSet<usize>,
 }
 
 impl Plan {
@@ -249,6 +256,15 @@ impl Plan {
 
     pub fn face(&mut self, face: PlanFace) {
         self.faces.push(face);
+    }
+
+    pub fn face_from(&mut self, face: PlanFace, provenance: Provenance) {
+        self.provenance.insert(self.faces.len(), provenance);
+        self.faces.push(face);
+    }
+
+    pub fn edge_names(&self) -> impl Iterator<Item = EdgeName> + '_ {
+        self.edges.iter().map(|edge| edge.name)
     }
 
     fn users(&self) -> Vec<Vec<(usize, Sense)>> {
@@ -516,13 +532,21 @@ impl Plan {
                     .face(shell, face.surface.clone(), face.sense)
                     .map_err(blame)?;
 
+                let provenance = self.provenance.get(&index);
+
                 placed.insert(id, index);
+                if provenance.is_some_and(|provenance| provenance.keeps_side) {
+                    builder.keeps_side(id);
+                }
                 builder.set_face_name(id, face.name).map_err(blame)?;
                 if let Some(origin) = face.origin {
                     builder.set_face_origin(id, origin).map_err(blame)?;
                 }
-                for coedges in &face.loops {
-                    self.add_loop(&mut builder, id, face, coedges, &edges)
+                for (position, coedges) in face.loops.iter().enumerate() {
+                    let carried = provenance
+                        .is_some_and(|provenance| provenance.carried_loops.contains(&position));
+
+                    self.add_loop(&mut builder, id, face, coedges, &edges, carried)
                         .map_err(|error| Culprit::at(error, vec![index]))?;
                 }
             }
@@ -544,6 +568,7 @@ impl Plan {
         face: &PlanFace,
         coedges: &[PlanCoedge],
         edges: &[EdgeId],
+        carried: bool,
     ) -> Result<(), PlanError> {
         let resolved = coedges
             .iter()
@@ -602,6 +627,9 @@ impl Plan {
             .collect();
         let face_loop = builder.add_loop_with_pcurves(face_id, with_pcurves)?;
 
+        if carried && settled.iter().all(|settled| *settled) {
+            builder.vouch_loop(face_loop);
+        }
         builder.settle(face_loop, &settled);
         Ok(())
     }
