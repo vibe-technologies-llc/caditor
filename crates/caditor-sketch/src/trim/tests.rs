@@ -1186,6 +1186,24 @@ fn a_line_inside_another_collinear_line_is_not_cut_by_the_longer_one() {
 }
 
 #[test]
+fn a_spline_lying_along_a_line_cuts_it_at_both_ends_of_the_overlap() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    let spline = sketch.add_spline(&[Point2::new(10.0, 5.0), Point2::new(20.0, 5.0)]);
+
+    let pieces = sketch.trim_pieces(line).unwrap();
+
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(pieces[1].cutters(), vec![spline]);
+
+    assert_near(pieces[1].start.unwrap().position, Point2::new(10.0, 5.0));
+    assert_near(pieces[1].end.unwrap().position, Point2::new(20.0, 5.0));
+
+    assert!(sketch.trim_pieces(spline).unwrap()[0].is_whole());
+}
+
+#[test]
 fn an_arc_on_the_same_circle_cuts_the_circle_at_its_ends() {
     let mut sketch = Sketch::new(Plane::XY);
 

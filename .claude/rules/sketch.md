@@ -428,6 +428,14 @@ relative to the extent.
     ends of the overlap: the cutter's ends inside the target (`overlap_ends`, same tolerance); the
     overlap's own crossings are not looked for. A whole circle on a circle, or a cutter whose ends
     lie outside the target, cuts nothing. Extend does not look for overlaps.
+  - A spline lying along a line or a circle (`intersect::roots_along`) is met at the ends of the
+    stretch where it coincides: a run of at least `MIN_OVERLAP_INTERVALS` sample intervals whose
+    samples and midpoints lie within the tolerance, its ends bisected to where the spline leaves
+    the tolerance, the crossings inside it (zeros of the side function all along) dropped. So a
+    line or arc is cut where such a spline begins and ends on it, and a spline cut by a line or arc
+    along it is cut at those ends and at the cutter's own ends lying on the stretch
+    (`SplineMeeting::bounded_by`), as two collinear lines are. A tangent touch stays one crossing.
+    Two splines along each other are not looked for.
   - Dropped: `Equal` on a shortened line (kept only by the fillet and chamfer, below); `ArcLength`
     and `Sweep` on a shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any
     distance dimension between the two old ends or points joined to them by `Coincident`.

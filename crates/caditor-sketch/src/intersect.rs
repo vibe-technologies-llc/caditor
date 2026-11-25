@@ -13,6 +13,7 @@ const NEWTON_SETTLED: f64 = 1e-6;
 const CLOSEST_REFINEMENTS: usize = 16;
 const TOUCH_REFINEMENTS: usize = 32;
 const ELLIPSE_SAMPLES: usize = 256;
+const MIN_OVERLAP_INTERVALS: usize = 2;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Shape {
@@ -201,9 +202,9 @@ fn ellipse_roots(
         signed,
         tolerance,
     );
-    let mut kept: Vec<Point2> = Vec::with_capacity(found.len());
+    let mut kept: Vec<Point2> = Vec::with_capacity(found.roots.len());
 
-    for point in found {
+    for point in found.roots.into_iter().map(point_at) {
         if kept.iter().all(|known| known.distance(point) > tolerance) {
             kept.push(point);
         }
@@ -412,19 +413,84 @@ fn spline_samples(spline: &BSpline) -> usize {
     (spline.control_points().len() * SPLINE_SAMPLES_PER_POINT).max(MIN_SPLINE_SAMPLES)
 }
 
-pub(crate) fn spline_roots(
+pub(crate) struct SplineMeeting {
+    pub(crate) points: Vec<Point2>,
+    overlaps: Vec<Overlap>,
+}
+
+impl SplineMeeting {
+    pub(crate) fn bounded_by(
+        &self,
+        spline: &BSpline,
+        ends: [Point2; 2],
+        within: impl Fn(Point2) -> bool,
+        tolerance: f64,
+    ) -> Vec<Point2> {
+        let ends_on_overlaps = ends
+            .into_iter()
+            .filter(|end| self.overlaps_at(spline, *end, tolerance));
+        self.points
+            .iter()
+            .copied()
+            .filter(|point| within(*point))
+            .chain(ends_on_overlaps)
+            .collect()
+    }
+
+    fn overlaps_at(&self, spline: &BSpline, point: Point2, tolerance: f64) -> bool {
+        let parameter = closest_spline_parameter(spline, point);
+        spline.point_at(parameter).distance(point) <= tolerance
+            && self
+                .overlaps
+                .iter()
+                .any(|overlap| (overlap.from..=overlap.to).contains(&parameter))
+    }
+}
+
+pub(crate) fn spline_meeting(
     spline: &BSpline,
     signed: impl Fn(Point2) -> f64,
     tolerance: f64,
-) -> Vec<Point2> {
+) -> SplineMeeting {
     let point_at = |parameter: f64| spline.point_at(parameter);
-    roots_along(
+    let found = roots_along(
         &point_at,
         (0.0, 1.0),
         spline_samples(spline),
         signed,
         tolerance,
-    )
+    );
+    SplineMeeting {
+        points: found.roots.into_iter().map(point_at).collect(),
+        overlaps: found.overlaps,
+    }
+}
+
+pub(crate) fn spline_roots(
+    spline: &BSpline,
+    signed: impl Fn(Point2) -> f64,
+    tolerance: f64,
+) -> Vec<Point2> {
+    spline_meeting(spline, signed, tolerance).points
+}
+
+struct Meeting {
+    roots: Vec<f64>,
+    overlaps: Vec<Overlap>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Overlap {
+    from: f64,
+    to: f64,
+    bracket_from: f64,
+    bracket_to: f64,
+}
+
+impl Overlap {
+    fn swallows(&self, parameter: f64) -> bool {
+        (self.bracket_from..=self.bracket_to).contains(&parameter)
+    }
 }
 
 fn roots_along(
@@ -433,7 +499,7 @@ fn roots_along(
     samples: usize,
     signed: impl Fn(Point2) -> f64,
     tolerance: f64,
-) -> Vec<Point2> {
+) -> Meeting {
     let value = |parameter: f64| signed(point_at(parameter));
     let sampled: Vec<(f64, f64)> = (0..=samples)
         .map(|index| {
@@ -443,6 +509,8 @@ fn roots_along(
             (parameter, if touching_an_end { 0.0 } else { at })
         })
         .collect();
+
+    let overlaps = overlaps_in(&sampled, &value, tolerance);
     let mut roots = Vec::new();
 
     for pair in sampled.windows(2) {
@@ -473,8 +541,93 @@ fn roots_along(
             roots.extend(roots_in_dip(&value, (before, after), sense, tolerance));
         }
     }
+    roots.retain(|root| !overlaps.iter().any(|overlap| overlap.swallows(*root)));
+    roots.extend(
+        overlaps
+            .iter()
+            .flat_map(|overlap| [overlap.from, overlap.to]),
+    );
     roots.sort_by(f64::total_cmp);
-    roots.into_iter().map(point_at).collect()
+    Meeting { roots, overlaps }
+}
+
+fn overlaps_in(
+    sampled: &[(f64, f64)],
+    value: &impl Fn(f64) -> f64,
+    tolerance: f64,
+) -> Vec<Overlap> {
+    let near = |at: f64| at.abs() <= tolerance;
+    let coincident: Vec<bool> = sampled
+        .windows(2)
+        .map(|pair| match pair {
+            &[(low, at_low), (high, at_high)] => {
+                near(at_low) && near(at_high) && near(value((low + high) / 2.0))
+            }
+            _ => false,
+        })
+        .collect();
+    let mut overlaps = Vec::new();
+    let mut run_start = None;
+
+    for (index, lies_on) in coincident.iter().copied().chain([false]).enumerate() {
+        match (lies_on, run_start) {
+            (true, None) => run_start = Some(index),
+            (false, Some(start)) => {
+                run_start = None;
+                if index - start >= MIN_OVERLAP_INTERVALS {
+                    overlaps.extend(overlap_between(sampled, value, tolerance, start, index));
+                }
+            }
+            _ => {}
+        }
+    }
+    overlaps
+}
+
+fn overlap_between(
+    sampled: &[(f64, f64)],
+    value: &impl Fn(f64) -> f64,
+    tolerance: f64,
+    first_sample: usize,
+    last_sample: usize,
+) -> Option<Overlap> {
+    let (inside_first, _) = *sampled.get(first_sample)?;
+    let (inside_last, _) = *sampled.get(last_sample)?;
+    let before = first_sample
+        .checked_sub(1)
+        .and_then(|index| sampled.get(index));
+    let after = sampled.get(last_sample + 1);
+
+    let from = before.map_or(inside_first, |&(outside, _)| {
+        overlap_edge(value, inside_first, outside, tolerance)
+    });
+    let to = after.map_or(inside_last, |&(outside, _)| {
+        overlap_edge(value, inside_last, outside, tolerance)
+    });
+    Some(Overlap {
+        from,
+        to,
+        bracket_from: before.map_or(inside_first, |&(parameter, _)| parameter),
+        bracket_to: after.map_or(inside_last, |&(parameter, _)| parameter),
+    })
+}
+
+fn overlap_edge(value: &impl Fn(f64) -> f64, inside: f64, outside: f64, tolerance: f64) -> f64 {
+    let (mut inside, mut outside) = (inside, outside);
+
+    for _ in 0..BISECTION_STEPS {
+        let middle = (inside + outside) / 2.0;
+
+        if middle == inside || middle == outside {
+            break;
+        }
+        if value(middle).abs() <= tolerance {
+            inside = middle;
+        } else {
+            outside = middle;
+        }
+    }
+    inside
 }
 
 fn roots_in_dip(
@@ -838,6 +991,20 @@ mod tests {
             BSpline::clamped(vec![Point2::new(0.0, 20.0), Point2::new(10.0, 30.0)]).unwrap();
 
         assert!(spline_spline(&rising, &apart, TOLERANCE).is_empty());
+    }
+
+    #[test]
+    fn a_spline_lying_along_a_line_meets_it_only_at_the_ends_of_the_overlap() {
+        let Some(straight) = BSpline::clamped(vec![
+            Point2::new(2.0, 1.0),
+            Point2::new(5.0, 1.0),
+            Point2::new(9.0, 1.0),
+        ]) else {
+            panic!("a spline");
+        };
+        let crossed = crossings(horizontal_through(1.0), &Shape::Spline(straight), TOLERANCE);
+
+        assert_eq!(crossed, vec![Point2::new(2.0, 1.0), Point2::new(9.0, 1.0)]);
     }
 
     #[test]

@@ -8,7 +8,7 @@ under the pointer shows in red first.
 end, and it grows to the next curve in its way, an elliptical arc going on round its ellipse and a
 spline carrying on along its own curve the way its end is heading.
 
-Every other curve cuts, construction lines included. The sketch's reference axes only cut a curve when no other sketch curve crosses it, so an overhang trims back to its real crossing in one click. Constraints that still
+Every other curve cuts, construction lines included. The sketch's reference axes only cut a curve when no other sketch curve crosses it, so an overhang trims back to its real crossing in one click. A curve lying along another, a line on a line, an arc on the same circle or a spline drawn along a line or arc, cuts it once where the stretch they share begins and once where it ends. Constraints that still
 make sense are kept on the pieces, and the new ends are joined to what cut them, so the outline
 stays closed. A point that was the midpoint of a line or arc stays on it, as a point on the curve,
 when it still lies on what is left (a trimmed line's far piece takes it when it lies there), and is

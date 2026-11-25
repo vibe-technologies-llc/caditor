@@ -372,31 +372,32 @@ impl Cutter {
 
     fn spline_cut_positions(&self, own: &BSpline, tolerance: f64) -> Vec<Point2> {
         let along = |through: Point2, direction: Vector2| {
-            intersect::spline_roots(own, |point| direction.perp_dot(point - through), tolerance)
+            intersect::spline_meeting(own, |point| direction.perp_dot(point - through), tolerance)
         };
         let around = |center: Point2, radius: f64| {
-            intersect::spline_roots(own, |point| point.distance(center) - radius, tolerance)
+            intersect::spline_meeting(own, |point| point.distance(center) - radius, tolerance)
         };
         match self {
-            Self::Axis(direction) => along(Point2::ZERO, *direction),
+            Self::Axis(direction) => along(Point2::ZERO, *direction).points,
             Self::Shape(Shape::Segment { start, end }) => {
                 let Some(direction) = (*end - *start).try_normalize() else {
                     return Vec::new();
                 };
                 let length = start.distance(*end);
-                along(*start, direction)
-                    .into_iter()
-                    .filter(|point| {
-                        let reach = (*point - *start).dot(direction);
-                        reach >= -tolerance && reach <= length + tolerance
-                    })
-                    .collect()
+
+                let within = |point: Point2| {
+                    let reach = (point - *start).dot(direction);
+                    reach >= -tolerance && reach <= length + tolerance
+                };
+                along(*start, direction).bounded_by(own, [*start, *end], within, tolerance)
             }
-            Self::Shape(Shape::Circle { center, radius }) => around(*center, *radius),
-            Self::Shape(Shape::Arc(arc)) => around(arc.center, arc.radius)
-                .into_iter()
-                .filter(|point| intersect::on_arc(arc, *point, tolerance))
-                .collect(),
+            Self::Shape(Shape::Circle { center, radius }) => around(*center, *radius).points,
+            Self::Shape(Shape::Arc(arc)) => around(arc.center, arc.radius).bounded_by(
+                own,
+                [arc.point_at(arc.start_angle), arc.point_at(arc.end_angle())],
+                |point| intersect::on_arc(arc, point, tolerance),
+                tolerance,
+            ),
             Self::Shape(Shape::Spline(other)) => intersect::spline_spline(own, other, tolerance),
             Self::Shape(Shape::Ellipse(ellipse)) => intersect::spline_roots(
                 own,

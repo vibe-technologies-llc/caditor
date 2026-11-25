@@ -1,7 +1,7 @@
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{BreakError, Constraint, Entity, EntityId, Sketch, Solved};
+use crate::{BreakError, Constraint, Entity, EntityId, Sketch, Solved, SplineKind};
 
 const EXACT: f64 = 1e-7;
 
@@ -289,4 +289,183 @@ fn an_elliptical_arc_is_broken_where_a_line_crosses_it() {
     assert!((first.minor_radius - second.minor_radius).abs() < EXACT);
     assert!((first.point_at(first.end()).x - center.x - 2.0).abs() < EXACT);
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+fn spline_ends_at(sketch: &Sketch, spline: EntityId) -> (Point2, Point2) {
+    let Some((start, end)) = sketch.entity(spline).and_then(Entity::spline_ends) else {
+        panic!("expected a spline");
+    };
+    (at(sketch, start), at(sketch, end))
+}
+
+fn at(sketch: &Sketch, point: EntityId) -> Point2 {
+    match sketch.point(point) {
+        Some(at) => at,
+        None => panic!("expected a point"),
+    }
+}
+
+#[test]
+fn a_spline_lying_along_a_line_breaks_the_line_at_the_ends_of_the_overlap() {
+    let lying_along = [
+        (
+            vec![Point2::new(-12.0, -4.0), Point2::new(-12.0, -10.0)],
+            SplineKind::OPEN,
+        ),
+        (
+            vec![
+                Point2::new(-12.0, -4.0),
+                Point2::new(-12.0, -7.0),
+                Point2::new(-12.0, -10.0),
+            ],
+            SplineKind::fit(false),
+        ),
+    ];
+
+    for (points, kind) in lying_along {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::new(-12.0, 0.0), Point2::new(-12.0, -12.0));
+        let spline = sketch.add_spline_of(&points, kind);
+        let inner = sketch.add_line(Point2::new(-12.0, -4.0), Point2::new(-12.0, -10.0));
+        let before = sketch.clone();
+
+        assert!(matches!(
+            sketch.break_curve(spline),
+            Err(BreakError::NoCrossing { .. })
+        ));
+        assert!(matches!(
+            sketch.break_curve(inner),
+            Err(BreakError::NoCrossing { .. })
+        ));
+        assert!(sketch.same_content(&before));
+
+        let pieces = sketch.break_curve(line).unwrap();
+
+        assert_clean(&sketch);
+
+        assert_eq!(pieces.len(), 2);
+        assert!(has_line(
+            &sketch,
+            Point2::new(-12.0, 0.0),
+            Point2::new(-12.0, -4.0)
+        ));
+        assert!(has_line(
+            &sketch,
+            Point2::new(-12.0, -4.0),
+            Point2::new(-12.0, -10.0)
+        ));
+        assert!(has_line(
+            &sketch,
+            Point2::new(-12.0, -10.0),
+            Point2::new(-12.0, -12.0)
+        ));
+    }
+}
+
+#[test]
+fn a_spline_partly_along_a_line_is_broken_where_the_overlap_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let bent = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 5.0),
+            Point2::new(10.0, 5.0),
+            Point2::new(10.0, 15.0),
+        ],
+        SplineKind::graded(1, 3).unwrap(),
+    );
+
+    sketch.add_line(Point2::new(4.0, 5.0), Point2::new(30.0, 5.0));
+
+    let pieces = sketch.break_curve(bent).unwrap();
+
+    assert_eq!(pieces.len(), 2);
+
+    let (start, cut) = spline_ends_at(&sketch, bent);
+    let (middle_start, middle_end) = spline_ends_at(&sketch, pieces[0]);
+    let (last_start, last_end) = spline_ends_at(&sketch, pieces[1]);
+
+    assert!(start.distance(Point2::new(0.0, 5.0)) < EXACT);
+    assert!(cut.distance(Point2::new(4.0, 5.0)) < EXACT);
+    assert!(middle_start.distance(Point2::new(4.0, 5.0)) < EXACT);
+    assert!(middle_end.distance(Point2::new(10.0, 5.0)) < 1e-5);
+    assert!(last_start.distance(middle_end) < EXACT);
+    assert!(last_end.distance(Point2::new(10.0, 15.0)) < EXACT);
+}
+
+#[test]
+fn a_conic_lying_along_an_arc_breaks_the_arc_at_its_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let half_turn_cos = std::f64::consts::FRAC_1_SQRT_2;
+
+    let arc = sketch.add_arc(
+        Point2::ZERO,
+        Point2::new(10.0, -10.0).normalize() * 10.0,
+        Point2::new(-10.0, 10.0).normalize() * 10.0,
+    );
+    let conic = sketch.add_spline_of(
+        &[
+            Point2::new(10.0, 0.0),
+            Point2::new(10.0, 10.0),
+            Point2::new(0.0, 10.0),
+        ],
+        SplineKind::Conic {
+            rho: half_turn_cos / (1.0 + half_turn_cos),
+        },
+    );
+    let before = sketch.clone();
+
+    assert!(matches!(
+        sketch.break_curve(conic),
+        Err(BreakError::NoCrossing { .. })
+    ));
+    assert!(sketch.same_content(&before));
+
+    let pieces = sketch.break_curve(arc).unwrap();
+    let solved = assert_clean(&sketch);
+
+    assert_eq!(pieces.len(), 2);
+
+    let middle = solved.geometry.arc(pieces[0]).unwrap();
+
+    assert!(
+        middle
+            .point_at(middle.start_angle)
+            .distance(Point2::new(10.0, 0.0))
+            < EXACT
+    );
+    assert!(
+        middle
+            .point_at(middle.end_angle())
+            .distance(Point2::new(0.0, 10.0))
+            < EXACT
+    );
+}
+
+#[test]
+fn a_spline_touching_a_line_at_one_point_breaks_once_there() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let bump = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(5.0, 10.0),
+        Point2::new(10.0, 0.0),
+    ]);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
+
+    let line_pieces = sketch.break_curve(line).unwrap();
+
+    assert_eq!(line_pieces.len(), 1);
+    assert!(has_line(
+        &sketch,
+        Point2::new(0.0, 5.0),
+        Point2::new(5.0, 5.0)
+    ));
+
+    let spline_pieces = sketch.break_curve(bump).unwrap();
+    let (_, cut) = spline_ends_at(&sketch, bump);
+
+    assert_eq!(spline_pieces.len(), 1);
+    assert!(cut.distance(Point2::new(5.0, 5.0)) < 1e-5);
 }
