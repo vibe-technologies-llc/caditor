@@ -91,7 +91,7 @@ fn loft_runs_through_the_selected_sketches_in_order_and_takes_its_sides_from_the
     assert_eq!(loft_of(&harness, loft).skin, LoftSkin::Ruled);
     assert!(near(harness.body_volume(loft), frustum()));
 
-    harness.click_button("Move this profile later");
+    harness.click_topmost_button("Move this profile later");
     harness.settle();
 
     assert_eq!(

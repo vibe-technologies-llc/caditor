@@ -503,7 +503,7 @@ fn bodies_group_header_eye_toggles_all_bodies_and_rows_offer_a_menu_button() {
 
     let both_shown = !hidden(&harness, plate) && !hidden(&harness, peg);
 
-    harness.click_button("More actions for Peg");
+    harness.click_topmost_button("More actions for Peg");
     harness.frame();
 
     let shows_isolate = harness.shows("Isolate in view");

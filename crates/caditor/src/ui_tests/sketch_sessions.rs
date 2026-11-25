@@ -108,7 +108,7 @@ fn the_context_switch_notice_s_undo_takes_back_what_the_switch_made_and_reopens_
     let announced = harness.shows("Finished Plate 1 to edit Circular pattern 1.");
     let made = harness.document().features().len();
 
-    harness.click_button(status_bar::UNDO_SWITCH);
+    harness.click_lowest_button(status_bar::UNDO_SWITCH);
     harness.settle();
 
     assert!(opened.is_some());

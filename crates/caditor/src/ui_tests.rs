@@ -19,7 +19,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
     Color32, CursorIcon, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportInfo,
-    accesskit::{Node, NodeId, Role},
+    accesskit::{Node, NodeId, Rect as Bounds, Role},
     epaint::ClippedShape,
 };
 use parking_lot::Mutex;
@@ -1060,6 +1060,14 @@ impl Harness {
     }
 
     fn click_topmost_button(&mut self, name: &str) {
+        self.click_button_ranked(name, |bounds| bounds.y0);
+    }
+
+    fn click_lowest_button(&mut self, name: &str) {
+        self.click_button_ranked(name, |bounds| -bounds.y0);
+    }
+
+    fn click_button_ranked(&mut self, name: &str, rank: impl Fn(&Bounds) -> f64) {
         self.read_screen();
 
         let bounds = self
@@ -1067,7 +1075,7 @@ impl Harness {
             .iter()
             .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
             .filter_map(|(_, node)| node.bounds())
-            .min_by(|a, b| a.y0.total_cmp(&b.y0))
+            .min_by(|a, b| rank(a).total_cmp(&rank(b)))
             .unwrap_or_else(|| panic!("no button named '{name}'"));
         let centre = Pos2::new(
             ((bounds.x0 + bounds.x1) / 2.0) as f32,
