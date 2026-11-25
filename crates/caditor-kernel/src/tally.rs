@@ -4,6 +4,7 @@ use std::cell::Cell;
 #[cfg(test)]
 thread_local! {
     static UNITS: Cell<usize> = const { Cell::new(0) };
+    static MESHED_FACES: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -15,8 +16,24 @@ pub(crate) fn add(units: usize) {
 pub(crate) fn add(_units: usize) {}
 
 #[cfg(test)]
+pub(crate) fn add_meshed_faces(faces: usize) {
+    add(faces);
+    MESHED_FACES.with(|tally| tally.set(tally.get().saturating_add(faces)));
+}
+
+#[cfg(not(test))]
+pub(crate) fn add_meshed_faces(_faces: usize) {}
+
+#[cfg(test)]
 pub(crate) fn measure<T>(work: impl FnOnce() -> T) -> (T, usize) {
     let before = UNITS.with(Cell::get);
     let result = work();
     (result, UNITS.with(Cell::get) - before)
+}
+
+#[cfg(test)]
+pub(crate) fn measure_meshed_faces<T>(work: impl FnOnce() -> T) -> (T, usize) {
+    let before = MESHED_FACES.with(Cell::get);
+    let result = work();
+    (result, MESHED_FACES.with(Cell::get) - before)
 }

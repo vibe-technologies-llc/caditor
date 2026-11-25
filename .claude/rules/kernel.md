@@ -282,8 +282,10 @@ paths:
     (`EdgeSenses`), so every normal points away from the material as that face's does, and a
     bounded solid of one shell has its material on the shell's bounded side, so the volume is
     positive. With two shells or more the sign tells a lump from a void and the lumps are placed,
-    so the mesh is made as before. The skip drops the mesh's triangulation of the faces; those it
-    can fail on are new faces, which the boolean builds from pieces split at every crossing.
+    so the mesh is made as before. The faces with a loop not carried (new faces and faces given a
+    new loop) are still triangulated at the first validation tolerance (`keeping_faces`), a failure
+    the same `Tessellation` error the volume mesh gave, so a body that `display_mesh` could not
+    show even at `COARSE` is refused as before; only faces whose every loop is carried skip it.
 
 ## `Solid::find_crossing` (for importers)
 

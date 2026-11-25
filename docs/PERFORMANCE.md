@@ -14,19 +14,22 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   coincident faces were left out until they are known to hold on every face kind. Measuring the
   threaded M4's mass exactly (`mass_properties`) gave up on 59 of its 64 faces after about 100 s
   and took them from the mesh: the flank integrals do not converge within `FACE_EVALUATIONS`.
-- [medium · hard] A boolean still makes passes over every face, edge and loop of the body that the
-  tool leaves alone, though the geometry work on them is carried, so a sequence of hole features
-  stays quadratic with a small constant: in release the 144th hole of a block takes 4.3 ms against
-  1.0 for the first (12.5 before quiet loops were carried through untangling and validation and a
-  one-shell result skipped the volume mesh;
-  `carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time`). Of that,
-  the input's face boxes take 0.6 ms, imprinting (every edge split and every vertex pooled) 1.1,
-  the top and bottom faces holding every hole 0.65 each (the quiet loops copied with their areas,
-  grouped and sharpened), selecting and healing every face 0.45, and `Plan::build` 0.8 (vertex
-  merging and naming visit every edge). A union touching one of 300 separated blocks takes 2.7 ms
-  (18.2 before the blocks it does not reach were left alone), mostly boxing, grouping and copying
-  those blocks. A result of several shells, such as a block with a void inside, is still meshed
-  whole for its volumes and placement.
+- [medium · hard] A boolean still meshes, for validation, every face given a new loop, and makes
+  passes over every face, edge and loop of the body that the tool leaves alone, though the other
+  geometry work on them is carried, so a sequence of hole features stays quadratic: in release the
+  144th hole of a block takes 11.2 ms against 1.2 for the first (12.5 before quiet loops were
+  carried through untangling and validation and a one-shell result meshed only its faces with a
+  loop not carried;
+  `carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time`). Most of
+  it is triangulating the top and bottom faces, which hold every hole, to check that they can be
+  meshed (about 7 ms): a check of only the new loops against the face's carried ones would keep
+  that guarantee without the whole face. The rest is the input's face boxes (0.6 ms), imprinting,
+  which splits every edge and pools every vertex (1.1), the top and bottom faces' quiet loops copied
+  with their areas, grouped and sharpened (0.65 each), selecting and healing every face (0.45) and
+  `Plan::build`, whose vertex merging and naming visit every edge (0.8). A union touching one of
+  300 separated blocks takes 2.6 ms (18.2 before the blocks it does not reach were left alone),
+  mostly boxing, grouping and copying those blocks. A result of several shells, such as a block
+  with a void inside, is still meshed whole for its volumes and placement.
 - [medium · hard] Measuring a pipe along a helix or flat spiral exactly is slow: in the
   unoptimised test build a 1 mm round pipe along three turns of a helix (10 mm radius, 4 mm pitch)
   takes 1.6 s to build and 215 s more for `mass_properties` at `MeshQuality::SMOOTH`

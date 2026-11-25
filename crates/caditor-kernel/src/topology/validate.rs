@@ -188,9 +188,40 @@ pub(crate) fn validate_vouched(solid: &Solid, vouched: &Vouched) -> Checked<()> 
     face_domains(solid, &vouched.loops)?;
     shells(solid)?;
     if vouched.outward_shell(solid) {
-        return Ok(());
+        return new_faces_mesh(solid, &vouched.loops);
     }
     volumes(solid)
+}
+
+fn validation_tolerance(solid: &Solid, coarseness: f64) -> SamplingTolerance {
+    let extent = solid.outline_box().map_or(1.0, |bounds| bounds.diagonal());
+    SamplingTolerance::for_extent(extent * coarseness)
+}
+
+fn new_faces_mesh(solid: &Solid, carried: &BTreeSet<LoopId>) -> Checked<()> {
+    let new: BTreeSet<FaceId> = solid
+        .faces()
+        .filter(|(_, face)| {
+            face.loops()
+                .iter()
+                .any(|face_loop| !carried.contains(face_loop))
+        })
+        .map(|(id, _)| id)
+        .collect();
+
+    if new.is_empty() {
+        return Ok(());
+    }
+    tally::add_meshed_faces(new.len());
+
+    let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
+    let tolerance = validation_tolerance(solid, coarseness);
+
+    solid
+        .keeping_faces(&new)
+        .ok_or(ValidationError::MissingEntity)?
+        .tessellate(&tolerance)?;
+    Ok(())
 }
 
 fn face_of(solid: &Solid, id: FaceId) -> Checked<&Face> {
@@ -722,13 +753,12 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
 }
 
 fn volumes(solid: &Solid) -> Checked<()> {
-    tally::add(solid.faces().count());
+    tally::add_meshed_faces(solid.faces().count());
 
-    let extent = solid.outline_box().map_or(1.0, |bounds| bounds.diagonal());
     let mut result = Ok(());
 
     for coarseness in VALIDATION_COARSENESS {
-        result = volumes_at(solid, &SamplingTolerance::for_extent(extent * coarseness));
+        result = volumes_at(solid, &validation_tolerance(solid, coarseness));
         if !matches!(
             result,
             Err(ValidationError::VoidOutside(_)

@@ -529,6 +529,24 @@ impl Solid {
     }
 
     pub(crate) fn keeping_shells(&self, keep: &BTreeSet<ShellId>) -> Option<Self> {
+        let faces: BTreeSet<FaceId> = keep
+            .iter()
+            .filter_map(|shell| self.shell(*shell))
+            .flat_map(|shell| shell.faces.iter().copied())
+            .collect();
+        self.keeping(keep, &faces)
+    }
+
+    pub(crate) fn keeping_faces(&self, faces: &BTreeSet<FaceId>) -> Option<Self> {
+        let shells: BTreeSet<ShellId> = faces
+            .iter()
+            .filter_map(|face| self.face(*face))
+            .map(|face| face.shell)
+            .collect();
+        self.keeping(&shells, faces)
+    }
+
+    fn keeping(&self, keep: &BTreeSet<ShellId>, faces: &BTreeSet<FaceId>) -> Option<Self> {
         fn renumbered<Id: Copy + Ord>(kept: &BTreeSet<Id>) -> BTreeMap<Id, u32> {
             kept.iter()
                 .enumerate()
@@ -536,11 +554,6 @@ impl Solid {
                 .collect()
         }
 
-        let faces: BTreeSet<FaceId> = keep
-            .iter()
-            .filter_map(|shell| self.shell(*shell))
-            .flat_map(|shell| shell.faces.iter().copied())
-            .collect();
         let loops: BTreeSet<LoopId> = faces
             .iter()
             .filter_map(|face| self.face(*face))
@@ -563,7 +576,7 @@ impl Solid {
             .collect();
 
         let (shell_ids, face_ids, loop_ids) =
-            (renumbered(keep), renumbered(&faces), renumbered(&loops));
+            (renumbered(keep), renumbered(faces), renumbered(&loops));
         let (coedge_ids, edge_ids, vertex_ids) = (
             renumbered(&coedges),
             renumbered(&edges),
@@ -587,11 +600,7 @@ impl Solid {
                     Some(Edge {
                         start: vertex(found.start)?,
                         end: vertex(found.end)?,
-                        coedges: found
-                            .coedges
-                            .iter()
-                            .map(|id| coedge(*id))
-                            .collect::<Option<_>>()?,
+                        coedges: found.coedges.iter().filter_map(|id| coedge(*id)).collect(),
                         ..found.clone()
                     })
                 })
@@ -641,11 +650,7 @@ impl Solid {
                 .map(|id| {
                     let found = self.shell(*id)?;
                     Some(Shell {
-                        faces: found
-                            .faces
-                            .iter()
-                            .map(|id| face(*id))
-                            .collect::<Option<_>>()?,
+                        faces: found.faces.iter().filter_map(|id| face(*id)).collect(),
                     })
                 })
                 .collect::<Option<_>>()?,

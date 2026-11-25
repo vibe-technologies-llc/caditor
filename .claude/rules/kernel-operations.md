@@ -364,12 +364,14 @@ paths:
   not checked again; quiet loops are not untangled against each other, only the traced loops
   against everything (`untangle_beside_carried`), and a carried loop's segments are made only when
   a traced loop's box reaches it. A kept face with its operand face's sense keeps that face's side
-  (`Provenance::keeps_side`), so a result of one shell skips the volume mesh (`kernel.md`); results
-  of more shells are meshed and placed whole. `Input::with_carrying(.., false)` runs the full
+  (`Provenance::keeps_side`), so a result of one shell meshes only its faces with a loop not
+  carried, for triangulation, rather than the whole shell for its volume (`kernel.md`); results of
+  more shells are meshed and placed whole. `Input::with_carrying(.., false)` runs the full
   pipeline; `carry_tests.rs` compares the two, and `work_follows_the_contact_rather_than_the_body`
-  bounds by `tally` (faces meshed for volume, loops checked, coedges untangled, box tree nodes) the
-  64th hole of a plate within a tenth over the first and a union with one of 32 separated
-  blocks within twice one of 4.
+  bounds by `tally` (faces meshed for validation, loops checked, coedges untangled, box tree nodes)
+  the 64th hole of a plate within a tenth over the first and a union with one of 32 separated
+  blocks within twice one of 4, and holds each hole to three faces meshed (its wall, the top and
+  the bottom) where the full pipeline meshes the whole body.
 - Shells of a many-lump first operand that the second does not reach are left alone
   (`unreached.rs`): shells are grouped while their boxes (edges, plus doubly curved faces' patch
   boxes) lie within ten resolutions of each other, so a void goes with its lump, and the groups

@@ -477,20 +477,34 @@ fn work_follows_the_contact_rather_than_the_body() {
     let columns = 8;
     let mut body = plate(columns, columns);
     let mut work = Vec::new();
+    let mut meshed = Vec::new();
 
     for index in 0..columns * columns {
         let tool = drill(index, columns);
 
-        let (drilled, units) =
-            tally::measure(|| boolean(&body, &tool, BooleanOperation::Difference));
+        let ((drilled, units), faces) = tally::measure_meshed_faces(|| {
+            tally::measure(|| boolean(&body, &tool, BooleanOperation::Difference))
+        });
 
         body = drilled.unwrap();
         work.push(units);
+        meshed.push(faces);
     }
 
     let (first, last) = (work.first().copied(), work.last().copied());
+    let (_, rebuilt_meshed) = tally::measure_meshed_faces(|| {
+        full(&body, &drill(0, columns), BooleanOperation::Difference)
+    });
 
     assert_eq!(body.faces().count(), 6 + columns * columns);
+    assert!(
+        meshed.iter().all(|faces| *faces == 3),
+        "each hole meshes its wall and the top and bottom it opens, not the body: {meshed:?}"
+    );
+    assert!(
+        rebuilt_meshed > 6 + columns * columns,
+        "the full pipeline meshes the whole body, {rebuilt_meshed} faces"
+    );
     assert!(
         first
             .zip(last)
