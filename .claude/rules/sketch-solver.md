@@ -32,16 +32,27 @@ paths:
   linearisations. It is factored by sparse Cholesky (`sparse::Cholesky`, in the analysis's
   minimum-degree order) under a Levenberg-Marquardt shift, raised from `LEAST_DAMPING` until it
   factors and the whole step lowers the cost, then lowered as far as the model predicted the fall
-  well. After a Newton step the next tries Newton first; a Gauss-Newton line search stays the
-  fallback, and solves whose Gauss-Newton steps all land whole are unchanged.
+  well. The shift is the typical diagonal plus a turning metric: each residual's own second
+  derivatives (the same probes, unweighted), every eigenvalue of its block taken by size, summed
+  and scaled to `TURNING_SHIFT` times the typical diagonal. An identity shift damps a long chain's
+  slow bending modes as hard as its stiff ones, so the steps crawl a percent at a time; the metric
+  resists each link turning instead. Its weight is a trade: lower, a chain swung behind its anchor
+  crawls again; from 5e2 up, a conflict through a thousand-line chain is no longer diagnosed
+  within its budget. Columns with no scale (held at a parameter bound, or a `FROZEN` target) get
+  the typical diagonal so the unshifted model factors. A step is capped by its largest single move
+  (`MAX_STEP` of the scale) as reaching's are, not its norm. After a Newton step the next tries
+  Newton first; a Gauss-Newton line search stays the fallback, and solves whose Gauss-Newton steps
+  all land whole are unchanged.
 - Convergence is checked after every step and cancellation before it (and before each further
   Newton shift), so the diagnosis budget counts steps taken; the analysis polls cancellation before each part, constraint and null-space
   solve. Tests bound cost with `solve/tally.rs` work units (`fit.rs` adds its passes over the
   samples, `offset/around.rs` its curve evaluations and segment tests), never wall-clock time.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. A minimum
-  is a Newton step under the least shift predicting under a thousandth of the cost
-  (`SETTLED_FALL`), no step lowering the cost, or three steps each gaining under a thousandth. Retries
+  is a Newton step under the least shift predicting under a billionth of the cost
+  (`SETTLED_FALL`; Newton converges quadratically there, so it costs a step or two, and a `FROZEN`
+  pose settled from a looser minimum leaves bends that reaching straightens slowly), no step
+  lowering the cost, or three steps each gaining under a thousandth. Retries
   perturb each part by a fraction of its own extent.
 - Each part solves at its own scale (largest coordinate or length dimension, at least 1, rounded up
   to a power of two; `system.rs`), which sets tolerance, step limit and degenerate lengths. A part
@@ -76,10 +87,9 @@ paths:
   settled onto the constraints with everything free by the reaching step's restoration
   (`Solver::settle_onto_constraints`, from the frame's `REACH_WORK`), and reaching goes on from
   that or the drawn pose, whichever lies closer. From the targets, `STIFF` retraces `FROZEN`'s
-  descent with the targets all but held, and on a long chain pulled past its reach its Newton
-  steps crawl, three attempts of a hundred steps failing on 2,000 lines, twice the work for a pose
-  reaching mostly discards. Only a part that does not settle is solved `STIFF`, and parts up to
-  `DENSE_LIMIT` always are.
+  descent with the targets all but held, about twice its work (17 million units on a 2,000-line
+  chain pulled past its reach) for a pose reaching mostly discards. Only a part that does not
+  settle is solved `STIFF`, and parts up to `DENSE_LIMIT` always are.
 - A part whose `STIFF` solve fails (a pointer past what the geometry reaches) solves from where it
   was drawn (`solve_from_drawn`); only a part failing from both is diagnosed. Every part with a
   target then reaches toward it (`numeric/reach.rs`) from whichever of its solved and drawn poses
@@ -111,12 +121,14 @@ paths:
 - A frame's reaching stops once it has spent `REACH_WORK` units (`ReachWork`, counting what
   `tally` counts, refused factorisations and orderings included); the pose it stops at holds and
   the next frame goes on from it. A 500-line zig-zag chain dragged past its reach lands on the ray
-  toward the pointer at full extension in about 5.5 million units for the whole frame (`FROZEN`
-  4.2 million, settling 0.4 million, reaching 0.9 million), a 2,000-line one in about 82 million
-  (`FROZEN` 55 million, settling 3.4 million, reaching 23 million; an ignored test in
-  `reach_tests.rs`, run nightly). Each further frame of such a drag, from the last frame's
-  stretched pose, is reaching alone: about 0.9 million units on 500 lines and 5 million on 2,000
-  (2.7 and 18 million when it went through `FROZEN` and settling again).
+  toward the pointer at full extension in about 2.2 million units for the whole frame (`FROZEN`
+  1.4 million, settling 0.4 million, reaching 0.5 million), a 2,000-line one in about 14 million
+  (`FROZEN` 8.5 million, settling 1.9 million, reaching 3.2 million; an ignored test in
+  `reach_tests.rs`, run nightly). Swung behind its anchor past its reach the 500-line chain lands
+  in about 6 million and folded back to a pointer within reach in about 3 million. Each further
+  frame of such a drag, from the last frame's stretched pose, is reaching alone: about 0.9
+  million units on 500 lines and 5 million on 2,000 (1.7 and 8.7 million when it went through
+  `FROZEN` and settling again).
 - A drag's memo remembers a part that ended a frame beyond reach (`SolveMemo::beyond_reach`): one
   above `DENSE_LIMIT` held only by dragged variables whose targets it did not meet within the
   tolerance, keyed by the dragged variables' names and the part's memo `Key` taken at the pose it

@@ -28,7 +28,7 @@ const PRESSED_MARGIN: f64 = 16.0;
 const SUPPORT_SHARE: f64 = 1e-3;
 const MAX_ITERATIONS: usize = 100;
 const LINE_SEARCH_STEPS: usize = 40;
-pub(super) const STALLED_COST_RATIO: f64 = 0.999;
+const STALLED_COST_RATIO: f64 = 0.999;
 const STALLED_ITERATIONS: usize = 3;
 const MAX_STEP: f64 = 1.0;
 const STEP_RANK_TOLERANCE: f64 = 1e-10;
@@ -1251,6 +1251,11 @@ fn dense_row(gradient: &Gradient, variables: &[usize]) -> Vec<f64> {
 
 fn clear_residual(part: &Part<'_>) -> f64 {
     CLEAR_RESIDUAL * CONVERGENCE_TOLERANCE * part.context.scale
+}
+
+fn largest_move(step: &[f64]) -> f64 {
+    step.iter()
+        .fold(0.0_f64, |largest, delta| larger(largest, delta.abs()))
 }
 
 pub(super) fn norm(row: &[f64]) -> f64 {

@@ -1,8 +1,10 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, cell::OnceCell, collections::BTreeMap};
+
+use nalgebra::{DMatrix, SymmetricEigen};
 
 use crate::solve::{
     equation::{Gradient, value},
-    numeric::{Cancelled, Part, STALLED_COST_RATIO, Solver, Stride, norm, reach::PROBE},
+    numeric::{Cancelled, Part, SVD_ITERATIONS, Solver, Stride, largest_move, reach::PROBE},
     sparse, tally,
 };
 
@@ -11,14 +13,22 @@ const LEAST_DAMPING: f64 = 1e-6;
 const DAMPING_GROWTH: f64 = 8.0;
 const DAMPING_DECAY: f64 = 10.0;
 const LEAST_PIVOT: f64 = 1e-12;
+const TURNING_SHIFT: f64 = 3e2;
 
-const SETTLED_FALL: f64 = 1.0 - STALLED_COST_RATIO;
+const SETTLED_FALL: f64 = 1e-9;
 
 pub(super) type Entries = Vec<(usize, f64)>;
+
+type Block = Vec<(usize, usize, f64)>;
 
 pub(super) struct Curvature {
     pub columns: Vec<BTreeMap<usize, f64>>,
     pub work: usize,
+}
+
+struct Bends {
+    weighted: Vec<BTreeMap<usize, f64>>,
+    blocks: Vec<Block>,
 }
 
 pub(super) struct Fell {
@@ -57,6 +67,8 @@ impl Damping {
 struct Model {
     rows: Vec<Entries>,
     hessian: Vec<Entries>,
+    blocks: Vec<Block>,
+    turning: OnceCell<Vec<Entries>>,
     slope: Vec<f64>,
     scales: Vec<f64>,
     typical: f64,
@@ -75,9 +87,41 @@ impl Model {
             .collect()
     }
 
+    fn turning(&self) -> &[Entries] {
+        self.turning
+            .get_or_init(|| turning_metric(&self.blocks, self.hessian.len(), self.typical))
+    }
+
+    fn shifted(&self, damping: f64) -> Cow<'_, [Entries]> {
+        if damping == 0.0 {
+            return Cow::Borrowed(&self.hessian);
+        }
+
+        let turning = self.turning();
+
+        if turning.iter().all(Vec::is_empty) {
+            return Cow::Borrowed(&self.hessian);
+        }
+        Cow::Owned(
+            self.hessian
+                .iter()
+                .zip(turning)
+                .map(|(entries, turning)| {
+                    let mut merged: BTreeMap<usize, f64> = entries.iter().copied().collect();
+
+                    tally::add(turning.len());
+                    for (other, entry) in turning {
+                        *merged.entry(*other).or_default() += damping * entry;
+                    }
+                    merged.into_iter().collect()
+                })
+                .collect(),
+        )
+    }
+
     fn solve(&self, damping: f64) -> Option<Vec<f64>> {
         let factored = sparse::Cholesky::factor(
-            &self.hessian,
+            &self.shifted(damping),
             damping * self.typical,
             LEAST_PIVOT * self.typical,
             &self.rows,
@@ -149,6 +193,92 @@ fn colours(rows: &[Entries], width: usize) -> (Vec<Vec<usize>>, usize) {
     (colours, work)
 }
 
+fn turning_metric(blocks: &[Block], width: usize, typical: f64) -> Vec<Entries> {
+    let mut turning: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+
+    for block in blocks
+        .iter()
+        .filter(|block| block.iter().any(|(_, _, second)| *second != 0.0))
+    {
+        add_curvature_size(block, &mut turning);
+    }
+
+    let typical_turning = turning
+        .iter()
+        .enumerate()
+        .filter_map(|(column, entries)| entries.get(&column))
+        .sum::<f64>()
+        / width.max(1) as f64;
+
+    if typical_turning <= 0.0 || !typical_turning.is_finite() {
+        return vec![Vec::new(); width];
+    }
+
+    let weight = TURNING_SHIFT * typical / typical_turning;
+
+    turning
+        .into_iter()
+        .map(|entries| {
+            entries
+                .into_iter()
+                .map(|(other, entry)| (other, weight * entry))
+                .filter(|(_, entry)| *entry != 0.0)
+                .collect()
+        })
+        .collect()
+}
+
+fn add_curvature_size(block: &[(usize, usize, f64)], turning: &mut [BTreeMap<usize, f64>]) {
+    let mut columns: Vec<usize> = block
+        .iter()
+        .flat_map(|(column, other, _)| [*column, *other])
+        .collect();
+
+    columns.sort_unstable();
+    columns.dedup();
+
+    let size = columns.len();
+    let at = |column: usize| columns.binary_search(&column).ok();
+    let mut matrix = DMatrix::<f64>::zeros(size, size);
+
+    for (column, other, second) in block {
+        if let (Some(row), Some(across)) = (at(*column), at(*other)) {
+            if let Some(slot) = matrix.get_mut((row, across)) {
+                *slot += 0.5 * second;
+            }
+            if let Some(slot) = matrix.get_mut((across, row)) {
+                *slot += 0.5 * second;
+            }
+        }
+    }
+    tally::add(size * size * size);
+
+    let Some(eigen) = SymmetricEigen::try_new(matrix, f64::EPSILON, SVD_ITERATIONS) else {
+        return;
+    };
+
+    for (value, vector) in eigen
+        .eigenvalues
+        .iter()
+        .map(|value| value.abs())
+        .zip(eigen.eigenvectors.column_iter())
+        .filter(|(value, _)| *value > 0.0)
+    {
+        for (row, column) in columns.iter().enumerate() {
+            let Some(slot) = turning.get_mut(*column) else {
+                continue;
+            };
+            for (across, other) in columns.iter().enumerate() {
+                let entry = value
+                    * vector.get(row).copied().unwrap_or(0.0)
+                    * vector.get(across).copied().unwrap_or(0.0);
+
+                *slot.entry(*other).or_default() += entry;
+            }
+        }
+    }
+}
+
 impl Solver<'_> {
     pub(super) fn newton_descent(
         &self,
@@ -186,12 +316,12 @@ impl Solver<'_> {
                 continue;
             }
 
-            let length = norm(&model.unscaled(&scaled));
+            let largest = largest_move(&model.unscaled(&scaled));
 
-            if length > longest {
+            if largest > longest {
                 scaled
                     .iter_mut()
-                    .for_each(|delta| *delta *= longest / length);
+                    .for_each(|delta| *delta *= longest / largest);
             }
 
             let step = model.unscaled(&scaled);
@@ -199,7 +329,7 @@ impl Solver<'_> {
             let fall = model.predicted_fall(&scaled);
 
             let settled =
-                shift <= LEAST_DAMPING && length <= longest && fall <= SETTLED_FALL * current;
+                shift <= LEAST_DAMPING && largest <= longest && fall <= SETTLED_FALL * current;
 
             if let Some(remaining) = self.line_search(part, &step, values, 1) {
                 *damping = damping.lowered(current * (1.0 - remaining) / fall);
@@ -220,9 +350,10 @@ impl Solver<'_> {
         let width = part.component.variables.len();
         let (rows, residuals) = self.structural_linearize(part, values);
 
-        let curvature = self
-            .weighted_curvature(part, values, &rows, &residuals)
-            .columns;
+        let Bends {
+            weighted: curvature,
+            blocks,
+        } = self.bends(part, values, &rows, &residuals);
         let scale_of = |column: usize| scales.get(column).copied().unwrap_or(1.0);
         let rows: Vec<Entries> = rows
             .into_iter()
@@ -266,16 +397,60 @@ impl Solver<'_> {
         }
 
         let typical = diagonal / width.max(1) as f64;
+        let typical = if typical > 0.0 { typical } else { 1.0 };
+
+        for (column, scale) in scales.iter().enumerate() {
+            if *scale == 0.0
+                && let Some(slot) = hessian.get_mut(column)
+            {
+                *slot.entry(column).or_default() += typical;
+            }
+        }
+
+        let blocks: Vec<Block> = blocks
+            .into_iter()
+            .map(|block| {
+                block
+                    .into_iter()
+                    .map(|(column, other, second)| {
+                        (column, other, second * scale_of(column) * scale_of(other))
+                    })
+                    .collect()
+            })
+            .collect();
+
         Model {
             rows,
             hessian: hessian
                 .into_iter()
                 .map(|entries| entries.into_iter().collect())
                 .collect(),
+            blocks,
+            turning: OnceCell::new(),
             slope,
             scales,
-            typical: if typical > 0.0 { typical } else { 1.0 },
+            typical,
         }
+    }
+
+    fn bends(&self, part: &Part<'_>, values: &[f64], rows: &[Entries], weights: &[f64]) -> Bends {
+        let width = part.component.variables.len();
+        let probe = PROBE * part.context.scale;
+        let mut weighted: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+        let mut blocks: Vec<Block> = vec![Vec::new(); rows.len()];
+
+        self.probe_curvature(part, values, rows, |row, column, other, change| {
+            if let Some(weight) = weights.get(row)
+                && let Some(bent) = weighted.get_mut(column)
+            {
+                *bent.entry(other).or_default() += weight * change / probe;
+            }
+            if let Some(block) = blocks.get_mut(row) {
+                block.push((column, other, change / probe));
+            }
+        });
+
+        Bends { weighted, blocks }
     }
 
     pub(super) fn weighted_curvature(
@@ -285,10 +460,33 @@ impl Solver<'_> {
         rows: &[Entries],
         weights: &[f64],
     ) -> Curvature {
+        let width = part.component.variables.len();
+        let probe = PROBE * part.context.scale;
+        let mut curvature: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
+
+        let work = self.probe_curvature(part, values, rows, |row, column, other, change| {
+            if let Some(weight) = weights.get(row)
+                && let Some(bent) = curvature.get_mut(column)
+            {
+                *bent.entry(other).or_default() += weight * change / probe;
+            }
+        });
+        Curvature {
+            columns: curvature,
+            work,
+        }
+    }
+
+    fn probe_curvature(
+        &self,
+        part: &Part<'_>,
+        values: &[f64],
+        rows: &[Entries],
+        mut bent: impl FnMut(usize, usize, usize, f64),
+    ) -> usize {
         let component = part.component;
         let width = component.variables.len();
         let probe = PROBE * part.context.scale;
-        let mut curvature: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); width];
         let mut probed = values.to_vec();
         let (colours, colouring) = colours(rows, width);
 
@@ -305,15 +503,12 @@ impl Solver<'_> {
 
             let (moved, _) = self.structural_linearize(part, &probed);
 
-            for ((row, moved_row), weight) in rows.iter().zip(&moved).zip(weights) {
+            for (index, (row, moved_row)) in rows.iter().zip(&moved).enumerate() {
                 let Some(column) = row
                     .iter()
                     .map(|(column, _)| *column)
                     .find(|column| members.binary_search(column).is_ok())
                 else {
-                    continue;
-                };
-                let Some(bent) = curvature.get_mut(column) else {
                     continue;
                 };
                 for (other, after) in moved_row {
@@ -322,7 +517,7 @@ impl Solver<'_> {
                         .find(|(at, _)| at == other)
                         .map_or(0.0, |(_, before)| *before);
 
-                    *bent.entry(*other).or_default() += weight * (after - before) / probe;
+                    bent(index, column, *other, after - before);
                 }
             }
             for column in &members {
@@ -333,10 +528,7 @@ impl Solver<'_> {
                 }
             }
         }
-        Curvature {
-            columns: curvature,
-            work,
-        }
+        work
     }
 
     pub(super) fn structural_linearize(

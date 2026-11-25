@@ -86,11 +86,16 @@ fn frame(sketch: &Sketch, hand: EntityId, pointer: Point2, memo: Option<&SolveMe
     }
 }
 
-fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
+fn first_frame(count: usize, pointer: Point2) -> Frame {
     let arm = zigzag_arm(count);
+
+    frame(&arm.sketch, arm.hand, pointer, None)
+}
+
+fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
     let pointer = Point2::new(1.2, 0.5) * count as f64;
 
-    let followed = frame(&arm.sketch, arm.hand, pointer, None);
+    let followed = first_frame(count, pointer);
     let stretched = pointer.normalize() * count as f64;
 
     (followed.hand, stretched, followed.work)
@@ -98,7 +103,7 @@ fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
 
 #[test]
 fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 7_000_000;
+    const FRAME_WORK: usize = 3_000_000;
 
     let (hand, stretched, work) = drag_past_reach(500);
 
@@ -107,6 +112,39 @@ fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
         "{hand} is not {stretched}"
     );
     assert!(work < FRAME_WORK, "{work}");
+}
+
+#[test]
+fn a_chain_swung_behind_its_anchor_past_its_reach_follows_the_pointer() {
+    const FRAME_WORK: usize = 8_000_000;
+
+    let pointer = Point2::new(-400.0, 500.0);
+
+    let swung = first_frame(500, pointer);
+    let stretched = pointer.normalize() * 500.0;
+
+    assert!(
+        swung.hand.distance(stretched) < ON_THE_RAY * 500.0,
+        "{} is not {stretched}",
+        swung.hand
+    );
+    assert!(swung.work < FRAME_WORK, "{}", swung.work);
+}
+
+#[test]
+fn a_chain_folded_back_within_its_reach_lands_on_the_pointer_in_one_frame() {
+    const FRAME_WORK: usize = 4_500_000;
+
+    let pointer = Point2::new(-150.0, 200.0);
+
+    let folded = first_frame(500, pointer);
+
+    assert!(
+        folded.hand.distance(pointer) < ON_THE_RAY,
+        "{} is not {pointer}",
+        folded.hand
+    );
+    assert!(folded.work < FRAME_WORK, "{}", folded.work);
 }
 
 #[test]
@@ -194,7 +232,7 @@ fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
 #[test]
 #[ignore = "drags a chain of thousands of points through a whole frame, best run in release"]
 fn a_chain_of_2000_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 100_000_000;
+    const FRAME_WORK: usize = 18_000_000;
 
     let (hand, stretched, work) = drag_past_reach(2_000);
 

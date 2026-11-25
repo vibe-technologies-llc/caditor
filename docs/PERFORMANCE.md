@@ -119,14 +119,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] The first frame dragging a long chain past its reach is still mostly its failing
-  `FROZEN` attempt: dragging an end of a 2,000-line zig-zag chain from where it was drawn, its
-  Newton steps crawl, a hundred of them each lowering the cost 1 to 2 % (the Levenberg-Marquardt
-  shift settles near 1e-4 of the typical diagonal, the cost falling half as far as the model
-  predicts), 55 million of the frame's 82 million work units (`reach_tests.rs`; further frames
-  skip it through the drag's memo). Stopping the crawl early does not help as it stands: cut after
-  five steps each keeping over 90 % of the cost at under 0.75 of the predicted fall, `FROZEN` ends
-  at a cost of 2,000 instead of 100, from which the settling restoration diverges (2,005, 1,599,
-  2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
-  that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
-  chain's slow modes.
+- [medium · hard] Swinging or folding a 2,000-line zig-zag chain far from where it was drawn
+  still costs 40 to 70 million work units in its first frame, nearly all of it `FROZEN`
+  (`reach_tests.rs` keeps the 500-line cases): pulled behind its anchor past its reach 68
+  million (`FROZEN` 63 million), folded back to a pointer within reach 59 million, straight up
+  past its reach 52 million, down 39 million, against 14 million pulled ahead past its reach.
+  There the cost is not convex, the Newton Hessian factors only under a shift and the steps gain
+  a few percent each for most of `MAX_ITERATIONS`. Whether such a drag lands in its first frame
+  hangs on `TURNING_SHIFT`: at 2e2 the swing behind the anchor runs out of steps 3,200 mm off the
+  ray after 300 million units, while from 5e2 up the conflict diagnosis of a thousand-line chain
+  stretched between held ends (`diagnosis_tests.rs`, which already needed all of
+  `DIAGNOSIS_WORK`) runs out of budget.

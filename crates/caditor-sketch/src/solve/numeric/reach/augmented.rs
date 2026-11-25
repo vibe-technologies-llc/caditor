@@ -6,7 +6,7 @@ use crate::solve::{
     equation::value,
     numeric::{
         CONVERGENCE_TOLERANCE, Cancelled, LINE_SEARCH_STEPS, MAX_ITERATIONS, MAX_STEP, Part,
-        Solver,
+        Solver, largest_move,
         newton::Entries,
         reach::{Aim, REACH_TOLERANCE, ReachWork, miss},
     },
@@ -70,11 +70,6 @@ impl Augmented {
         }
         None
     }
-}
-
-fn largest_move(step: &[f64]) -> f64 {
-    step.iter()
-        .fold(0.0_f64, |largest, delta| larger(largest, delta.abs()))
 }
 
 impl Solver<'_> {
