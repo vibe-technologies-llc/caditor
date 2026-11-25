@@ -767,6 +767,10 @@ pub fn show(
         .as_ref()
         .is_some_and(ShortcutEditor::is_recording);
 
+    if !blocked {
+        drawings.claim_delete(ui.ctx());
+    }
+
     let mut triggered = if blocked {
         if !palette_open
             && !recording

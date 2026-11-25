@@ -95,6 +95,41 @@ Without dragging, click a view to pick it, drawn with a solid outline: the arrow
 sheet move it 10 mm on the sheet, and with the sheet focused (Tab) the arrow keys move it 1 mm,
 10 mm with Shift. Escape lets it go; with no view picked, the arrow keys move the sheet.
 
+## Dimensions and notes
+
+Dimensions are measured from the model, never typed: each one refers to edges of a view by the
+names the model gives them, the way features do, so it follows every edit and shows the length
+the model has now. They are drawn as ISO 129-1 asks: thin lines, open arrows, extension lines
+starting a little off the part and running a little past the dimension line, and the value above
+the line in the sheet's lettering, readable from the bottom or the right of the sheet.
+
+{command:model.drawing_dimension} (or **Add a dimension** above the sheet) dimensions edges of a
+front, top, right, left, section or detail view; the isometric view is not drawn true to size, so
+nothing is measured in it. Click an edge, then a second one, then where the dimension line stands:
+
+- The same straight edge twice measures its length; two parallel straight edges the distance
+  between them; two other straight edges the angle between them, on the side you place it.
+- The same circle twice measures its diameter, the same arc its radius. A circle seen at a slant,
+  as an ellipse, is not measured; dimension it in a view that sees it round.
+- Two other edges measure between their nearest ends, or the centres of circles and arcs:
+  horizontally, vertically or straight between them, as where you place it suggests.
+
+The value shows trailing zeros left off, in millimetres. A placed dimension stays picked: drag it
+or use the arrow keys (Shift for larger steps) to move it, Delete to remove it, and Escape to let
+it go. **Dimensions and notes** in the panel lists them, each with **Measures** (horizontal,
+vertical or straight; radius or diameter), **Decimals** (the most it shows), **Value along** (how
+far the value stands from the middle of its line, in sheet millimetres), **Re-attach** and
+**Delete**. A dimension stands in its view's own model lengths, so it moves with its view.
+
+When an edge a dimension measures disappears after an edit, the dimension is kept and drawn
+dashed in the error colour with a question mark for its value, and the panel says what it lost.
+**Re-attach** picks its edges again, keeping where it stands and its decimals; or delete it.
+
+{command:model.drawing_note} (or **Add a note** above the sheet) writes a note: click where it
+stands, type it, click an edge if a leader should point at it, then **Place the note** (or Enter).
+A note is one line of up to 200 characters. In the panel its text can be changed, its leader
+removed and the note deleted; a note whose edge is gone keeps its text and the panel says so.
+
 ## The sheet in the view
 
 {command:view.drawing_sheet} (also **Show the sheet in the view** under the panel's preview, and
@@ -122,11 +157,13 @@ size in millimetres, with every view where the sheet shows it, as:
 - **PDF**, to print at 100% or send.
 - **SVG**, for documents and the web.
 - **DXF**, for other CAD programs, with the outlines on layer `Visible`, hidden lines on a dashed
-  layer `Hidden`, section hatching on `Hatching`, cutting lines on a dash-dot layer `Cutting` and
-  the frame and title block on `Frame`.
+  layer `Hidden`, section hatching on `Hatching`, cutting lines on a dash-dot layer `Cutting`,
+  dimensions (as DXF dimensions) and notes on `Annotations` and the frame and title block on
+  `Frame`.
 
 The file dialog proposes the format the last sheet was written in, PDF at first; type another of
 the three extensions to change it.
 
 Lines, circles, arcs and ellipses stay exact; other curves are written as short straight pieces,
-and the notice says how many.
+and the notice says how many. A dimension that lost its edges is left out of the file, and a note
+whose edge is gone is written without its leader; the notice says how many.

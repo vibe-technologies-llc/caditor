@@ -72,8 +72,30 @@ pub fn finished(path: &Path, drawing: &str, result: Result<SheetExported, Export
                     count(some, "curve was", "curves were")
                 ),
             };
+            let annotated = match (exported.dimensions, exported.notes) {
+                (0, 0) => String::new(),
+                (dimensions, 0) => format!(
+                    " It holds {}.",
+                    count(dimensions, "dimension", "dimensions")
+                ),
+                (0, notes) => format!(" It holds {}.", count(notes, "note", "notes")),
+                (dimensions, notes) => format!(
+                    " It holds {} and {}.",
+                    count(dimensions, "dimension", "dimensions"),
+                    count(notes, "note", "notes")
+                ),
+            };
+            let left_out = match exported.left_out {
+                0 => String::new(),
+                some => format!(
+                    " Left out because the edges they refer to are gone: {} (a note keeps its \
+                     text without the leader); re-attach or delete them in the Drawings panel.",
+                    count(some, "dimension or leader", "dimensions or leaders")
+                ),
+            };
             Notice::success(format!(
-                "Exported the drawing “{drawing}” with {} to “{name}”.{approximated}",
+                "Exported the drawing “{drawing}” with {} to “{name}”.{approximated}{annotated}\
+                 {left_out}",
                 count(exported.views, "view", "views")
             ))
         }

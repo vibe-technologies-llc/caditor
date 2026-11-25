@@ -40,7 +40,10 @@ paths:
   drawing units): `measured` (`Measured` over `LineSpan`s), `lanes` (linear dimensions along one
   line on one side whose spans overlap, shortest nearest, sides from `away_from` the sketch's
   middle) and `Obstacles` (label `Footprint`s in a grid of caller-chosen cell size, each overlap
-  counted once, plus their `bounds`). Thinning thresholds stay with the canvas.
+  counted once, plus their `bounds`). Thinning thresholds stay with the canvas. It also holds the
+  ISO 129-1 pieces drawing dimensions on sheets share with sketch export (`drawings.md`):
+  `arrowhead`, `extension_line` with its gap and overshoot, the value's lift, `readable_angle` and
+  the diameter, degree and radius signs, all in multiples of the text height.
 - Projected geometry (`Sketch::set_projected`, a set beside the entities, part of `same_geometry`)
   is a curve and its points, or a lone point, whose position the document supplies. The solver
   holds it fixed like the origin (`PointHandle::Fixed`, a circle's `RadiusHandle::Fixed`): no

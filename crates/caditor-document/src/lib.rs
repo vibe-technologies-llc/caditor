@@ -17,6 +17,7 @@ mod describe;
 mod document;
 mod draft;
 mod drawing_details;
+mod drawing_dimensions;
 mod drawing_sections;
 mod drawing_sheet;
 mod drawing_views;
@@ -144,6 +145,12 @@ pub use crate::{
     },
     draft::{Draft, FaceAngle, default_neutral, flipped_toward},
     drawing_details::detail_view,
+    drawing_dimensions::{
+        AngleRay, AnnotationProblem, DIMENSION_TEXT_HEIGHT, DimensionGeometry, DimensionRefusal,
+        DrawnLines, EdgePick, NOTE_TEXT_HEIGHT, SeenEdge, SheetAnnotation, SheetMeasure,
+        dimension_from_picks, dimension_geometry, dimension_problem, is_measured_view,
+        measured_lines_of, note_on_sheet, note_place, pick_edge, seen_edge, view_place,
+    },
     drawing_sections::{
         HATCH_ANGLES, HATCH_SPACING, ResolvedPlace, cutting_plane, drawn_hatching, hatch_lines,
         section_view,
@@ -157,11 +164,14 @@ pub use crate::{
         drawn_bodies,
     },
     drawings::{
-        DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale, Drawings,
-        DrawnView, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS,
-        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS, MAX_VIEW_PLACE,
-        MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
-        SheetOrientation, SheetSize, StandardView, VIEW_LETTERS, drawing_name,
+        Annotation, AnnotationId, DEFAULT_DIMENSION_DECIMALS, DetailParent, DetailScale,
+        DetailView, DimensionDirection, DimensionMeasure, Drawing, DrawingDimension, DrawingId,
+        DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint, EdgeSpot, MAX_ANNOTATIONS,
+        MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES,
+        MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_SCALE_TERM, MAX_SECTION_OFFSET,
+        MAX_SECTION_VIEWS, MAX_TEXT_OFFSET, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, NoteLeader,
+        Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation,
+        SheetSize, StandardView, VIEW_LETTERS, drawing_name, note_text,
     },
     edit::{
         Edit, EditError, MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, Touched, Transaction,
@@ -323,6 +333,8 @@ mod datum_tests;
 mod delete_face_tests;
 #[cfg(test)]
 mod draft_tests;
+#[cfg(test)]
+mod drawing_dimensions_tests;
 #[cfg(test)]
 mod drawings_tests;
 #[cfg(test)]

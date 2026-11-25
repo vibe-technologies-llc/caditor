@@ -124,7 +124,7 @@ fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::R
                 Real(HIDDEN_DASH),
                 Real(HIDDEN_GAP)
             )?,
-            Layer::Hatching => writeln!(
+            Layer::Hatching | Layer::Annotation => writeln!(
                 text,
                 r#"<g id="{}" stroke-width="{}">"#,
                 layer.name(),

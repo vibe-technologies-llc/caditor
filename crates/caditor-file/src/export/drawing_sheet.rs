@@ -1,7 +1,8 @@
 use std::{f64::consts::TAU, path::Path};
 
 use caditor_document::{
-    CancelToken, PlacedView, SheetMark, SheetPlan, TextAnchor, ViewLines, drawn_hatching,
+    Annotation, CancelToken, PlacedView, SheetAnnotation, SheetMark, SheetMeasure, SheetPlan,
+    SheetText, TextAnchor, ViewLines, drawn_hatching,
 };
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::{
@@ -10,7 +11,7 @@ use caditor_kernel::{
 
 use super::{
     ExportError,
-    figure::{Anchor, Ellipse, Figure, Layer, Shape, Spline, Text},
+    figure::{Anchor, Dimension, Ellipse, Figure, Layer, Measure, Shape, Spline, Text},
     pdf,
 };
 use crate::{reason::WriteFailure, save::write_atomically};
@@ -66,6 +67,9 @@ pub struct SheetExported {
     pub hidden: usize,
     pub hatching: usize,
     pub approximated: usize,
+    pub dimensions: usize,
+    pub notes: usize,
+    pub left_out: usize,
 }
 
 fn sheet_tolerance(scale: f64) -> SamplingTolerance {
@@ -178,6 +182,93 @@ fn piece_shape(piece: &ViewPiece, placed: &PlacedView) -> (Shape, bool) {
     }
 }
 
+fn mark_shape(mark: &SheetMark) -> Shape {
+    match *mark {
+        SheetMark::Line(from, to) => Shape::Line(from, to),
+        SheetMark::Circle { center, radius } => Shape::Circle { center, radius },
+        SheetMark::Arc {
+            center,
+            radius,
+            start,
+            end,
+        } => Shape::Arc {
+            center,
+            radius,
+            start,
+            end,
+        },
+    }
+}
+
+fn text_shape(text: &SheetText) -> Text {
+    Text {
+        at: text.at,
+        height: text.height,
+        angle: text.angle,
+        content: text.content.clone(),
+        anchor: match text.anchor {
+            TextAnchor::Start => Anchor::Start,
+            TextAnchor::Middle => Anchor::Middle,
+        },
+    }
+}
+
+fn measure_of(measure: SheetMeasure) -> Measure {
+    match measure {
+        SheetMeasure::Linear {
+            first,
+            second,
+            line,
+            angle,
+        } => Measure::Linear {
+            first,
+            second,
+            line,
+            angle,
+        },
+        SheetMeasure::Angular {
+            vertex,
+            first,
+            second,
+            arc,
+        } => Measure::Angular {
+            vertex,
+            first,
+            second,
+            arc,
+        },
+        SheetMeasure::Radius { center, on_curve } => Measure::Radius { center, on_curve },
+        SheetMeasure::Diameter { near, far } => Measure::Diameter { near, far },
+    }
+}
+
+fn annotation_shapes(figure: &mut Figure, laid: &SheetAnnotation, exported: &mut SheetExported) {
+    if laid.problem.is_some() {
+        exported.left_out += 1;
+    }
+    match (laid.annotation, laid.measure) {
+        (Annotation::Dimension(_), Some(measure)) if laid.problem.is_none() => {
+            exported.dimensions += 1;
+            figure.push(
+                Layer::Annotation,
+                Shape::Dimension(Box::new(Dimension {
+                    measure: measure_of(measure),
+                    marks: laid.marks.iter().map(mark_shape).collect(),
+                    text: text_shape(&laid.text),
+                })),
+            );
+        }
+        (Annotation::Dimension(_), _) => {}
+        (Annotation::Note(_), _) => {
+            exported.notes += 1;
+            for mark in &laid.marks {
+                figure.push(Layer::Annotation, mark_shape(mark));
+            }
+            figure.push(Layer::Annotation, Shape::Text(text_shape(&laid.text)));
+        }
+    }
+}
+
 pub(super) fn sheet_figure(
     plan: &SheetPlan,
     views: &[SheetView<'_>],
@@ -187,28 +278,10 @@ pub(super) fn sheet_figure(
     let mut exported = SheetExported::default();
 
     for mark in &plan.marks {
-        figure.push(
-            Layer::Frame,
-            match *mark {
-                SheetMark::Line(from, to) => Shape::Line(from, to),
-                SheetMark::Circle { center, radius } => Shape::Circle { center, radius },
-            },
-        );
+        figure.push(Layer::Frame, mark_shape(mark));
     }
     for text in &plan.texts {
-        figure.push(
-            Layer::Frame,
-            Shape::Text(Text {
-                at: text.at,
-                height: text.height,
-                angle: 0.0,
-                content: text.content.clone(),
-                anchor: match text.anchor {
-                    TextAnchor::Start => Anchor::Start,
-                    TextAnchor::Middle => Anchor::Middle,
-                },
-            }),
-        );
+        figure.push(Layer::Frame, Shape::Text(text_shape(text)));
     }
     for line in &plan.cutting {
         figure.push(Layer::Cutting, Shape::Line(line.chain.0, line.chain.1));
@@ -240,6 +313,9 @@ pub(super) fn sheet_figure(
             }
             figure.push(layer, shape);
         }
+    }
+    for laid in &plan.annotations {
+        annotation_shapes(&mut figure, laid, &mut exported);
     }
     (figure, exported)
 }

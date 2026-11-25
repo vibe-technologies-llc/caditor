@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Point2, Vector3};
-use caditor_kernel::MAX_SIZE;
+use caditor_geometry::{Point2, Vector2, Vector3};
+use caditor_kernel::{EdgeName, MAX_SIZE};
 
 use crate::{
     document::{Document, FeatureId, ParameterUser},
@@ -24,6 +24,11 @@ pub const MIN_DETAIL_RADIUS: f64 = 0.01;
 pub const MAX_DETAIL_EXTENT: f64 = MAX_SIZE;
 pub const MAX_SECTION_OFFSET: f64 = MAX_SIZE;
 pub const MAX_VIEW_PLACE: f64 = 1189.0;
+pub const MAX_ANNOTATIONS: usize = 512;
+pub const MAX_NOTE_CHARS: usize = 200;
+pub const MAX_DIMENSION_DECIMALS: u8 = 4;
+pub const DEFAULT_DIMENSION_DECIMALS: u8 = 2;
+pub const MAX_TEXT_OFFSET: f64 = MAX_VIEW_PLACE;
 const NUMBERED_NAME: &str = "Drawing";
 const ENLARGEMENT: f64 = 2.0;
 const RATIO_SLACK: f64 = 1e-9;
@@ -453,6 +458,189 @@ impl DetailView {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AnnotationId(u64);
+
+impl AnnotationId {
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EdgeSpot {
+    Start,
+    End,
+    Centre,
+}
+
+impl EdgeSpot {
+    pub const ALL: [Self; 3] = [Self::Start, Self::End, Self::Centre];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Centre => "centre",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|spot| spot.key() == key)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EdgePoint {
+    pub edge: EdgeName,
+    pub spot: EdgeSpot,
+}
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DimensionDirection {
+    Horizontal,
+    Vertical,
+    #[default]
+    Aligned,
+}
+
+impl DimensionDirection {
+    pub const ALL: [Self; 3] = [Self::Horizontal, Self::Vertical, Self::Aligned];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Horizontal => "Horizontal",
+            Self::Vertical => "Vertical",
+            Self::Aligned => "Aligned",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Horizontal => "horizontal",
+            Self::Vertical => "vertical",
+            Self::Aligned => "aligned",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|direction| direction.key() == key)
+    }
+
+    pub fn along(self, first: Point2, second: Point2) -> Option<Vector2> {
+        match self {
+            Self::Horizontal => Some(Vector2::X),
+            Self::Vertical => Some(Vector2::Y),
+            Self::Aligned => (second - first).try_normalize(),
+        }
+    }
+
+    pub fn from_place(first: Point2, second: Point2, place: Point2) -> Self {
+        let between = |low: f64, high: f64, at: f64| low.min(high) <= at && at <= low.max(high);
+        let across = between(first.x, second.x, place.x);
+        let up = between(first.y, second.y, place.y);
+
+        match (across, up) {
+            (true, false) => Self::Horizontal,
+            (false, true) => Self::Vertical,
+            _ => Self::Aligned,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DimensionMeasure {
+    Linear {
+        from: EdgePoint,
+        to: EdgePoint,
+        direction: DimensionDirection,
+    },
+    Parallel {
+        first: EdgeName,
+        second: EdgeName,
+    },
+    Radius(EdgeName),
+    Diameter(EdgeName),
+    Angle {
+        first: EdgeName,
+        second: EdgeName,
+    },
+}
+
+impl DimensionMeasure {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Linear { direction, .. } => match direction {
+                DimensionDirection::Horizontal => "Horizontal distance",
+                DimensionDirection::Vertical => "Vertical distance",
+                DimensionDirection::Aligned => "Distance",
+            },
+            Self::Parallel { .. } => "Distance between edges",
+            Self::Radius(_) => "Radius",
+            Self::Diameter(_) => "Diameter",
+            Self::Angle { .. } => "Angle",
+        }
+    }
+
+    pub fn edges(self) -> Vec<EdgeName> {
+        match self {
+            Self::Linear { from, to, .. } => vec![from.edge, to.edge],
+            Self::Parallel { first, second } | Self::Angle { first, second } => {
+                vec![first, second]
+            }
+            Self::Radius(edge) | Self::Diameter(edge) => vec![edge],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DrawingDimension {
+    pub id: AnnotationId,
+    pub view: DrawnView,
+    pub measure: DimensionMeasure,
+    pub place: Point2,
+    pub decimals: u8,
+    pub text_offset: f64,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NoteLeader {
+    pub view: DrawnView,
+    pub edge: EdgeName,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawingNote {
+    pub id: AnnotationId,
+    pub text: String,
+    pub at: Point2,
+    pub leader: Option<NoteLeader>,
+}
+
+pub fn note_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Annotation {
+    Dimension(AnnotationId),
+    Note(AnnotationId),
+}
+
+impl Annotation {
+    pub fn id(self) -> AnnotationId {
+        match self {
+            Self::Dimension(id) | Self::Note(id) => id,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drawing {
     pub id: DrawingId,
@@ -467,6 +655,9 @@ pub struct Drawing {
     pub sections: Vec<SectionView>,
     pub details: Vec<DetailView>,
     pub positions: BTreeMap<DrawnView, Point2>,
+    pub dimensions: Vec<DrawingDimension>,
+    pub notes: Vec<DrawingNote>,
+    pub next_annotation: u64,
 }
 
 impl Drawing {
@@ -491,6 +682,9 @@ impl Drawing {
             sections: Vec::new(),
             details: Vec::new(),
             positions: BTreeMap::new(),
+            dimensions: Vec::new(),
+            notes: Vec::new(),
+            next_annotation: 0,
         }
     }
 
@@ -506,6 +700,133 @@ impl Drawing {
                 .sum::<usize>()
             + size_of_val(self.details.as_slice())
             + self.positions.len() * size_of::<(DrawnView, Point2)>()
+            + size_of_val(self.dimensions.as_slice())
+            + size_of_val(self.notes.as_slice())
+            + self.notes.iter().map(|note| note.text.len()).sum::<usize>()
+    }
+
+    pub fn same_content(&self, other: &Self) -> bool {
+        Self {
+            next_annotation: other.next_annotation,
+            ..self.clone()
+        } == *other
+    }
+
+    pub fn first_free_annotation(&self) -> u64 {
+        self.annotation_ids()
+            .map(|id| id.raw().saturating_add(1))
+            .max()
+            .unwrap_or(0)
+            .max(self.next_annotation)
+    }
+
+    fn annotation_ids(&self) -> impl Iterator<Item = AnnotationId> + '_ {
+        self.dimensions
+            .iter()
+            .map(|dimension| dimension.id)
+            .chain(self.notes.iter().map(|note| note.id))
+    }
+
+    pub fn annotations(&self) -> impl Iterator<Item = Annotation> + '_ {
+        self.dimensions
+            .iter()
+            .map(|dimension| Annotation::Dimension(dimension.id))
+            .chain(self.notes.iter().map(|note| Annotation::Note(note.id)))
+    }
+
+    pub fn has_annotation(&self, annotation: Annotation) -> bool {
+        match annotation {
+            Annotation::Dimension(id) => self.dimension(id).is_some(),
+            Annotation::Note(id) => self.note(id).is_some(),
+        }
+    }
+
+    pub fn dimension(&self, id: AnnotationId) -> Option<&DrawingDimension> {
+        self.dimensions.iter().find(|dimension| dimension.id == id)
+    }
+
+    pub fn dimension_mut(&mut self, id: AnnotationId) -> Option<&mut DrawingDimension> {
+        self.dimensions
+            .iter_mut()
+            .find(|dimension| dimension.id == id)
+    }
+
+    pub fn note(&self, id: AnnotationId) -> Option<&DrawingNote> {
+        self.notes.iter().find(|note| note.id == id)
+    }
+
+    pub fn note_mut(&mut self, id: AnnotationId) -> Option<&mut DrawingNote> {
+        self.notes.iter_mut().find(|note| note.id == id)
+    }
+
+    pub fn new_annotation_id(&mut self) -> AnnotationId {
+        let id = AnnotationId::from_raw(self.first_free_annotation());
+
+        self.next_annotation = id.raw().saturating_add(1);
+        id
+    }
+
+    pub fn remove_annotation(&mut self, annotation: Annotation) {
+        match annotation {
+            Annotation::Dimension(id) => self.dimensions.retain(|dimension| dimension.id != id),
+            Annotation::Note(id) => self.notes.retain(|note| note.id != id),
+        }
+    }
+
+    #[must_use]
+    fn with_notes_tidied(mut self) -> Self {
+        for note in &mut self.notes {
+            note.text = note_text(&note.text);
+        }
+        self
+    }
+
+    fn checked_annotations(&self) -> Result<(), EditError> {
+        let count = self.dimensions.len() + self.notes.len();
+
+        if count > MAX_ANNOTATIONS {
+            return Err(EditError::DrawingTooManyAnnotations {
+                name: self.name.clone(),
+                annotations: count,
+            });
+        }
+
+        let ids: Vec<AnnotationId> = self.annotation_ids().collect();
+
+        for (index, id) in ids.iter().enumerate() {
+            if ids.iter().take(index).any(|other| other == id) {
+                return Err(EditError::AnnotationIdRepeated(id.raw()));
+            }
+        }
+
+        let in_reach =
+            |at: Point2, reach: f64| at.is_finite() && at.x.abs() <= reach && at.y.abs() <= reach;
+
+        for dimension in &self.dimensions {
+            if !in_reach(dimension.place, MAX_DETAIL_EXTENT)
+                || !dimension.text_offset.is_finite()
+                || dimension.text_offset.abs() > MAX_TEXT_OFFSET
+            {
+                return Err(EditError::DimensionPlaceOutOfRange);
+            }
+            if dimension.decimals > MAX_DIMENSION_DECIMALS {
+                return Err(EditError::DimensionDecimals(dimension.decimals));
+            }
+        }
+        for note in &self.notes {
+            let length = note.text.chars().count();
+
+            if length == 0 {
+                return Err(EditError::DrawingNoteEmpty);
+            }
+            if length > MAX_NOTE_CHARS {
+                return Err(EditError::DrawingNoteTooLong { length });
+            }
+            if !in_reach(note.at, MAX_VIEW_PLACE) {
+                return Err(EditError::DrawingNotePlaceOutOfRange);
+            }
+        }
+        Ok(())
     }
 
     pub fn has_view(&self, view: DrawnView) -> bool {
@@ -767,7 +1088,12 @@ impl Drawings {
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
-        self.drawings == other.drawings
+        self.drawings.len() == other.drawings.len()
+            && self
+                .drawings
+                .iter()
+                .zip(&other.drawings)
+                .all(|(drawing, other)| drawing.same_content(other))
     }
 
     #[must_use]
@@ -782,6 +1108,7 @@ impl Drawings {
                         ..drawing
                     }
                     .without_stray_positions()
+                    .with_notes_tidied()
                 })
                 .collect(),
             next_id: self.next_id,
@@ -844,6 +1171,7 @@ impl Drawings {
             drawing.checked_sections(document)?;
             drawing.checked_details()?;
             drawing.checked_positions()?;
+            drawing.checked_annotations()?;
         }
         Ok(drawings)
     }

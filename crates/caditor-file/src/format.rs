@@ -5355,7 +5355,7 @@ pub(crate) fn plane_record(plane: Plane) -> PlaneRecord {
     }
 }
 
-fn hex(digest: u128) -> String {
+pub(crate) fn hex(digest: u128) -> String {
     format!("{digest:032x}")
 }
 
@@ -11382,7 +11382,7 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
     })
 }
 
-fn restore_digest(text: &str) -> Option<u128> {
+pub(crate) fn restore_digest(text: &str) -> Option<u128> {
     u128::from_str_radix(text, 16).ok()
 }
 

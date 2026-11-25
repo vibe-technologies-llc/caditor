@@ -121,6 +121,8 @@ pub const ZOOM_OUT: &str = phosphor::MAGNIFYING_GLASS_MINUS;
 pub const FIT_SHEET: &str = phosphor::FRAME_CORNERS;
 pub const SHEET_IN_VIEW: &str = phosphor::ARROWS_OUT_SIMPLE;
 pub const SHEET_IN_PANEL: &str = phosphor::ARROWS_IN_SIMPLE;
+pub const SHEET_DIMENSION: &str = phosphor::ARROWS_HORIZONTAL;
+pub const SHEET_NOTE: &str = phosphor::TEXT_T;
 pub const MOVE_LEFT: &str = phosphor::ARROW_LEFT;
 pub const MOVE_RIGHT: &str = phosphor::ARROW_RIGHT;
 pub const ANALYSIS: &str = phosphor::GAUGE;
@@ -285,6 +287,8 @@ pub fn command(command: Command) -> &'static str {
         Command::NewDrawing => ADD,
         Command::ExportDrawingSheet => phosphor::FILE_PDF,
         Command::SheetInView => SHEET_IN_VIEW,
+        Command::DrawingDimension => SHEET_DIMENSION,
+        Command::DrawingNote => SHEET_NOTE,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::ZoomToBox => phosphor::CORNERS_OUT,
         Command::PreviousView => phosphor::ARROW_BEND_UP_LEFT,

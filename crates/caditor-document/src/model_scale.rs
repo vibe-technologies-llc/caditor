@@ -19,7 +19,7 @@ use crate::{
         PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     },
     document::{Document, Feature, FeatureId, FeatureKind},
-    drawings::{DetailParent, SectionPlace, SectionView},
+    drawings::{DetailParent, DrawnView, SectionPlace, SectionView},
     edit::{Edit, Transaction},
     hole::{HoleDepth, HoleShape, HoleStyle},
     mate::{AngleSides, AxisMate, FaceAxisMate, Mate, MatePair, PointMate, PointTarget},
@@ -900,11 +900,28 @@ impl Rescaler {
             }
 
             let sections = &drawing.sections;
+
             for detail in &mut drawing.details {
                 let shift = self.view_shift(detail.parent, sections);
 
                 detail.centre = detail.centre * self.factor + shift;
                 detail.radius *= self.factor;
+                changed = true;
+            }
+
+            let details = drawing.details.clone();
+            for dimension in &mut drawing.dimensions {
+                let parent = match dimension.view {
+                    DrawnView::Standard(view) => Some(DetailParent::Standard(view)),
+                    DrawnView::Section(letter) => Some(DetailParent::Section(letter)),
+                    DrawnView::Detail(letter) => details
+                        .iter()
+                        .find(|detail| detail.letter == letter)
+                        .map(|detail| detail.parent),
+                };
+                let shift = parent.map_or(Point2::ZERO, |parent| self.view_shift(parent, sections));
+
+                dimension.place = dimension.place * self.factor + shift;
                 changed = true;
             }
         }

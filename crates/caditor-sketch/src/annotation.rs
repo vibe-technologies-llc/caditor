@@ -1,4 +1,7 @@
-use std::{f64::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
+use std::{
+    f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI},
+    ops::RangeInclusive,
+};
 
 use ahash::AHashMap;
 use caditor_geometry::{Point2, Vector2};
@@ -12,6 +15,38 @@ const DEGENERATE: f64 = 1e-9;
 pub const CIRCLE_LEADER_DIRECTION: Vector2 = Vector2::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
 const ARC_LEADER_FRACTION: f64 = 0.5;
 const MAX_OBSTACLE_CELLS: i64 = 64;
+pub const EXTENSION_GAP: f64 = 0.5;
+pub const EXTENSION_OVERSHOOT: f64 = 0.5;
+pub const ARROW_LENGTH: f64 = 1.0;
+pub const ARROW_HALF_ANGLE: f64 = PI / 12.0;
+pub const TEXT_LIFT: f64 = 0.8;
+pub const LEADER_OVERSHOOT: f64 = 1.5;
+pub const LEADER_TEXT_GAP: f64 = 0.5;
+pub const DIAMETER_SIGN: char = '⌀';
+pub const DEGREE_SIGN: char = '°';
+pub const RADIUS_PREFIX: char = 'R';
+
+pub fn arrowhead(tip: Point2, pointing: Vector2, height: f64) -> [(Point2, Point2); 2] {
+    let back = -pointing * ARROW_LENGTH * height;
+    [-ARROW_HALF_ANGLE, ARROW_HALF_ANGLE]
+        .map(|turn| (tip, tip + Vector2::from_angle(turn).rotate(back)))
+}
+
+pub fn extension_line(
+    point: Point2,
+    on_line: Point2,
+    outward: Vector2,
+    height: f64,
+) -> (Point2, Point2) {
+    (
+        point + outward * EXTENSION_GAP * height,
+        on_line + outward * EXTENSION_OVERSHOOT * height,
+    )
+}
+
+pub fn readable_angle(angle: f64) -> f64 {
+    FRAC_PI_2 - (FRAC_PI_2 - angle).rem_euclid(PI)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LineSpan {

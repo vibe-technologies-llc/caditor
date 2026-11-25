@@ -194,22 +194,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Technical drawings
 
-- [medium · hard] Drawings have nothing measured on them: a drawing (`drawings.md`) lays out
-  front, top, right, left and isometric views, full section views on principal planes and detail
-  views on an ISO sheet with a title block, placed by hand or automatically, and exports PDF, SVG
-  or DXF, but has no dimensions or notes taken from the model (dimensions should refer to edges by
-  `EdgeName`, so they survive edits as features do).
 - [low · medium] Views and sheets beyond the standard ones and full principal sections: section
   planes other than the principal ones (through a datum plane or a face, or offset along the
   parent's own axes), stepped (offset) and aligned sections, half and broken-out sections,
   auxiliary views square to an inclined face, broken views shortening a long part, cropped views,
   several sheets per drawing, a revision table, a title block whose cells the user lays out, and
   section hatching chosen per material (today one 45° pattern, alternating direction per cut body).
-- [medium · hard · blocked by: dimensions on drawings (above)] Annotations beyond plain dimensions
-  and notes: centre marks and centrelines on holes and round edges, hole and thread callouts read
-  from the hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus,
-  limits, ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture
-  symbols (ISO 21920) and weld symbols (ISO 2553).
+- [medium · hard] Annotations beyond plain dimensions and notes: centre marks and centrelines on
+  holes and round edges, hole and thread callouts read from the hole and thread features, ordinate
+  and baseline dimensions, tolerances (plus and minus, limits, ISO 286 fits), geometric tolerances
+  with datum features (ISO 1101), surface texture symbols (ISO 21920) and weld symbols (ISO 2553).
+- [low · medium] Drawing dimensions refer to edges only (`drawings.md`): the outline a curved face
+  shows in a view (a cylinder seen from the side) is named by its face and drawn twice, so a
+  diameter across it cannot be taken there; a dimension's value and arrows do not move outside
+  its extension lines when the span is too short for them, notes are one line, and dimensions do
+  not dodge each other as sketch export's lanes do.
 
 ## Application
 

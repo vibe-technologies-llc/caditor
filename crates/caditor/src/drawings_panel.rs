@@ -1,10 +1,12 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
-    DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale,
-    DrawingViewError, DrawnView, FeatureId, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS,
-    MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
-    SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction, lay_out_sheet,
+    Annotation, AnnotationId, DetailParent, DetailScale, DetailView, DimensionDirection,
+    DimensionMeasure, Document, Drawing, DrawingDimension, DrawingId, DrawingScale,
+    DrawingViewError, DrawnView, FeatureId, MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS,
+    MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_TEXT_OFFSET, MIN_DETAIL_RADIUS, Projection, ScaleRatio,
+    SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetPlan, SheetSize, StandardView,
+    TitleFields, Transaction, dimension_problem, lay_out_sheet,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -23,6 +25,7 @@ use crate::{
     model::{Action, Model, Notice},
     sheet_canvas::{self, SheetCanvas, SheetContext},
     sheet_export::SheetJob,
+    sheet_tools::SheetTool,
     sheet_views::{DrawingViews, SheetViews},
     widgets::{self, PanelTitle, Tone},
 };
@@ -71,6 +74,14 @@ pub const DETAIL_SCALE: &str = "Scale";
 pub const NO_DETAILS: &str = "A detail view enlarges a circle of one of the other views, drawn \
                               thin on that view and lettered, with the lines inside it clipped \
                               exactly to the circle.";
+pub const ANNOTATIONS: &str = "Dimensions and notes";
+pub const NO_ANNOTATIONS: &str = "A dimension measures edges of a view from the model, so it \
+                                  follows every edit; a note writes text on the sheet, with a \
+                                  leader to an edge if you like. Add them with the buttons above \
+                                  the sheet.";
+pub const DECIMALS: &str = "Decimals";
+pub const MEASURES: &str = "Measures";
+pub const TEXT_OFFSET: &str = "Value along";
 const PANEL: RightPanel = RightPanel { id: "drawings" };
 const HEADER: PanelTitle<'static> = PanelTitle {
     glyph: icons::DRAWINGS,
@@ -108,6 +119,8 @@ pub struct DrawingsTool {
     renaming: Option<String>,
     rename_focus_pending: bool,
     export_pending: bool,
+    note_editing: Option<(AnnotationId, String)>,
+    note_focus_pending: bool,
 }
 
 impl DrawingsTool {
@@ -122,6 +135,7 @@ impl DrawingsTool {
         self.views.forget();
         self.sheet = SheetViews::default();
         self.renaming = None;
+        self.note_editing = None;
         self.export_pending = false;
         self.in_view = false;
         self.canvas.reset();
@@ -146,6 +160,20 @@ impl DrawingsTool {
     #[cfg(test)]
     pub fn canvas(&self) -> &SheetCanvas {
         &self.canvas
+    }
+
+    pub fn claim_delete(&mut self, ctx: &egui::Context) {
+        if self.open {
+            self.canvas.claim_delete(ctx);
+        }
+    }
+
+    pub fn start_tool(&mut self, started: SheetTool) {
+        if !self.open {
+            self.show_sheet_in_view(true);
+        }
+        self.open = true;
+        self.canvas.start_tool(started);
     }
 
     pub fn escape_sheet_view(&mut self) {
@@ -231,7 +259,11 @@ pub fn plan_of(
         .finished()
         .filter_map(|(view, lines)| Some((view, lines.bounds?)))
         .collect::<BTreeMap<_, _>>();
-    lay_out_sheet(drawing, &fields, &extents, &sheet.cuts())
+
+    let mut plan = lay_out_sheet(drawing, &fields, &extents, &sheet.cuts());
+
+    plan.annotate(drawing, &sheet.finished().collect());
+    plan
 }
 
 fn apply_or_say(
@@ -311,6 +343,12 @@ pub fn commands(
         let shown = !tool.sheet_in_view();
 
         tool.show_sheet_in_view(shown);
+    }
+    if commands.invoke(Command::DrawingDimension, &exportable) {
+        tool.start_tool(SheetTool::dimension());
+    }
+    if commands.invoke(Command::DrawingNote, &exportable) {
+        tool.start_tool(SheetTool::note());
     }
 }
 
@@ -1305,6 +1343,7 @@ pub fn show(
             ui.add_space(SPACE_M);
             preview(ui, model, tool, drawing, plan, actions);
             layout_rows(ui, model, drawing, actions);
+            annotation_rows(ui, model, tool, drawing, plan, actions);
         },
     );
 
@@ -1314,6 +1353,405 @@ pub fn show(
     if panel.closed {
         tool.toggle();
     }
+}
+
+fn number(id: AnnotationId) -> u64 {
+    id.raw().saturating_add(1)
+}
+
+pub fn text_offset_field_id(drawing: DrawingId, id: AnnotationId) -> Id {
+    Id::unique(("drawing-dimension-offset", drawing.raw(), id.raw()))
+}
+
+pub fn note_field_id(drawing: DrawingId, id: AnnotationId) -> Id {
+    Id::unique(("drawing-note-text", drawing.raw(), id.raw()))
+}
+
+fn decimals_label(decimals: u8) -> String {
+    match decimals {
+        0 => "Whole numbers".to_owned(),
+        1 => "1 decimal".to_owned(),
+        many => format!("{many} decimals"),
+    }
+}
+
+fn change_dimension(
+    model: &Model,
+    drawing: DrawingId,
+    id: AnnotationId,
+    label: &str,
+    apply: impl FnOnce(&mut DrawingDimension),
+    actions: &mut Vec<Action>,
+) {
+    change(
+        model,
+        drawing,
+        label,
+        |drawing| {
+            if let Some(dimension) = drawing.dimension_mut(id) {
+                apply(dimension);
+            }
+        },
+        actions,
+    );
+}
+
+fn measure_choice(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: DrawingId,
+    dimension: &DrawingDimension,
+    actions: &mut Vec<Action>,
+) {
+    let id = dimension.id;
+
+    match dimension.measure {
+        DimensionMeasure::Linear {
+            from,
+            to,
+            direction,
+        } => {
+            widgets::property(ui, MEASURES, |ui| {
+                let choices: Vec<(&str, &str)> = DimensionDirection::ALL
+                    .iter()
+                    .map(|direction| (direction.name(), "Which way the distance is measured"))
+                    .collect();
+                let selected = DimensionDirection::ALL
+                    .iter()
+                    .position(|chosen| *chosen == direction)
+                    .unwrap_or_default();
+
+                if let Some(chosen) = widgets::segmented(ui, &choices, selected)
+                    .and_then(|index| DimensionDirection::ALL.get(index).copied())
+                {
+                    change_dimension(
+                        model,
+                        drawing,
+                        id,
+                        "Change dimension direction",
+                        |dimension| {
+                            dimension.measure = DimensionMeasure::Linear {
+                                from,
+                                to,
+                                direction: chosen,
+                            };
+                        },
+                        actions,
+                    );
+                }
+            });
+        }
+        DimensionMeasure::Radius(edge) | DimensionMeasure::Diameter(edge) => {
+            widgets::property(ui, MEASURES, |ui| {
+                let choices = [
+                    ("Radius", "Measure the radius, written R"),
+                    ("Diameter", "Measure the diameter, written \u{2300}"),
+                ];
+                let selected =
+                    usize::from(matches!(dimension.measure, DimensionMeasure::Diameter(_)));
+
+                if let Some(chosen) = widgets::segmented(ui, &choices, selected) {
+                    change_dimension(
+                        model,
+                        drawing,
+                        id,
+                        "Change dimension kind",
+                        |dimension| {
+                            dimension.measure = if chosen == 1 {
+                                DimensionMeasure::Diameter(edge)
+                            } else {
+                                DimensionMeasure::Radius(edge)
+                            };
+                        },
+                        actions,
+                    );
+                }
+            });
+        }
+        DimensionMeasure::Parallel { .. } | DimensionMeasure::Angle { .. } => {}
+    }
+}
+
+fn dimension_settings(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: DrawingId,
+    dimension: &DrawingDimension,
+    actions: &mut Vec<Action>,
+) {
+    let id = dimension.id;
+
+    widgets::properties(ui, ("drawing-dimension", drawing.raw(), id.raw()), |ui| {
+        measure_choice(ui, model, drawing, dimension, actions);
+        widgets::property(ui, DECIMALS, |ui| {
+            let mut chosen = None;
+
+            widgets::combo(
+                ("drawing-dimension-decimals", drawing.raw(), id.raw()),
+                decimals_label(dimension.decimals),
+            )
+            .hover("The most decimals the value shows; trailing zeros are left off")
+            .show(ui, |ui| {
+                for decimals in 0..=MAX_DIMENSION_DECIMALS {
+                    if widgets::menu_option(
+                        ui,
+                        decimals == dimension.decimals,
+                        &decimals_label(decimals),
+                    )
+                    .clicked()
+                    {
+                        chosen = Some(decimals);
+                    }
+                }
+            });
+            if let Some(decimals) = chosen {
+                change_dimension(
+                    model,
+                    drawing,
+                    id,
+                    "Change dimension decimals",
+                    |dimension| dimension.decimals = decimals,
+                    actions,
+                );
+            }
+        });
+
+        let offset = length_row(
+            ui,
+            model,
+            text_offset_field_id(drawing, id),
+            TEXT_OFFSET,
+            dimension.text_offset,
+            false,
+            "How far the value stands from the middle of its line, in sheet lengths; units may \
+             be typed",
+        );
+
+        if let Some(offset) = offset {
+            change_dimension(
+                model,
+                drawing,
+                id,
+                "Move dimension value",
+                |dimension| {
+                    dimension.text_offset = offset.clamp(-MAX_TEXT_OFFSET, MAX_TEXT_OFFSET);
+                },
+                actions,
+            );
+        }
+    });
+}
+
+fn dimension_rows(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    for dimension in &drawing.dimensions {
+        let annotation = Annotation::Dimension(dimension.id);
+        let laid = plan.annotation(annotation);
+        let number = number(dimension.id);
+        let problem = laid.and_then(|laid| laid.problem).or_else(|| {
+            dimension_problem(drawing, dimension, &tool.sheet.finished().collect())
+                .and_then(Result::err)
+        });
+        let value = laid
+            .filter(|laid| laid.problem.is_none())
+            .map_or_else(String::new, |laid| format!(" {}", laid.text.content));
+
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(
+                ui,
+                &format!(
+                    "Dimension {number}:{value} {} in the {}",
+                    dimension.measure.name().to_lowercase(),
+                    dimension.view.describe()
+                ),
+                2,
+            );
+            if widgets::icon_button(ui, icons::EDIT, &format!("Re-attach dimension {number}"))
+                .on_hover_text("Pick the edges it measures again, keeping where it stands")
+                .clicked()
+            {
+                tool.start_tool(SheetTool::reattaching(dimension.id));
+            }
+            if widgets::icon_button(ui, icons::DELETE, &format!("Delete dimension {number}"))
+                .clicked()
+            {
+                sheet_canvas::delete_annotation(model, drawing, annotation, actions);
+            }
+        });
+        if let Some(problem) = problem {
+            let response = widgets::callout(ui, Tone::Error, |ui| {
+                ui.label(format!(
+                    "Dimension {number} lost what it measures: {problem}. Re-attach it to edges \
+                     of a view, or delete it."
+                ))
+            });
+
+            widgets::announced(ui, &response, false);
+        }
+        dimension_settings(ui, model, drawing.id, dimension, actions);
+    }
+}
+
+fn note_editing_row(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    drawing: DrawingId,
+    actions: &mut Vec<Action>,
+) {
+    let Some((id, text)) = tool.note_editing.as_mut() else {
+        return;
+    };
+    let id = *id;
+    let field_id = note_field_id(drawing, id);
+    let pointer_busy = ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
+    let mut done = false;
+    let mut cancelled = false;
+
+    if tool.note_focus_pending && !pointer_busy {
+        tool.note_focus_pending = false;
+        field::select_all(ui.ctx(), field_id, text);
+        ui.memory_mut(|memory| memory.request_focus(field_id));
+    }
+    ui.horizontal(|ui| {
+        let field = widgets::text_field(ui, |ui| {
+            ui.add(
+                TextEdit::singleline(text)
+                    .id(field_id)
+                    .char_limit(MAX_NOTE_CHARS)
+                    .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
+            )
+        });
+        let field = widgets::named(field, &format!("Text of note {}", number(id)));
+        let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
+        cancelled = widgets::escape_cancels(ui, &field);
+        done = widgets::icon_button(ui, icons::DONE, "Keep the note's new text").clicked() || enter;
+        cancelled |=
+            widgets::icon_button(ui, icons::CLOSE, "Keep the note as it was (Esc)").clicked();
+    });
+    if cancelled {
+        tool.note_editing = None;
+        return;
+    }
+    if done && let Some((_, text)) = tool.note_editing.clone() {
+        let changed = model
+            .document()
+            .changing_drawing(drawing, "Change note text", |drawing| {
+                if let Some(note) = drawing.note_mut(id) {
+                    note.text = text;
+                }
+            });
+
+        match changed {
+            Ok(transaction) => {
+                tool.note_editing = None;
+                actions.push(Action::Apply(transaction));
+            }
+            Err(error) => {
+                tool.note_focus_pending = true;
+                actions.push(Action::Inform(Notice::failure(format!(
+                    "The note was not changed: {error}."
+                ))));
+            }
+        }
+    }
+}
+
+fn note_rows(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    for note in &drawing.notes {
+        let annotation = Annotation::Note(note.id);
+        let number = number(note.id);
+        let buttons = if note.leader.is_some() { 3 } else { 2 };
+
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(
+                ui,
+                &format!("Note {number}: \u{201c}{}\u{201d}", note.text),
+                buttons,
+            );
+            if widgets::icon_button(
+                ui,
+                icons::RENAME,
+                &format!("Change the text of note {number}"),
+            )
+            .clicked()
+            {
+                tool.note_editing = Some((note.id, note.text.clone()));
+                tool.note_focus_pending = true;
+            }
+            if note.leader.is_some()
+                && widgets::icon_button(
+                    ui,
+                    icons::REMOVE,
+                    &format!("Remove the leader of note {number}"),
+                )
+                .clicked()
+            {
+                change(
+                    model,
+                    drawing.id,
+                    "Remove note leader",
+                    |drawing| {
+                        if let Some(note) = drawing.note_mut(note.id) {
+                            note.leader = None;
+                        }
+                    },
+                    actions,
+                );
+            }
+            if widgets::icon_button(ui, icons::DELETE, &format!("Delete note {number}")).clicked() {
+                sheet_canvas::delete_annotation(model, drawing, annotation, actions);
+            }
+        });
+        if tool
+            .note_editing
+            .as_ref()
+            .is_some_and(|(editing, _)| *editing == note.id)
+        {
+            note_editing_row(ui, model, tool, drawing.id, actions);
+        }
+        if let Some(problem) = plan.annotation(annotation).and_then(|laid| laid.problem) {
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.label(format!(
+                    "The leader of note {number} points at nothing: {problem}. Remove the leader, \
+                     or delete the note and place it again."
+                ))
+            });
+        }
+    }
+}
+
+fn annotation_rows(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    ui.add_space(SPACE_S);
+    ui.label(widgets::section_title(ANNOTATIONS));
+    if drawing.dimensions.is_empty() && drawing.notes.is_empty() {
+        ui.label(widgets::muted(NO_ANNOTATIONS, ui));
+    }
+    dimension_rows(ui, model, tool, drawing, plan, actions);
+    note_rows(ui, model, tool, drawing, plan, actions);
 }
 
 fn position_label(view: DrawnView) -> String {
@@ -1377,6 +1815,7 @@ fn preview(
             .on_hover_text("Show the sheet across the view, the panel beside it")
             .clicked();
     });
+    sheet_canvas::tool_row(ui, &mut tool.canvas, &context, actions);
     ui.add_space(SPACE_S);
 
     let width = ui.available_width().max(1.0);
@@ -1436,6 +1875,7 @@ pub fn show_in_view(
                 ui.label(widgets::strong(drawing.name.as_str()));
                 sheet_canvas::toolbar(ui, &mut tool.canvas, &context, actions);
             });
+            sheet_canvas::tool_row(&mut page, &mut tool.canvas, &context, actions);
             page.add_space(SPACE_S);
 
             let size = page.available_size();

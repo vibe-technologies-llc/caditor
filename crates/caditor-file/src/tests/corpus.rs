@@ -37,8 +37,8 @@ use serde_json::Value;
 use super::{
     configurations::configured_model,
     drawings::{
-        parameter_offset_document, with_detail_views, with_drawings, with_placed_views,
-        with_section_views,
+        parameter_offset_document, with_annotations, with_detail_views, with_drawings,
+        with_placed_views, with_section_views,
     },
     seeds::seed_journal_by_reference,
     selection_sets::sets_of,
@@ -63,7 +63,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 92] = [
+const KEPT: [(&str, &str); 94] = [
+    (
+        "journal-1/dimensions-and-notes.journal",
+        "1ce9db1b5da3654ff431e3dfd6897b2a55b6782e81238666ab279da0f22d9aba",
+    ),
+    (
+        "model-1/dimensions-and-notes.caditor",
+        "7fc839f566329a11fde2d59f1bd7867ab71462c9e7348f63124ee20f25f46057",
+    ),
     (
         "journal-1/placed-views.journal",
         "455b9acbea10cd6b15f9437f36d900acf203e2dde6f64de8fe560db424f7d8fc",
@@ -1218,6 +1226,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("placed-views"), placed_views_journal()),
         (
+            model("dimensions-and-notes"),
+            saved(&annotated_model(), "Dimensions and notes"),
+        ),
+        (journal("dimensions-and-notes"), annotations_journal()),
+        (
             model("section-parameter-offsets"),
             saved(&parameter_offset_sections(), "Section parameter offsets"),
         ),
@@ -2164,6 +2177,33 @@ fn detail_views_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/detail-views.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn annotated_model() -> Document {
+    let (mut document, change) = with_annotations();
+
+    document.apply(change).unwrap();
+    document
+}
+
+fn annotations_journal() -> Vec<u8> {
+    let (base, change) = with_annotations();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+
+    session.apply(change);
+
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Dimensions and notes")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/dimensions-and-notes.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

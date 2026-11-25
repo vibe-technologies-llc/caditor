@@ -26,6 +26,7 @@ pub(super) enum Layer {
     Hidden,
     Hatching,
     Cutting,
+    Annotation,
     Frame,
 }
 
@@ -37,7 +38,12 @@ impl Layer {
     pub(super) fn is_on_sheet(self) -> bool {
         matches!(
             self,
-            Self::Visible | Self::Hidden | Self::Hatching | Self::Cutting | Self::Frame
+            Self::Visible
+                | Self::Hidden
+                | Self::Hatching
+                | Self::Cutting
+                | Self::Annotation
+                | Self::Frame
         )
     }
 
@@ -53,6 +59,7 @@ impl Layer {
             Self::Hidden => "Hidden",
             Self::Hatching => "Hatching",
             Self::Cutting => "Cutting",
+            Self::Annotation => "Annotations",
             Self::Frame => "Frame",
         }
     }

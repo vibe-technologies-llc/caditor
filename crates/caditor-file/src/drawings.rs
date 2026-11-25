@@ -1,18 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
-    DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale, Drawings,
-    DrawnView, FIRST_UNSTORABLE_ID, FeatureId, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS,
-    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET,
-    MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace,
-    SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView, VIEW_LETTERS,
-    drawing_name,
+    AnnotationId, DEFAULT_DIMENSION_DECIMALS, DetailParent, DetailScale, DetailView,
+    DimensionDirection, DimensionMeasure, Document, Drawing, DrawingDimension, DrawingId,
+    DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint, EdgeSpot, FIRST_UNSTORABLE_ID,
+    FeatureId, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DIMENSION_DECIMALS,
+    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_SECTION_OFFSET,
+    MAX_SECTION_VIEWS, MAX_TEXT_OFFSET, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, NoteLeader, Projection,
+    ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView,
+    VIEW_LETTERS, drawing_name, note_text,
 };
 use caditor_expression::{EvalError, Expression, ParameterId};
 use caditor_geometry::Point2;
+use caditor_kernel::EdgeName;
 use serde::{Deserialize, Serialize};
 
-use crate::format::Lenient;
+use crate::format::{Lenient, hex, restore_digest};
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DrawingsRecord {
@@ -51,6 +54,134 @@ pub(crate) struct DrawingRecord {
     pub details: Vec<Lenient<DetailRecord>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub positions: Vec<Lenient<PositionRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dimensions: Vec<Lenient<DimensionRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<Lenient<NoteRecord>>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub next_annotation: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+fn is_nothing(value: &f64) -> bool {
+    *value == 0.0
+}
+
+fn default_decimals() -> u8 {
+    DEFAULT_DIMENSION_DECIMALS
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct DimensionRecord {
+    pub id: u64,
+    pub view: Lenient<ViewKeyRecord>,
+    pub measure: Lenient<MeasureRecord>,
+    pub place: [f64; 2],
+    #[serde(default = "default_decimals")]
+    pub decimals: u8,
+    #[serde(default, skip_serializing_if = "is_nothing")]
+    pub text_offset: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct EdgePointRecord {
+    pub edge: String,
+    pub spot: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MeasureRecord {
+    Linear {
+        from: EdgePointRecord,
+        to: EdgePointRecord,
+        direction: String,
+    },
+    Parallel {
+        first: String,
+        second: String,
+    },
+    Radius(String),
+    Diameter(String),
+    Angle {
+        first: String,
+        second: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct NoteRecord {
+    pub id: u64,
+    pub text: String,
+    pub at: [f64; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leader: Option<Lenient<LeaderRecord>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct LeaderRecord {
+    pub view: Lenient<ViewKeyRecord>,
+    pub edge: String,
+}
+
+fn edge_point_record(point: EdgePoint) -> EdgePointRecord {
+    EdgePointRecord {
+        edge: hex(point.edge.digest()),
+        spot: point.spot.key().to_owned(),
+    }
+}
+
+fn measure_record(measure: &DimensionMeasure) -> MeasureRecord {
+    let name = |edge: EdgeName| hex(edge.digest());
+    match *measure {
+        DimensionMeasure::Linear {
+            from,
+            to,
+            direction,
+        } => MeasureRecord::Linear {
+            from: edge_point_record(from),
+            to: edge_point_record(to),
+            direction: direction.key().to_owned(),
+        },
+        DimensionMeasure::Parallel { first, second } => MeasureRecord::Parallel {
+            first: name(first),
+            second: name(second),
+        },
+        DimensionMeasure::Radius(edge) => MeasureRecord::Radius(name(edge)),
+        DimensionMeasure::Diameter(edge) => MeasureRecord::Diameter(name(edge)),
+        DimensionMeasure::Angle { first, second } => MeasureRecord::Angle {
+            first: name(first),
+            second: name(second),
+        },
+    }
+}
+
+fn dimension_record(dimension: &DrawingDimension) -> DimensionRecord {
+    DimensionRecord {
+        id: dimension.id.raw(),
+        view: Lenient::Read(view_key_record(dimension.view)),
+        measure: Lenient::Read(measure_record(&dimension.measure)),
+        place: [dimension.place.x, dimension.place.y],
+        decimals: dimension.decimals,
+        text_offset: dimension.text_offset,
+    }
+}
+
+fn note_record(note: &DrawingNote) -> NoteRecord {
+    NoteRecord {
+        id: note.id.raw(),
+        text: note.text.clone(),
+        at: [note.at.x, note.at.y],
+        leader: note.leader.map(|leader| {
+            Lenient::Read(LeaderRecord {
+                view: Lenient::Read(view_key_record(leader.view)),
+                edge: hex(leader.edge.digest()),
+            })
+        }),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -226,6 +357,17 @@ fn drawing_record(drawing: &Drawing) -> DrawingRecord {
                 })
             })
             .collect(),
+        dimensions: drawing
+            .dimensions
+            .iter()
+            .map(|dimension| Lenient::Read(dimension_record(dimension)))
+            .collect(),
+        notes: drawing
+            .notes
+            .iter()
+            .map(|note| Lenient::Read(note_record(note)))
+            .collect(),
+        next_annotation: drawing.next_annotation,
     }
 }
 
@@ -696,6 +838,213 @@ fn restored_positions(
     positions
 }
 
+fn restored_edge(text: &str) -> Option<EdgeName> {
+    restore_digest(text).map(EdgeName::from_digest)
+}
+
+fn restored_edge_point(record: &EdgePointRecord) -> Option<EdgePoint> {
+    Some(EdgePoint {
+        edge: restored_edge(&record.edge)?,
+        spot: EdgeSpot::from_key(&record.spot)?,
+    })
+}
+
+fn restored_direction(key: &str, name: &str, issues: &mut Vec<String>) -> DimensionDirection {
+    DimensionDirection::from_key(key).unwrap_or_else(|| {
+        issues.push(format!(
+            "Which way a dimension of the drawing “{name}” measures was not understood, so it \
+             measures straight between its points."
+        ));
+        DimensionDirection::Aligned
+    })
+}
+
+fn restored_measure(
+    record: &Lenient<MeasureRecord>,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Option<DimensionMeasure> {
+    let Lenient::Read(record) = record else {
+        return None;
+    };
+    Some(match record {
+        MeasureRecord::Linear {
+            from,
+            to,
+            direction,
+        } => DimensionMeasure::Linear {
+            from: restored_edge_point(from)?,
+            to: restored_edge_point(to)?,
+            direction: restored_direction(direction, name, issues),
+        },
+        MeasureRecord::Parallel { first, second } => DimensionMeasure::Parallel {
+            first: restored_edge(first)?,
+            second: restored_edge(second)?,
+        },
+        MeasureRecord::Radius(edge) => DimensionMeasure::Radius(restored_edge(edge)?),
+        MeasureRecord::Diameter(edge) => DimensionMeasure::Diameter(restored_edge(edge)?),
+        MeasureRecord::Angle { first, second } => DimensionMeasure::Angle {
+            first: restored_edge(first)?,
+            second: restored_edge(second)?,
+        },
+    })
+}
+
+fn restored_dimension(
+    record: &DimensionRecord,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Option<DrawingDimension> {
+    let [x, y] = record.place;
+
+    let place = Point2::new(x, y);
+    let usable = place.is_finite()
+        && x.abs() <= MAX_DETAIL_EXTENT
+        && y.abs() <= MAX_DETAIL_EXTENT
+        && record.text_offset.is_finite()
+        && record.text_offset.abs() <= MAX_TEXT_OFFSET;
+
+    if !usable {
+        return None;
+    }
+
+    let view = restored_view_key(&record.view)?;
+    Some(DrawingDimension {
+        id: AnnotationId::from_raw(record.id),
+        view,
+        measure: restored_measure(&record.measure, name, issues)?,
+        place,
+        decimals: record.decimals.min(MAX_DIMENSION_DECIMALS),
+        text_offset: record.text_offset,
+    })
+}
+
+fn restored_leader(record: &Lenient<LeaderRecord>) -> Option<NoteLeader> {
+    let Lenient::Read(record) = record else {
+        return None;
+    };
+    Some(NoteLeader {
+        view: restored_view_key(&record.view)?,
+        edge: restored_edge(&record.edge)?,
+    })
+}
+
+fn restored_note(record: &NoteRecord, issues: &mut Vec<String>, name: &str) -> Option<DrawingNote> {
+    let [x, y] = record.at;
+
+    let at = Point2::new(x, y);
+    let mut text = note_text(&record.text);
+
+    if text.is_empty() || !at.is_finite() || x.abs() > MAX_VIEW_PLACE || y.abs() > MAX_VIEW_PLACE {
+        return None;
+    }
+    if text.chars().count() > MAX_NOTE_CHARS {
+        text = text.chars().take(MAX_NOTE_CHARS).collect();
+        text = note_text(&text);
+        issues.push(format!(
+            "A note of the drawing “{name}” was longer than {MAX_NOTE_CHARS} characters, so its \
+             end was cut off."
+        ));
+    }
+
+    let leader = match &record.leader {
+        None => None,
+        Some(leader) => {
+            let restored = restored_leader(leader);
+
+            if restored.is_none() {
+                issues.push(format!(
+                    "The leader of a note of the drawing “{name}” could not be read, so the note \
+                     stands without it."
+                ));
+            }
+            restored
+        }
+    };
+    Some(DrawingNote {
+        id: AnnotationId::from_raw(record.id),
+        text,
+        at,
+        leader,
+    })
+}
+
+fn left_out(issues: &mut Vec<String>, lost: usize, what: (&str, &str), name: &str) {
+    match lost {
+        0 => {}
+        1 => issues.push(format!(
+            "A {} of the drawing “{name}” could not be read, so it was left out.",
+            what.0
+        )),
+        _ => issues.push(format!(
+            "{lost} {} of the drawing “{name}” could not be read, so they were left out.",
+            what.1
+        )),
+    }
+}
+
+fn restored_annotations(
+    dimensions: &[Lenient<DimensionRecord>],
+    notes: &[Lenient<NoteRecord>],
+    drawing: &mut Drawing,
+    issues: &mut Vec<String>,
+) {
+    let name = drawing.name.clone();
+    let mut taken = BTreeSet::new();
+    let mut lost = 0_usize;
+    let mut beyond = false;
+
+    for record in dimensions {
+        let Lenient::Read(record) = record else {
+            lost += 1;
+            continue;
+        };
+
+        if taken.len() >= MAX_ANNOTATIONS {
+            beyond = true;
+            break;
+        }
+        match restored_dimension(record, &name, issues) {
+            Some(dimension) if taken.insert(dimension.id) => {
+                if record.decimals > MAX_DIMENSION_DECIMALS {
+                    issues.push(format!(
+                        "A dimension of the drawing “{name}” asked for more than \
+                         {MAX_DIMENSION_DECIMALS} decimals, so it shows {MAX_DIMENSION_DECIMALS}."
+                    ));
+                }
+                drawing.dimensions.push(dimension);
+            }
+            _ => lost += 1,
+        }
+    }
+    left_out(issues, lost, ("dimension", "dimensions"), &name);
+
+    let mut lost_notes = 0_usize;
+
+    for record in notes {
+        let Lenient::Read(record) = record else {
+            lost_notes += 1;
+            continue;
+        };
+
+        if taken.len() >= MAX_ANNOTATIONS {
+            beyond = true;
+            break;
+        }
+        match restored_note(record, issues, &name) {
+            Some(note) if taken.insert(note.id) => drawing.notes.push(note),
+            _ => lost_notes += 1,
+        }
+    }
+    left_out(issues, lost_notes, ("note", "notes"), &name);
+    if beyond {
+        issues.push(format!(
+            "A drawing holds at most {MAX_ANNOTATIONS} dimensions and notes, so the rest of \
+             those of “{name}” were left out."
+        ));
+    }
+}
+
 pub(crate) fn restore_drawings(
     record: DrawingsRecord,
     exists: &dyn Fn(ParameterId) -> bool,
@@ -766,10 +1115,17 @@ pub(crate) fn restore_drawings(
             sections,
             details,
             positions: BTreeMap::new(),
+            dimensions: Vec::new(),
+            notes: Vec::new(),
+            next_annotation: 0,
             name,
         };
 
         restored.positions = restored_positions(&drawing.positions, &restored, issues);
+        restored_annotations(&drawing.dimensions, &drawing.notes, &mut restored, issues);
+        restored.next_annotation = drawing
+            .next_annotation
+            .max(restored.first_free_annotation());
         drawings.drawings.push(restored);
     }
     drawings.next_id = drawings.first_free_id();

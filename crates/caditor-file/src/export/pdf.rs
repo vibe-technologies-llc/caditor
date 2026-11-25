@@ -201,7 +201,7 @@ fn layer_style(layer: Layer) -> (f64, &'static [f64]) {
     match layer {
         Layer::Visible => (VISIBLE_WIDTH, &[]),
         Layer::Hidden => (HIDDEN_WIDTH, &[HIDDEN_DASH, HIDDEN_GAP]),
-        Layer::Hatching => (THIN_WIDTH, &[]),
+        Layer::Hatching | Layer::Annotation => (THIN_WIDTH, &[]),
         Layer::Cutting => (THIN_WIDTH, &CHAIN),
         Layer::Frame => (FRAME_WIDTH, &[]),
         Layer::Construction => (HAIRLINE, &[CONSTRUCTION_DASH, CONSTRUCTION_GAP]),

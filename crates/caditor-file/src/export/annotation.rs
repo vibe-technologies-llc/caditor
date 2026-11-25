@@ -4,7 +4,11 @@ use caditor_expression::format_decimals;
 use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, Constraint, EntityId, Reference, Sketch,
-    annotation::{self, Footprint, Measured, Obstacles, away_from},
+    annotation::{
+        self, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP, EXTENSION_OVERSHOOT, Footprint,
+        LEADER_OVERSHOOT, LEADER_TEXT_GAP, Measured, Obstacles, RADIUS_PREFIX, TEXT_LIFT,
+        arrowhead, away_from, extension_line,
+    },
 };
 
 use super::{
@@ -14,14 +18,7 @@ use super::{
 
 const DIMENSION_OFFSET: f64 = 2.5;
 const LANE_SPACING: f64 = 2.0;
-const EXTENSION_GAP: f64 = 0.5;
-const EXTENSION_OVERSHOOT: f64 = 0.5;
-const ARROW_LENGTH: f64 = 1.0;
-const ARROW_HALF_ANGLE: f64 = PI / 12.0;
-const TEXT_LIFT: f64 = 0.8;
 const ANGLE_RADIUS: f64 = 4.0;
-const LEADER_OVERSHOOT: f64 = 1.5;
-const LEADER_TEXT_GAP: f64 = 0.5;
 const CIRCLE_LEADER_ANGLE: f64 = FRAC_PI_4;
 const LABEL_CLEARANCE: f64 = 0.5;
 const LABEL_CELL: f64 = 4.0;
@@ -33,10 +30,7 @@ const MAX_ESCAPE_LANES: usize = 1 << 16;
 const DEGENERATE: f64 = 1e-9;
 const LENGTH_DECIMALS: usize = 3;
 const ANGLE_DECIMALS: usize = 2;
-pub(super) const DIAMETER_SIGN: char = '⌀';
-pub(super) const DEGREE_SIGN: char = '°';
 const ARC_LENGTH_SIGN: char = '⌒';
-const RADIUS_PREFIX: char = 'R';
 
 pub(super) fn dimensions(
     sketch: &Sketch,
@@ -282,9 +276,7 @@ impl Style {
     }
 
     fn arrow(&self, tip: Point2, pointing: Vector2) -> [Shape; 2] {
-        let back = -pointing * ARROW_LENGTH * self.height;
-        [-ARROW_HALF_ANGLE, ARROW_HALF_ANGLE]
-            .map(|turn| Shape::Line(tip, tip + Vector2::from_angle(turn).rotate(back)))
+        arrowhead(tip, pointing, self.height).map(|(from, to)| Shape::Line(from, to))
     }
 
     fn linear(
@@ -312,10 +304,8 @@ impl Style {
         let mut marks: Vec<Shape> = [(first, start), (second, end)]
             .into_iter()
             .map(|(point, on_line)| {
-                Shape::Line(
-                    point + normal * EXTENSION_GAP * height,
-                    on_line + normal * EXTENSION_OVERSHOOT * height,
-                )
+                let (from, to) = extension_line(point, on_line, normal, height);
+                Shape::Line(from, to)
             })
             .collect();
 

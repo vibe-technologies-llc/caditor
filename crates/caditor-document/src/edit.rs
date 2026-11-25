@@ -30,8 +30,9 @@ use crate::{
         list_names,
     },
     drawings::{
-        Drawings, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS,
-        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS,
+        Drawing, Drawings, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS,
+        MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS,
+        MAX_NOTE_CHARS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS,
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
@@ -555,6 +556,26 @@ pub enum EditError {
         "The {view} cannot be placed there; a view stands at most {MAX_VIEW_PLACE} mm from the middle of the sheet's view area"
     )]
     ViewPlaceOutOfRange { view: String },
+    #[error(
+        "A drawing holds at most {MAX_ANNOTATIONS} dimensions and notes, and '{name}' would have {annotations}. Delete some first."
+    )]
+    DrawingTooManyAnnotations { name: String, annotations: usize },
+    #[error("Two dimensions or notes of one drawing have the number {0}")]
+    AnnotationIdRepeated(u64),
+    #[error("That dimension or note is no longer on the drawing")]
+    MissingAnnotation,
+    #[error(
+        "A dimension stands within {MAX_DETAIL_EXTENT} mm of its view's origin, with its value moved at most {MAX_VIEW_PLACE} mm along its line"
+    )]
+    DimensionPlaceOutOfRange,
+    #[error("A dimension shows at most {MAX_DIMENSION_DECIMALS} decimals, not {0}")]
+    DimensionDecimals(u8),
+    #[error("A note needs some text")]
+    DrawingNoteEmpty,
+    #[error("A note may be at most {MAX_NOTE_CHARS} characters long, and this one has {length}")]
+    DrawingNoteTooLong { length: usize },
+    #[error("A note stands at most {MAX_VIEW_PLACE} mm from the middle of the sheet's view area")]
+    DrawingNotePlaceOutOfRange,
     #[error("A configuration needs a name")]
     ConfigurationNameEmpty,
     #[error(
@@ -2044,6 +2065,14 @@ impl Document {
 
         self.next_feature_id = self.next_feature_id.max(beyond);
         drawings.next_id = drawings.first_free_id().max(self.drawings.first_free_id());
+        for drawing in &mut drawings.drawings {
+            let current = self
+                .drawings
+                .get(drawing.id)
+                .map_or(0, Drawing::first_free_annotation);
+
+            drawing.next_annotation = drawing.first_free_annotation().max(current);
+        }
 
         let previous = std::mem::replace(&mut self.drawings, Arc::new(drawings));
         Ok(Edit::SetDrawings {

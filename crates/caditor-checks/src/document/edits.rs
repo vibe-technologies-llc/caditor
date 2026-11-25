@@ -2,18 +2,20 @@ use std::collections::BTreeMap;
 
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
-    Between, BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue,
-    Datum, DatumPoint, DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale,
-    Drawings, DrawnView, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem,
-    Measurement, ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns,
-    Pieces, PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    PrincipalShowing, Projection, ProjectionSource, Reading, Rgb, RollbackBar, SavedView,
-    SavedViews, ScaleRatio, SectionPlace, SectionPlane, SectionView, SelectionSet, SelectionSets,
-    SetMember, Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView, Transaction,
-    VIEW_LETTERS,
+    AnnotationId, Between, BodyAppearance, Configuration, ConfigurationId, Configurations,
+    ConfiguredValue, Datum, DatumPoint, DetailParent, DetailScale, DetailView, DimensionDirection,
+    DimensionMeasure, Drawing, DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings,
+    DrawnView, EdgePoint, EdgeSpot, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem,
+    Measurement, ModelProperties, ModelProperty, NamedView, NoteLeader, Outline, ParameterOwner,
+    PieceStandIns, Pieces, PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, PrincipalShowing, Projection, ProjectionSource, Reading, Rgb, RollbackBar,
+    SavedView, SavedViews, ScaleRatio, SectionPlace, SectionPlane, SectionView, SelectionSet,
+    SelectionSets, SetMember, Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView,
+    Transaction, VIEW_LETTERS,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
+use caditor_kernel::EdgeName;
 use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
 
 use super::{
@@ -921,7 +923,85 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
 
         drawing.positions.insert(view, at);
     }
+    for _ in 0..input.int_in_range(0u8..=3)? {
+        let view = drawn_view(input)?;
+        let measure = dimension_measure(input)?;
+        let place = Vector2::new(
+            f64::from(input.int_in_range(-200i32..=200)?),
+            f64::from(input.int_in_range(-200i32..=200)?),
+        );
+
+        drawing.dimensions.push(DrawingDimension {
+            id: AnnotationId::from_raw(input.int_in_range(0u64..=6)?),
+            view,
+            measure,
+            place,
+            decimals: input.int_in_range(0u8..=5)?,
+            text_offset: f64::from(input.int_in_range(-20i32..=20)?),
+        });
+    }
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        let leader = if input.arbitrary::<bool>()? {
+            Some(NoteLeader {
+                view: drawn_view(input)?,
+                edge: edge_name(input)?,
+            })
+        } else {
+            None
+        };
+
+        drawing.notes.push(DrawingNote {
+            id: AnnotationId::from_raw(input.int_in_range(0u64..=6)?),
+            text: text(input)?,
+            at: Vector2::new(
+                f64::from(input.int_in_range(-1300i32..=1300)?),
+                f64::from(input.int_in_range(-1300i32..=1300)?),
+            ),
+            leader,
+        });
+    }
+    drawing.next_annotation = input.int_in_range(0u64..=8)?;
     Ok(drawing)
+}
+
+fn drawn_view(input: &mut Unstructured) -> Result<DrawnView> {
+    Ok(match input.int_in_range(0u8..=2)? {
+        0 => DrawnView::Standard(*input.choose(&StandardView::ALL)?),
+        1 => DrawnView::Section(*input.choose(&VIEW_LETTERS)?),
+        _ => DrawnView::Detail(*input.choose(&VIEW_LETTERS)?),
+    })
+}
+
+fn edge_name(input: &mut Unstructured) -> Result<EdgeName> {
+    Ok(EdgeName::from_digest(u128::from(
+        input.int_in_range(0u8..=8)?,
+    )))
+}
+
+fn dimension_measure(input: &mut Unstructured) -> Result<DimensionMeasure> {
+    let point = |input: &mut Unstructured| -> Result<EdgePoint> {
+        Ok(EdgePoint {
+            edge: edge_name(input)?,
+            spot: *input.choose(&EdgeSpot::ALL)?,
+        })
+    };
+    Ok(match input.int_in_range(0u8..=4)? {
+        0 => DimensionMeasure::Linear {
+            from: point(input)?,
+            to: point(input)?,
+            direction: *input.choose(&DimensionDirection::ALL)?,
+        },
+        1 => DimensionMeasure::Parallel {
+            first: edge_name(input)?,
+            second: edge_name(input)?,
+        },
+        2 => DimensionMeasure::Radius(edge_name(input)?),
+        3 => DimensionMeasure::Diameter(edge_name(input)?),
+        _ => DimensionMeasure::Angle {
+            first: edge_name(input)?,
+            second: edge_name(input)?,
+        },
+    })
 }
 
 fn drawings(input: &mut Unstructured, scene: &Scene) -> Result<Drawings> {

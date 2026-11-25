@@ -1,22 +1,25 @@
 use caditor_document::{
-    DetailParent, DetailScale, DrawnView, MAX_DRAWINGS, Projection, ResolvedPlace, ScaleRatio,
+    Annotation, AnnotationId, DetailParent, DetailScale, DimensionMeasure, DrawingDimension,
+    DrawnView, EdgePoint, EdgeSpot, MAX_DRAWINGS, Projection, ResolvedPlace, ScaleRatio,
     SectionPlace, SectionPlane, SheetPlan, StandardView,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
+use caditor_kernel::EdgeName;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, vec2};
 use tempfile::TempDir;
 
-use super::{Harness, drag_screen, extruded_plate, run_from_palette};
+use super::{Harness, Wheel, drag_screen, extruded_plate, run_from_palette};
 use crate::{
     commands::Command,
     drawings_panel::{
         ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, LAID_OUT, LEAVE_SHEET_VIEW,
-        NEW, NO_DETAILS, NO_SECTIONS, NONE_YET, RENAME, SHEET_IN_VIEW_NOTE, SHEET_TO_PANEL,
-        SHEET_TO_VIEW, WORKING, detail_field_id, offset_field_id,
+        NEW, NO_ANNOTATIONS, NO_DETAILS, NO_SECTIONS, NONE_YET, RENAME, SHEET_IN_VIEW_NOTE,
+        SHEET_TO_PANEL, SHEET_TO_VIEW, TEXT_OFFSET, WORKING, detail_field_id, offset_field_id,
     },
     model::Action,
     sheet_canvas::{MOVE_DOWN, MOVE_LEFT, RESET_POSITION, ZOOM_IN},
+    sheet_tools::{DIMENSION_TOOL, NOTE_FIELD, PLACE_DIMENSION, PLACE_NOTE, SECOND_EDGE},
 };
 
 fn wait_for_views(harness: &mut Harness) {
@@ -856,4 +859,204 @@ fn a_view_is_dragged_in_the_panel_preview_too() {
 
     assert_eq!(positions(&harness), [isometric]);
     assert!(centre_of(&harness, isometric).x < before.x);
+}
+
+fn top_edge_middle(harness: &Harness) -> Point2 {
+    let front = plan(harness)
+        .placed(DrawnView::Standard(StandardView::Front))
+        .unwrap()
+        .extent;
+    Point2::new(front.center().x, front.max().y)
+}
+
+fn click_sheet(harness: &mut Harness, at: Point2) {
+    let on = on_screen(harness, at);
+
+    press_with(harness, on, PointerButton::Primary);
+}
+
+fn drawn(harness: &Harness) -> caditor_document::Drawing {
+    harness.document().drawings().drawings[0].clone()
+}
+
+#[test]
+fn a_dimension_is_added_by_two_edge_clicks_and_a_place_then_nudged_deleted_and_undone() {
+    let mut harness = drawn_plate_in_view();
+
+    run_from_palette(&mut harness, Command::DrawingDimension.title().as_str());
+    harness.frame();
+
+    assert!(harness.workspace.drawings.canvas().tool().is_some());
+
+    let edge = top_edge_middle(&harness);
+
+    click_sheet(&mut harness, edge);
+
+    assert!(harness.shows(SECOND_EDGE));
+
+    click_sheet(&mut harness, edge + Vector2::new(2.0, 0.0));
+
+    assert!(harness.shows(PLACE_DIMENSION));
+
+    click_sheet(&mut harness, edge + Vector2::new(0.0, 12.0));
+    harness.frame();
+    harness.frame();
+
+    let dimensions = drawn(&harness).dimensions;
+    let id = AnnotationId::from_raw(0);
+    let laid = plan(&harness)
+        .annotation(Annotation::Dimension(id))
+        .cloned()
+        .unwrap();
+
+    assert_eq!(dimensions.len(), 1);
+    assert!(matches!(
+        dimensions[0].measure,
+        DimensionMeasure::Linear {
+            from: EdgePoint {
+                spot: EdgeSpot::Start,
+                ..
+            },
+            to: EdgePoint {
+                spot: EdgeSpot::End,
+                ..
+            },
+            ..
+        }
+    ));
+    assert_eq!(laid.text.content, "40");
+    assert_eq!(laid.problem, None);
+    assert!(laid.text.at.y > edge.y);
+    assert_eq!(
+        harness.workspace.drawings.canvas().picked_annotation(),
+        Some(Annotation::Dimension(id))
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert!(harness.workspace.drawings.canvas().tool().is_none());
+    assert!(harness.workspace.drawings.sheet_in_view());
+
+    let at = on_screen(&harness, laid.text.at);
+
+    press_with(&mut harness, at, PointerButton::Primary);
+
+    let before = drawn(&harness).dimensions[0].place;
+
+    harness.key(Key::ArrowUp, Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+
+    assert!(drawn(&harness).dimensions[0].place.y > before.y);
+
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(drawn(&harness).dimensions.is_empty());
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(drawn(&harness).dimensions.len(), 1);
+}
+
+#[test]
+fn a_note_is_placed_typed_and_pointed_at_an_edge() {
+    let mut harness = drawn_plate_in_view();
+
+    run_from_palette(&mut harness, Command::DrawingNote.title().as_str());
+    harness.frame();
+
+    let corner = plan(&harness).view_area.min() + Vector2::new(30.0, 30.0);
+
+    click_sheet(&mut harness, corner);
+    harness.frame();
+
+    harness.read_screen();
+
+    assert!(harness.has_button(PLACE_NOTE));
+
+    harness.type_text("Break all edges");
+
+    let edge = top_edge_middle(&harness);
+
+    click_sheet(&mut harness, edge);
+    harness.click_button(PLACE_NOTE);
+    harness.frame();
+    harness.frame();
+
+    harness.read_screen();
+
+    let notes = drawn(&harness).notes;
+
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].text, "Break all edges");
+    assert!(notes[0].leader.is_some());
+    assert!(!harness.has_button(PLACE_NOTE));
+    assert!(!harness.shows(NOTE_FIELD));
+
+    let laid = plan(&harness)
+        .annotation(Annotation::Note(notes[0].id))
+        .cloned()
+        .unwrap();
+
+    assert!(!laid.marks.is_empty());
+    assert_eq!(laid.problem, None);
+}
+
+#[test]
+fn a_dimension_whose_edge_is_gone_says_why_in_the_panel_and_is_deleted_there() {
+    let mut harness = drawn_plate_in_view();
+
+    let id = drawn(&harness).id;
+    let lost = EdgeName::from_digest(0xdead_beef);
+    let change = harness
+        .document()
+        .changing_drawing(id, "Add dimension", |drawing| {
+            let id = drawing.new_annotation_id();
+
+            drawing.dimensions.push(DrawingDimension {
+                id,
+                view: DrawnView::Standard(StandardView::Front),
+                measure: DimensionMeasure::Diameter(lost),
+                place: Point2::new(5.0, 5.0),
+                decimals: 2,
+                text_offset: 0.0,
+            });
+        })
+        .unwrap();
+
+    harness.perform(Action::Apply(change));
+    harness.frame();
+    harness.frame();
+
+    let laid = plan(&harness)
+        .annotation(Annotation::Dimension(AnnotationId::from_raw(0)))
+        .cloned()
+        .unwrap();
+
+    assert!(laid.problem.is_some());
+    assert_eq!(laid.text.content, "\u{2300}?");
+
+    let over_the_panel = harness.position_of(SHEET_IN_VIEW_NOTE);
+
+    harness.wheel_until_shown(over_the_panel, TEXT_OFFSET, Wheel::Down);
+
+    harness.read_screen();
+
+    assert!(harness.shows_containing("Dimension 1 lost what it measures"));
+    assert!(harness.has_button("Re-attach dimension 1"));
+
+    harness.click_button("Delete dimension 1");
+    harness.frame();
+    harness.frame();
+
+    harness.read_screen();
+
+    assert!(drawn(&harness).dimensions.is_empty());
+    assert!(harness.shows(NO_ANNOTATIONS));
+    assert!(harness.has_button(DIMENSION_TOOL));
 }

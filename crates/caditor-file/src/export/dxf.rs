@@ -1,11 +1,9 @@
 use std::{collections::BTreeSet, f64::consts::TAU, fmt::Write};
 
 use caditor_geometry::Point2;
+use caditor_sketch::annotation::{DEGREE_SIGN, DIAMETER_SIGN};
 
-use super::{
-    annotation::{DEGREE_SIGN, DIAMETER_SIGN},
-    figure::{Anchor, Dimension, Ellipse, Figure, Layer, Measure, Shape, Spline, Text},
-};
+use super::figure::{Anchor, Dimension, Ellipse, Figure, Layer, Measure, Shape, Spline, Text};
 
 const VERSION: &str = "AC1015";
 const MILLIMETRES: u32 = 4;
@@ -117,7 +115,9 @@ impl Writer {
                 Layer::Construction => Some((*layer, GREY, DASHED, None)),
                 Layer::Visible => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(VISIBLE_WEIGHT))),
                 Layer::Hidden => Some((*layer, BY_INDEX_BLACK, DASHED, Some(HIDDEN_WEIGHT))),
-                Layer::Hatching => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(THIN_WEIGHT))),
+                Layer::Hatching | Layer::Annotation => {
+                    Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(THIN_WEIGHT)))
+                }
                 Layer::Cutting => Some((*layer, BY_INDEX_BLACK, DASH_DOT, Some(THIN_WEIGHT))),
                 Layer::Frame => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(FRAME_WEIGHT))),
                 _ => None,

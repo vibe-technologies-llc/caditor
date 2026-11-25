@@ -4,6 +4,7 @@ use caditor_geometry::{Aabb2, Plane, Point2, Vector2, larger};
 use caditor_lettering::{Alignment, Style, lettered};
 
 use crate::{
+    drawing_dimensions::SheetAnnotation,
     drawings::{
         DetailView, Drawing, DrawingScale, DrawnView, Projection, ScaleRatio, SectionView,
         SheetOrientation, SheetSize, StandardView,
@@ -54,12 +55,22 @@ pub struct SheetText {
     pub height: f64,
     pub content: String,
     pub anchor: TextAnchor,
+    pub angle: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SheetMark {
     Line(Point2, Point2),
-    Circle { center: Point2, radius: f64 },
+    Circle {
+        center: Point2,
+        radius: f64,
+    },
+    Arc {
+        center: Point2,
+        radius: f64,
+        start: f64,
+        end: f64,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -169,6 +180,7 @@ pub struct SheetPlan {
     pub unmarked: Vec<char>,
     pub scale: ScaleRatio,
     pub fits: bool,
+    pub annotations: Vec<SheetAnnotation>,
 }
 
 impl SheetPlan {
@@ -324,6 +336,7 @@ fn cell_texts(texts: &mut Vec<SheetText>, origin: Point2, cell: &Cell, room_take
         height: CAPTION_HEIGHT,
         content: cell.caption.to_owned(),
         anchor: TextAnchor::Start,
+        angle: 0.0,
     });
     if cell.value.is_empty() {
         return;
@@ -340,6 +353,7 @@ fn cell_texts(texts: &mut Vec<SheetText>, origin: Point2, cell: &Cell, room_take
         height,
         content,
         anchor: TextAnchor::Start,
+        angle: 0.0,
     });
 }
 
@@ -794,6 +808,7 @@ fn side_labels(
             height: SECTION_LETTER_HEIGHT,
             content: side.label(sheet_scale),
             anchor: TextAnchor::Middle,
+            angle: 0.0,
         });
         if let SideKind::Detail(detail) = side.kind {
             marking.marks.push(SheetMark::Circle {
@@ -922,6 +937,7 @@ impl Marking<'_> {
             height: SECTION_LETTER_HEIGHT,
             content: letter.to_string(),
             anchor: TextAnchor::Middle,
+            angle: 0.0,
         });
     }
 }
@@ -1034,6 +1050,7 @@ fn detail_circles(drawing: &Drawing, views: &[PlacedView], marking: &mut Marking
             height: SECTION_LETTER_HEIGHT,
             content: detail.letter.to_string(),
             anchor: TextAnchor::Middle,
+            angle: 0.0,
         });
     }
 }
@@ -1093,5 +1110,6 @@ pub fn lay_out_sheet(
         unmarked,
         scale,
         fits,
+        annotations: Vec::new(),
     }
 }

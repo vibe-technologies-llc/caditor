@@ -5,6 +5,8 @@ paths:
   - "crates/caditor-document/src/drawing_views.rs"
   - "crates/caditor-document/src/drawing_sections.rs"
   - "crates/caditor-document/src/drawing_details.rs"
+  - "crates/caditor-document/src/drawing_dimensions.rs"
+  - "crates/caditor-document/src/drawing_dimensions_tests.rs"
   - "crates/caditor-document/src/drawing_sheet.rs"
   - "crates/caditor-file/src/drawings.rs"
   - "crates/caditor-file/src/tests/drawings.rs"
@@ -14,6 +16,7 @@ paths:
   - "crates/caditor/src/sheet_views.rs"
   - "crates/caditor/src/sheet_canvas.rs"
   - "crates/caditor/src/sheet_export.rs"
+  - "crates/caditor/src/sheet_tools.rs"
   - "crates/caditor/src/ui_tests/drawings.rs"
   - "crates/caditor/guide/drawings.md"
 ---
@@ -21,7 +24,7 @@ paths:
 # Technical drawings
 
 A drawing lays out standard views, section views and detail views of the model's bodies on an ISO sheet with a
-frame and a title block, and exports it as PDF, SVG or DXF. It is model content, worked out from the kernel's hidden
+frame and a title block, with dimensions measured from the model and notes, and exports it as PDF, SVG or DXF. It is model content, worked out from the kernel's hidden
 lines, never a picture of the 3D view.
 
 ## In the document (`drawings.rs`)
@@ -85,6 +88,25 @@ lines, never a picture of the 3D view.
   automatically. `normalized` drops positions of views the drawing no longer has (an unticked
   standard view, a deleted section or detail), so a reused letter never inherits one. Sheet
   positions are not model lengths: `Document::scaled` leaves them alone.
+- `dimensions` (`DrawingDimension`) and `notes` (`DrawingNote`) are the drawing's annotations, each
+  with an `AnnotationId` from the drawing's own counter `next_annotation` (`new_annotation_id`,
+  `first_free_annotation`), shared by both kinds, never reused: `set_drawings` keeps each drawing's
+  counter at least the one it had, and `Drawing::same_content` (so `Drawings::same_content`)
+  ignores it. At most `MAX_ANNOTATIONS` together; an id repeated, a dimension's `place` past
+  `MAX_DETAIL_EXTENT` or not finite, its `text_offset` past `MAX_TEXT_OFFSET`, `decimals` past
+  `MAX_DIMENSION_DECIMALS`, a note's text empty or past `MAX_NOTE_CHARS` (`note_text` makes it one
+  trimmed line in `normalized`) or its `at` past `MAX_VIEW_PLACE` are refused in words.
+- A dimension is a `view` (`DrawnView`), a `measure` (`DimensionMeasure`: `Linear` between two
+  `EdgePoint`s, an edge's `EdgeSpot` `Start`, `End` or `Centre`, `Horizontal`, `Vertical` or
+  `Aligned` (`DimensionDirection`); `Parallel` between two straight edges; `Radius` or `Diameter`
+  of a round edge; `Angle` between two straight edges), a `place` in the view's own model
+  coordinates (like a detail's circle, so it stays by the part when the view moves, and
+  `Document::scaled` moves it with the part by `Rescaler::view_shift` of its view or a detail's
+  parent), `decimals` (the most shown, trailing zeros dropped) and `text_offset` (sheet millimetres
+  along its line). Edges are referred to by `EdgeName` alone, never by position, so a dimension
+  follows edits as features do. A dimension whose view is gone is kept, not dropped: it shows as
+  lost. A note is `text`, `at` (sheet millimetres from the view area's middle, like a position) and
+  an optional `NoteLeader` (a view and an `EdgeName`).
 
 ## Views (`drawing_views.rs`)
 
@@ -96,6 +118,47 @@ lines, never a picture of the 3D view.
   interruptible (`Cancelled`); no solid is `NoBodies`. `ViewLines::bounds` sizes the view on the
   sheet. `drawn_bodies` resolves which bodies a drawing draws in an `Evaluation` (with every body
   standing that is not hidden when none are chosen) and names the chosen ones missing.
+
+## Dimensions and notes (`drawing_dimensions.rs`)
+
+- Measuring works on the view's `ViewLines`, exact projections in orthographic views: `seen_edge`
+  gathers the pieces whose `ViewSource::Edge` carries the name (visible and hidden alike) into one
+  `SeenEdge`, the union of their ranges on the shared flat curve; pieces of that name from two
+  different edges are `AnnotationProblem::EdgeAmbiguous` (never a guess), none is `EdgeGone`. A
+  detail view measures on its parent's unclipped lines (`measured_lines_of`), so its ends are the
+  edge's, not the circle's. The isometric view (and a detail of it) measures nothing
+  (`is_measured_view`, `Isometric`), since it is not drawn true to size.
+- `dimension_geometry` turns a measure into a `DimensionGeometry` in view coordinates: a spot is
+  an end of a straight or open edge (a whole circle has none: `NoEnd`) or the centre of a round
+  one (`Curve2::Circle`, or an ellipse whose radii agree to a millionth; else `NotRound`); a
+  `Parallel` pair must agree in direction to a sine of 1e-6 (`NotParallel`), its witness points
+  the `place` clamped onto each edge; an `Angle` meets at the lines' crossing (`NoAngle` when
+  parallel) and takes, of the four angles, the one the `place` lies in, under π.
+- `pick_edge` finds the nearest edge piece within reach of a sheet point across the placed views;
+  `dimension_from_picks` makes what two picks mean: one straight edge twice is its length, one
+  round edge twice its diameter (whole) or radius (arc), two straight edges `Parallel` or `Angle`,
+  anything else `Linear` between each pick's nearest end or centre, its direction from where the
+  place lies (`DimensionDirection::from_place`: within the points' span across is horizontal,
+  within it up is vertical, else aligned). Picks in two views, in the isometric view or on a
+  spline are refused in words (`DimensionRefusal`).
+- `SheetPlan::annotate(drawing, lines)` lays every annotation out on the sheet into
+  `SheetPlan::annotations` (`SheetAnnotation`: marks, one `SheetText` with its angle, the
+  `SheetMeasure` export writes as a DXF dimension, and the `AnnotationProblem` if any), so the
+  canvas and export draw the same thing; `plan_of` in the app calls it. Text is
+  `DIMENSION_TEXT_HEIGHT` (3.5 mm) cap height. Arrowheads, extension lines with their gap and
+  overshoot, the lift of the value above its line and `readable_angle` (readable from the bottom or
+  the right) come from `caditor_sketch::annotation`, shared with sketch export. A linear
+  dimension's line passes through the place, with extension lines only where a point is off it; a
+  radial one leads from the centre (radius) or across (diameter) out past the arc toward the place,
+  the value beyond; an angle is an arc through the place, with extension lines along each edge
+  where the arc runs past it. A lost dimension is laid out at its place as a short line and its
+  value as `?` (`R?`, `⌀?`, `?°`), with the problem; one whose view lines are still being worked
+  out is left off until they are. A note stands at its place; a leader runs from a shoulder beside
+  the text to the middle of its edge with an arrowhead, or is left out with the problem when the
+  edge is gone.
+- `moved_annotation` moves a dimension's place by a sheet vector over its view's scale and a note
+  by the vector, clamped into the view area like positions; `annotation_at` finds the nearest
+  within reach (text box or any mark).
 
 ## Details (`drawing_details.rs`)
 
@@ -208,6 +271,20 @@ lines, never a picture of the 3D view.
   that is unreadable, names a view the drawing lacks, repeats a view or lies past
   `MAX_VIEW_PLACE`. The corpus holds `model-1/placed-views.caditor` and
   `journal-1/placed-views.journal`.
+- Each drawing's `dimensions` and `notes` are fields written only when it has any, each `Lenient`,
+  with `next_annotation` written when not zero, so older drawings read with none and an older
+  reader drops them (losing only the annotations; nothing computed depends on them). A dimension
+  is `id`, `view` (as positions write it), `measure` (`linear` with `from` and `to`, each `edge` as
+  hex and `spot` key, and `direction` key; `parallel` or `angle` with `first` and `second`;
+  `radius` or `diameter` with the edge), `place` (two numbers), `decimals` and `text_offset` (when
+  not zero); a note `id`, `text`, `at` and `leader` (when any: `view` and `edge`). Loading leaves
+  out, with one report per drawing and kind, a record unreadable, with a repeated id, an unknown
+  view or measure, an unreadable edge or a place out of range, an empty note or one out of range,
+  and those past `MAX_ANNOTATIONS`; more decimals than the most are cut to it, an unknown direction
+  is aligned, an overlong note is cut, an unreadable leader dropped (each reported); a dimension in
+  a view the drawing lacks is kept, shown lost. `next_annotation` becomes at least the first free
+  id. The corpus holds `model-1/dimensions-and-notes.caditor` and
+  `journal-1/dimensions-and-notes.journal`.
 - Each drawing's `sections` is a field written only when it has any, each section `Lenient`, so
   drawings stored before section views read with none and an older reader drops them (losing only
   the section views; nothing computed depends on them). Loading repairs a section as
@@ -220,7 +297,11 @@ lines, never a picture of the 3D view.
   sheet's real size from the same `SheetPlan` the app shows, so views placed by hand are written
   where the sheet shows them: view pieces on `Layer::Visible` and `Layer::Hidden`, hatch lines
   (`drawn_hatching`, clipped to a detail's circle) on `Layer::Hatching`, cutting chain lines on `Layer::Cutting` with their thick ends on `Visible`,
-  frame, marks (arrows included) and title block on `Layer::Frame`. Lines, circles, arcs and ellipses stay exact; other curves become
+  frame, marks (arrows included) and title block on `Layer::Frame`, and the plan's annotations on
+  `Layer::Annotation` ("Annotations", 0.25 mm): a dimension as one `Shape::Dimension` (a DXF
+  `DIMENSION` with its own block; marks and value in SVG and PDF), a note as its lines and text. A
+  lost dimension is left out and a lost leader not drawn, both counted in
+  `SheetExported::left_out` beside `dimensions` and `notes`, which the export notice reports. Lines, circles, arcs and ellipses stay exact; other curves become
   polylines within the sheet chord and are counted in `SheetExported::approximated`. Written
   atomically. `SheetFormat::of` picks by extension (PDF by default).
 - SVG is the page itself (`width`/`height` in mm, viewBox the sheet), strokes per layer (0.5 mm
@@ -277,6 +358,30 @@ lines, never a picture of the 3D view.
   circle, Resize detail circle). Hovered grips are outlined dashed (a circle drawn heavier) in
   `accent_text` with a grab or resize cursor; the picked view has a solid, heavier outline, so
   picked and hovered never differ by colour alone.
+- Annotations (`sheet_tools.rs`): Add a dimension and Add a note (icon buttons beside the move
+  buttons) and the commands Dimension the drawing and Add a note to the drawing
+  (`DrawingsTool::start_tool`, refused with no drawing; in the Model menu and the palette) start a
+  `SheetTool` on the shared canvas; a row under the toolbar says the next step and holds Stop
+  adding. The dimension tool takes two `pick_edge` clicks (the picks and the edge under the pointer
+  drawn heavier in `accent_text`), checked with `dimension_from_picks` as they come (a refusal is a
+  notice, the step kept), then previews the dimension at the pointer and places it on the next
+  click or drop: one Add dimension change, the new one picked and the tool kept for the next.
+  Re-attach (the panel) runs it with `replacing`, keeping the dimension's id, decimals and offset,
+  and ends after one. The note tool takes a click for its place, focuses the Note text field under
+  the toolbar, takes a click on an edge as its leader (elsewhere moves the note) and is placed by
+  Place the note or Enter as one Add note change. Escape steps the tool back, then ends it
+  (`SheetCanvas::let_go`, also from the sheet view's Escape).
+- A click without a tool picks the annotation under it before a view (`annotation_at`), shown with
+  a solid outline round its bounds; a drag on one moves it (Move dimension, Move note); with it
+  picked and the sheet focused the arrow keys and move buttons move it, and Delete or Backspace
+  deletes it (Delete dimension, Delete note). Plain Delete is otherwise Delete selection's, so the
+  app lets the focused canvas claim it before dispatching commands (`DrawingsTool::claim_delete`).
+  Lost annotations are drawn dashed in `error`, the rest in `text`; values turn with their line.
+- The panel's Dimensions and notes rows (after Layout) name each dimension ("Dimension 1: 40
+  horizontal distance in the front view", numbered by id plus one, so names never repeat) with
+  Re-attach and Delete, an error callout saying what it lost, and Measures (direction, or radius
+  and diameter), Decimals and Value along (`text_offset`); each note with Change the text (a field
+  like Rename), Remove the leader and Delete, and a warning when its leader lost its edge.
 - Keyboard: a click picks the view under it and focuses the sheet. With the sheet focused and a
   view picked, the arrow keys move that view `NUDGE` (1 mm on the sheet; `FAR_NUDGE`, 10 mm, with
   Shift), each press one undoable change through `SheetPlan::moved` (so a top or side view keeps

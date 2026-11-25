@@ -199,6 +199,8 @@ pub enum Command {
     NewDrawing,
     ExportDrawingSheet,
     SheetInView,
+    DrawingDimension,
+    DrawingNote,
     FitView,
     ZoomToBox,
     PreviousView,
@@ -958,6 +960,8 @@ plain_commands! {
     NewDrawing,
     ExportDrawingSheet,
     SheetInView,
+    DrawingDimension,
+    DrawingNote,
     FinishSketch,
     CancelSketch,
     ReverseArc,
@@ -1297,6 +1301,8 @@ impl Command {
             Self::NewDrawing => "model.new_drawing",
             Self::ExportDrawingSheet => "file.export_drawing_sheet",
             Self::SheetInView => "view.drawing_sheet",
+            Self::DrawingDimension => "model.drawing_dimension",
+            Self::DrawingNote => "model.drawing_note",
             Self::FitView => "view.fit",
             Self::ZoomToBox => "view.zoom_box",
             Self::PreviousView => "view.previous",
@@ -1648,6 +1654,8 @@ impl Command {
             Self::NewDrawing => "New drawing",
             Self::ExportDrawingSheet => "Export drawing sheet…",
             Self::SheetInView => "Drawing sheet in the view",
+            Self::DrawingDimension => "Dimension the drawing",
+            Self::DrawingNote => "Add a note to the drawing",
             Self::FitView => "Fit view",
             Self::ZoomToBox => "Zoom to box",
             Self::PreviousView => "Go back to the previous view",
@@ -2031,6 +2039,26 @@ impl Command {
             Self::ExportDrawingSheet => {
                 &["pdf", "svg", "dxf", "print", "technical drawing", "sheet"]
             }
+            Self::DrawingDimension => &[
+                "technical drawing",
+                "sheet",
+                "measure",
+                "length",
+                "distance",
+                "radius",
+                "diameter",
+                "angle",
+                "annotate",
+            ],
+            Self::DrawingNote => &[
+                "technical drawing",
+                "sheet",
+                "text",
+                "label",
+                "leader",
+                "callout",
+                "annotate",
+            ],
             Self::SheetInView => &[
                 "technical drawing",
                 "sheet",
@@ -2305,6 +2333,8 @@ impl Command {
             | Self::Configurations
             | Self::Drawings
             | Self::NewDrawing
+            | Self::DrawingDimension
+            | Self::DrawingNote
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
@@ -2596,6 +2626,8 @@ impl Command {
             | Self::Configurations
             | Self::Drawings
             | Self::NewDrawing
+            | Self::DrawingDimension
+            | Self::DrawingNote
             | Self::ModelProperties
             | Self::ExportSketch
             | Self::ExportFace

@@ -1255,7 +1255,7 @@ fn detail_views_stand_in_the_side_column_labelled_with_their_scale_and_circled_o
         .iter()
         .filter_map(|mark| match mark {
             SheetMark::Circle { center, radius } => Some((*center, *radius)),
-            SheetMark::Line(..) => None,
+            SheetMark::Line(..) | SheetMark::Arc { .. } => None,
         })
         .collect();
     let contents: Vec<&str> = layout
@@ -1528,7 +1528,7 @@ fn a_moved_detail_carries_its_label_and_circle_and_leaves_the_one_on_its_parent(
             .iter()
             .filter_map(|mark| match mark {
                 SheetMark::Circle { center, .. } => Some(*center),
-                SheetMark::Line(..) => None,
+                SheetMark::Line(..) | SheetMark::Arc { .. } => None,
             })
             .collect()
     };
