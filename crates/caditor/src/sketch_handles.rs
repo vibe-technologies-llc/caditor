@@ -797,22 +797,22 @@ fn selection_targets(
     Some((moved, pivot))
 }
 
-fn plane_hit(plane: &Plane, ray: Ray) -> Option<Point2> {
+pub(crate) fn plane_hit(plane: &Plane, ray: Ray) -> Option<Point2> {
     let distance = ray.intersect_plane(plane)?;
     let point = plane.to_local(ray.at(distance));
     point.is_finite().then_some(point)
 }
 
-fn degrees_of(offset: Vector2) -> Option<f64> {
+pub(crate) fn degrees_of(offset: Vector2) -> Option<f64> {
     (offset.length() > SMALLEST_RADIUS).then(|| offset.y.atan2(offset.x).to_degrees())
 }
 
-fn wrapped(degrees: f64) -> f64 {
+pub(crate) fn wrapped(degrees: f64) -> f64 {
     let turned = (degrees + HALF_TURN_DEGREES).rem_euclid(FULL_TURN_DEGREES);
     turned - HALF_TURN_DEGREES
 }
 
-fn step_value(value: f64, step: f64, free: bool) -> f64 {
+pub(crate) fn step_value(value: f64, step: f64, free: bool) -> f64 {
     if free || !(step.is_finite() && step > 0.0) {
         value
     } else {

@@ -11,6 +11,7 @@ paths:
   - "crates/caditor/src/mirroring.rs"
   - "crates/caditor/src/patterning.rs"
   - "crates/caditor/src/sketch_pattern_panel.rs"
+  - "crates/caditor/src/sketch_pattern_arrows.rs"
   - "crates/caditor/src/filleting.rs"
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
@@ -539,6 +540,30 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   length unit (`PatternSettings::add_direction`). Every toggle is a Tab stop, so leaving out works
   from the keyboard; the row counts what is left out and offers Bring the copies back, and the
   label counts only the copies made.
+- Pattern arrows (`sketch_pattern_arrows.rs`, `PatternArrows`, drawn in `Overlay::pattern_arrows`
+  at the body value arrows' size and colours, `move_manipulator::Arrow`) stand on the sketch plane
+  while either pattern previews (`Patterning::previewed`) and no line is being chosen: one per
+  rectangular direction with a count of two or more (`PatternGrip::Distance`), from the middle of the
+  repeated items' extent (`sketch_drag::extent_centre`) to that direction's last copy along
+  `Sketch::heading_direction` (flipped by `reversed` and a negative distance), the foot moving
+  `count - 1` times the spacing or once the extent; and for a circular pattern spread over an angle or
+  symmetrically one turn arrow (`PatternGrip::Angle`) on the last copy (the positive side's) about
+  the centre. A press on one starts `PrimaryDrag::PatternArrow` ahead of gathering
+  (`PatternArrowDrag`, a line or the angle about the centre unwrapped past half a turn, in
+  `step_for` steps or `turn_handles::STEP_DEGREES`, Ctrl free, the readout beside the pointer); each
+  move writes the value as text into `PatternSettings` (`PatternArrowDrag::write`, the model's
+  units), exactly as typing in the panel does, so the preview follows and nothing reaches the
+  document until Make the copies, its one undoable transaction. A one-sided direction dragged back
+  past the original flips its Flip instead of going below one step, a both-sided one and an angle
+  each way stop at one step, a total angle stays within a turn either way (passing zero jumps to
+  the other side). Escape mid-drag restores the text and flip (`PatternArrowDrag::cancel`). A value
+  using a parameter is driven (`sketch_pattern_arrows::driven`): it does not drag and its hover names
+  the parameter; otherwise the hover says what a drag changes. While hovered or dragged the arrow
+  takes the hovered colour and the tool aims at no copy. Beside each arrow's tip (away from it on
+  screen) a popup holds that grip's Count and distance or angle as captioned `live_value_field`s
+  (`sketch_pattern_arrows::field_id`, the panel's texts, problems and hover words), kept while one
+  has the focus even if the arrow goes (a count typed below two); a click on an arrow focuses its
+  distance field (`field::ask_focus`). The arrows go with the tool.
 - Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's arrow menu) takes the
   lines, circles and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two
   selected at start, then each one clicked or highlighted and chosen with Space or Enter (axes

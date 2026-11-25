@@ -240,6 +240,10 @@ impl Tool {
         self.trims() || self.reshapes()
     }
 
+    pub fn patterns(self) -> bool {
+        matches!(self, Self::RectangularPattern | Self::CircularPattern)
+    }
+
     pub fn trims(self) -> bool {
         matches!(self, Self::Trim | Self::Extend)
     }

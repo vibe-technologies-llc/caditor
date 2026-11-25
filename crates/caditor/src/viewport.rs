@@ -44,7 +44,7 @@ use crate::{
     editing::{self, EditingCommand, SketchEditing, Tool},
     emboss_tools,
     faceting::FacetLevel,
-    feature_tree, first_pick,
+    feature_tree, field, first_pick,
     gearing::GearSettings,
     handle_snap::{self, Guide, Snap},
     hole_placement, hole_tools, icons,
@@ -87,6 +87,7 @@ use crate::{
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
     sketch_handles::{self, SketchGrip, SketchHandleDrag, SketchHandleTypingError, SketchHandles},
+    sketch_pattern_arrows::{self, PatternArrowDrag, PatternArrows, PatternGrip},
     sketch_placement::{DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Accept, Hold, Pointer, Screen, Target},
@@ -365,6 +366,7 @@ enum PrimaryDrag {
     },
     Manipulate(Manipulating),
     SketchHandle(SketchHandleDrag),
+    PatternArrow(PatternArrowDrag),
     Unmovable {
         feature: FeatureId,
         held: Unmovable,
@@ -521,6 +523,8 @@ pub struct ViewportState {
     sketch_handle_hover: Option<SketchGrip>,
     typed_sketch_grip: Option<SketchGrip>,
     last_sketch_tool: Option<(FeatureId, Tool)>,
+    pattern_arrows: Option<PatternArrows>,
+    pattern_arrow_hover: Option<PatternGrip>,
     dimensioning: Option<FeatureId>,
     dimension_of_selection: Option<FeatureId>,
     body_snaps: Arc<BodySnaps>,
@@ -999,6 +1003,8 @@ impl ViewportState {
             sketch_handle_hover: None,
             typed_sketch_grip: None,
             last_sketch_tool: None,
+            pattern_arrows: None,
+            pattern_arrow_hover: None,
             dimensioning: None,
             dimension_of_selection: None,
             body_snaps: Arc::default(),
@@ -1548,6 +1554,8 @@ impl ViewportState {
         self.sketch_handle_hover = None;
         self.typed_sketch_grip = None;
         self.last_sketch_tool = None;
+        self.pattern_arrows = None;
+        self.pattern_arrow_hover = None;
         self.press = None;
         self.primary = None;
     }
@@ -1818,6 +1826,7 @@ impl ViewportState {
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.track_sketch_handles(model, editing);
+            self.track_pattern_arrows(ui.ctx(), model, editing);
             self.dimension_selection(model, actions);
             self.type_points(ui, rect, model, editing, keys_free, actions);
             self.navigate(ui, &response, rect);
@@ -1835,6 +1844,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
+            self.pattern_fields(ui, rect, model);
             self.annotation_context_click(model, editing);
             self.decorate(ui, rect, model, editing, &key_hints);
         });
@@ -2129,6 +2139,10 @@ impl ViewportState {
                 .sketch_handles
                 .as_ref()
                 .map(|handles| handles.drawn(self.sketch_handle_hover)),
+            pattern_arrows: self
+                .pattern_arrows
+                .as_ref()
+                .map(|arrows| arrows.drawn(self.pattern_arrow_hover)),
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.can_highlight(highlight)
@@ -2483,6 +2497,26 @@ impl ViewportState {
     #[cfg(test)]
     pub fn has_sketch_handles(&self) -> bool {
         self.sketch_handles.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn pattern_arrow_position(&self, grip: PatternGrip, along: f64) -> Option<egui::Pos2> {
+        let world = self.pattern_arrows.as_ref()?.grip(grip, along)?;
+        let pixel = self.view()?.project(world)? / f64::from(self.pixels_per_point);
+        Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn pattern_arrow_foot(&self, grip: PatternGrip) -> Option<Point2> {
+        self.pattern_arrows.as_ref()?.foot(grip)
+    }
+
+    #[cfg(test)]
+    pub fn pattern_arrow_grips(&self) -> Vec<PatternGrip> {
+        self.pattern_arrows
+            .as_ref()
+            .map(|arrows| arrows.grips().collect())
+            .unwrap_or_default()
     }
 
     #[cfg(test)]
@@ -2933,6 +2967,21 @@ impl ViewportState {
                     actions.push(Action::Drag(command));
                 }
             }
+            Some(PrimaryDrag::PatternArrow(drag))
+                if editing.active().is_none_or(|active| {
+                    active.feature != drag.feature || !active.tool.patterns()
+                }) =>
+            {
+                self.primary = None;
+            }
+            Some(PrimaryDrag::PatternArrow(drag)) => {
+                if let Some(ray) = ray
+                    && drag.follow(ray, free)
+                    && let Some((settings, _)) = self.modifying.pattern_parts()
+                {
+                    drag.write(settings, model.units());
+                }
+            }
             Some(PrimaryDrag::Grab(grab)) if Some(grab.feature()) != edited => {
                 self.primary = None;
                 actions.push(Action::Drag(DragCommand::Cancel));
@@ -3023,6 +3072,7 @@ impl ViewportState {
                 Some(
                     PrimaryDrag::Grab(_)
                     | PrimaryDrag::SketchHandle(_)
+                    | PrimaryDrag::PatternArrow(_)
                     | PrimaryDrag::Paint(_)
                     | PrimaryDrag::Unmovable { .. },
                 )
@@ -3200,6 +3250,85 @@ impl ViewportState {
                 .zip(self.cursor)
                 .and_then(|((handles, view), cursor)| handles.hit(&view, cursor, pixels_per_point)),
         };
+    }
+
+    fn track_pattern_arrows(
+        &mut self,
+        ctx: &egui::Context,
+        model: &Model,
+        editing: &SketchEditing,
+    ) {
+        let pixels_per_point = f64::from(self.pixels_per_point);
+        let patterning = editing
+            .active()
+            .filter(|active| active.tool.patterns())
+            .map(|active| active.feature);
+        let built = patterning
+            .zip(self.modifying.pattern_view())
+            .zip(self.view())
+            .and_then(|((feature, (settings, patterning)), view)| {
+                let owner = model.document().feature(feature)?;
+                let sketch = model.displayed_sketch(owner)?;
+                let context = sketch_pattern_arrows::Context {
+                    feature,
+                    sketch: &sketch,
+                    settings,
+                    patterning,
+                };
+                PatternArrows::of(&context, &view, pixels_per_point)
+            });
+        let typing = self
+            .modifying
+            .pattern_view()
+            .is_some_and(|(settings, _)| sketch_pattern_arrows::field_open(ctx, settings));
+
+        self.pattern_arrows = match (built, self.pattern_arrows.take()) {
+            (Some(built), _) => Some(built),
+            (None, Some(kept)) if typing && Some(kept.feature) == patterning => Some(kept),
+            (None, _) => None,
+        };
+        self.pattern_arrow_hover = match &self.primary {
+            Some(PrimaryDrag::PatternArrow(drag)) => Some(drag.grip),
+            Some(_) => None,
+            None => self
+                .pattern_arrows
+                .as_ref()
+                .zip(self.view())
+                .zip(self.cursor)
+                .and_then(|((arrows, view), cursor)| arrows.hit(&view, cursor, pixels_per_point)),
+        };
+    }
+
+    fn pattern_arrow_from(&self, press: Press, model: &Model) -> Option<PatternArrowDrag> {
+        let view = self.view()?;
+        let arrows = self.pattern_arrows.as_ref()?;
+
+        let grip = arrows.hit(&view, press.cursor, f64::from(self.pixels_per_point))?;
+        let ray = view.ray_through(press.cursor)?;
+        let (settings, _) = self.modifying.pattern_view()?;
+
+        if sketch_pattern_arrows::driven(model, settings, grip).is_some() {
+            return None;
+        }
+        PatternArrowDrag::begin(arrows, settings, grip, ray)
+    }
+
+    fn pattern_fields(&mut self, ui: &egui::Ui, rect: Rect, model: &Model) {
+        let (Some(arrows), Some(view)) = (self.pattern_arrows.as_ref(), self.view()) else {
+            return;
+        };
+        let Some((settings, patterning)) = self.modifying.pattern_parts() else {
+            return;
+        };
+
+        let evaluation = settings.evaluate(model, patterning.kind(), patterning.directions());
+
+        sketch_pattern_arrows::show_fields(
+            ui,
+            (rect, self.pixels_per_point),
+            (&view, arrows),
+            (settings, &evaluation.problems),
+        );
     }
 
     fn sketch_handle_from(
@@ -3429,6 +3558,9 @@ impl ViewportState {
         }
         if let Some(drag) = self.sketch_handle_from(press, model, editing) {
             return Some(PrimaryDrag::SketchHandle(drag));
+        }
+        if let Some(drag) = self.pattern_arrow_from(press, model) {
+            return Some(PrimaryDrag::PatternArrow(drag));
         }
 
         let active = editing.active().filter(|active| !active.tool.draws())?;
@@ -3765,9 +3897,13 @@ impl ViewportState {
         );
 
         let scale = f64::from(self.pixels_per_point);
+        let on_arrow = self.pattern_arrow_hover.is_some()
+            || matches!(self.primary, Some(PrimaryDrag::PatternArrow(_)));
+
         let pointer = self
             .cursor
             .zip(self.sketch_cursor)
+            .filter(|_| !on_arrow)
             .map(|(cursor, sketch)| Pointer {
                 screen: cursor / scale,
                 sketch,
@@ -3882,6 +4018,12 @@ impl ViewportState {
             if click.primary {
                 self.typed_sketch_grip = Some(grip);
                 self.typed_point.open();
+            }
+            return;
+        }
+        if let Some(grip) = self.pattern_arrow_hover {
+            if click.primary {
+                field::ask_focus(ui.ctx(), sketch_pattern_arrows::field_id(grip.field()));
             }
             return;
         }
@@ -4917,6 +5059,7 @@ impl ViewportState {
             || self.primary.is_some()
             || self.manipulator_hover.is_some()
             || self.sketch_handle_hover.is_some()
+            || self.pattern_arrow_hover.is_some()
             || tool_takes_presses
             || self.list_availability().is_err()
         {
@@ -6621,6 +6764,11 @@ impl ViewportState {
                 PrimaryDrag::Grab(_) | PrimaryDrag::SketchHandle(_) => {
                     actions.push(Action::Drag(DragCommand::Cancel));
                 }
+                PrimaryDrag::PatternArrow(drag) => {
+                    if let Some((settings, _)) = self.modifying.pattern_parts() {
+                        drag.cancel(settings);
+                    }
+                }
                 PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
                 PrimaryDrag::Manipulate(manipulating) => actions.push(Action::Preview {
                     feature: manipulating.feature,
@@ -7297,6 +7445,7 @@ impl ViewportState {
                 Some(manipulating.readout(model.units()))
             }
             Some(PrimaryDrag::SketchHandle(drag)) => Some(drag.readout(model.units())),
+            Some(PrimaryDrag::PatternArrow(drag)) => Some(drag.readout(model.units())),
             _ => None,
         };
 
@@ -7380,6 +7529,14 @@ impl ViewportState {
         }
         if let Some(grip) = self.sketch_handle_hover.filter(|_| self.primary.is_none()) {
             return Some(Described::Tool(grip.words().to_owned()));
+        }
+        if let Some(grip) = self.pattern_arrow_hover.filter(|_| self.primary.is_none())
+            && let Some((settings, _)) = self.modifying.pattern_view()
+        {
+            return Some(Described::Tool(
+                sketch_pattern_arrows::driven(model, settings, grip)
+                    .unwrap_or_else(|| grip.words(settings)),
+            ));
         }
 
         let tool = if let Some(active) = projecting {

@@ -262,7 +262,7 @@ impl Wording {
         }
     }
 
-    fn noun(self, field: PatternField) -> String {
+    pub fn noun(self, field: PatternField) -> String {
         let of = field.direction().map(Direction::of).unwrap_or_default();
         format!("{}{of}", self.caption(field).to_lowercase())
     }
@@ -481,6 +481,25 @@ impl PatternSettings {
 
     pub fn set_turn(&mut self, turn: TurnKind) {
         self.turn = turn;
+    }
+
+    pub fn text(&self, field: PatternField) -> Option<&str> {
+        match field {
+            PatternField::Copies => Some(&self.copies),
+            PatternField::TotalAngle => Some(&self.total_angle),
+            PatternField::Count(direction) => self
+                .directions
+                .get(direction.index())
+                .map(|kept| kept.count.as_str()),
+            PatternField::Spacing(direction) => self
+                .directions
+                .get(direction.index())
+                .map(|kept| kept.spacing.as_str()),
+            PatternField::Angle(direction) => self
+                .directions
+                .get(direction.index())
+                .map(|kept| kept.angle.as_str()),
+        }
     }
 
     pub fn text_mut(&mut self, field: PatternField) -> Option<&mut String> {
@@ -938,6 +957,14 @@ impl Patterning {
 
     pub fn kind(&self) -> PatternKind {
         self.kind
+    }
+
+    pub fn selected(&self) -> &[EntityId] {
+        &self.selected
+    }
+
+    pub fn previewed(&self) -> bool {
+        matches!(self.image, Some(Ok(_)))
     }
 
     pub fn set_spec(&mut self, spec: Option<&Spec>) {

@@ -624,7 +624,7 @@ impl Sketch {
         })
     }
 
-    fn heading_direction(&self, heading: &Heading) -> Result<Vector2, PatternError> {
+    pub fn heading_direction(&self, heading: &Heading) -> Result<Vector2, PatternError> {
         let (line, square) = match heading {
             Heading::Angle(angle) => {
                 if !angle.value.is_finite() {

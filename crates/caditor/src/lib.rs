@@ -219,6 +219,7 @@ mod shortcut_editor;
 mod similar;
 mod sketch_drag;
 mod sketch_handles;
+mod sketch_pattern_arrows;
 mod sketch_pattern_panel;
 mod sketch_pattern_tools;
 mod sketch_placement;

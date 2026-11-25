@@ -109,11 +109,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   level with a face, or other bodies' faces in the plane, do not cut it (it would make every such
   sketch depend on every body before it). A spline or other curved edge cuts as a spline through
   sampled points, so the sides of a piece swept from it are near, not on, the body's face.
-- [medium · medium] The sketch patterns' panel (`sketch_pattern_panel.rs`) takes every value as
-  text, a direction from a line, sides, flips and extent, and leaves out copies clicked in the
-  preview, but there are no arrows on the canvas dragging the distance of each direction with
-  small count and distance fields beside them, as the body pattern's handles do
-  (`curve_pattern_handles`).
 - [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs, pulled by the
   held snap and picked by Select and Smart dimension, from the pointer or the highlight keys, but
   they are not acquired for tracks and never crossed by a direction or track, since they are not in

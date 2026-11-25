@@ -48,6 +48,21 @@ once the geometry is chosen (press Enter if you selected it in the tool), click 
   copy on each side.
 - **Count**, how many, the original included; on each side when the spread is symmetric.
 
+## Arrows in the view
+
+While the copies are previewed, each direction of a rectangular pattern has an arrow on its last
+copy, pointing the way the copies run; a circular pattern spread over an **Angle** or
+**Symmetric**ally has one on its last copy, pointing the way it turns. Drag an arrow to change
+that direction's spacing (or extent) or the total angle: it moves in steps (hold Ctrl to drag
+freely), the copies follow as you drag and the value is shown beside the pointer. Dragging a
+one-sided arrow back past the original flips that direction. Escape during a drag puts the value
+back. Nothing changes in the sketch until you make the copies, which you undo in one step.
+
+Beside each arrow are small **Count** and distance (or angle) fields, the same values as the
+panel's, taking units and expressions alike; clicking an arrow puts the cursor in its distance
+field. A value that follows a parameter is not dragged: pointing at its arrow says which
+parameter to change.
+
 ## Leaving out copies
 
 Either pattern can skip single copies while it is set up. Point at a previewed copy: it is drawn

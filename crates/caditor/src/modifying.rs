@@ -287,6 +287,20 @@ impl Modifying {
         &mut self.text
     }
 
+    pub fn pattern_view(&self) -> Option<(&PatternSettings, &Patterning)> {
+        match &self.state {
+            State::Pattern(patterning) => Some((&self.pattern, patterning)),
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => None,
+        }
+    }
+
     pub fn pattern_parts(&mut self) -> Option<(&mut PatternSettings, &mut Patterning)> {
         match &mut self.state {
             State::Pattern(patterning) => Some((&mut self.pattern, patterning)),

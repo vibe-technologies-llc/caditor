@@ -532,7 +532,8 @@ relative to the extent.
   every combination of steps a copy (`RectangularPattern::copies`). The distance is the step (`Distribution::Spacing`)
   or the reach from the original to the last copy (`Extent`, the step `distance / (count - 1)`
   as an expression). A heading is an angle from the x axis or `Along` a line or axis (`square`
-  for square to it), its direction read from the line as drawn; the app and the MCP server default the
+  for square to it), its direction read from the line as drawn (`Sketch::heading_direction`, the unit
+  vector the app's pattern arrows stand along); the app and the MCP server default the
   second to square to the first. `Sides::Both` puts `count - 1` copies on each side of the original, each
   tied toward it. `circular_pattern` turns about an existing point, the origin included
   (`CircularPattern`: count including the original, over a full turn, a total angle, or
