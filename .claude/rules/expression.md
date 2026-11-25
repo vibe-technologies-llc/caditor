@@ -62,7 +62,9 @@ paths:
   whole expression is plain, else the power of what it is added to, compared with or paired with
   in a same-kind function (`atan2` among them); a plain product or quotient carries it on its
   plain operand, and a plain value that cannot carry it (a parameter, a function) is multiplied
-  by the factor. An exponent is read at power 0, so the lengths inside it scale and its value
+  by the factor. A unit applied to an expression, `(…) m`, multiplies it by the factor to the
+  unit's power, and by the power it is read at besides when the unit leaves it plain
+  (`(1 / 5 m) m`). An exponent is read at power 0, so the lengths inside it scale and its value
   stays. The caller checks the result and falls back when it does not agree (`document.md`); the
   `expression` fuzz target holds it to the factor wherever no comparison or stepless rounding
   could tell the scaled values apart (`ci.md`).

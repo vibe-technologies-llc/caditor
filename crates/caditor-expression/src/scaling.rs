@@ -109,7 +109,10 @@ where
             Expression::Constant(_) | Expression::Parameter(_) => self.wrapped(node, context),
             Expression::Negate(inner) => Expression::Negate(Box::new(self.node(inner, context))),
             Expression::WithUnit(inner, unit, exponent) => {
-                let power = unit.dimension().length_power().saturating_mul(*exponent);
+                let unit_power = unit.dimension().length_power().saturating_mul(*exponent);
+                let read_at = if self.is_plain(node) { context } else { 0 };
+
+                let power = unit_power.saturating_add(read_at);
                 let scaled = match **inner {
                     Expression::Number(value) => Expression::Number(value * self.times(power)),
                     _ if power == 0 => self.node(inner, 0),
@@ -320,6 +323,15 @@ mod tests {
         assert_eq!(scaled("atan2(3 m, 4)", 0), "atan2(6 m, 8)");
         assert_eq!(scaled("atan2($0, $1)", 0), "atan2($0, $1 * 2)");
         assert_eq!(scaled("atan2(3, 4)", 1), "atan2(6, 8)");
+    }
+
+    #[test]
+    fn a_unit_making_its_operand_plain_scales_it_by_the_power_it_is_read_at() {
+        assert_eq!(scaled("(1 / 5 m) m + $0", 1), "(1 / 10 m * 4) m + $0");
+        assert_eq!(scaled("(1 / 5 m) m", 1), "(1 / 10 m * 4) m");
+        assert_eq!(scaled("(1 / 5 m) m", 0), "(1 / 10 m * 2) m");
+        assert_eq!(scaled("(3 / 1 deg) deg", 1), "(3 / 1 deg * 2) deg");
+        assert_eq!(scaled("(3 / 1 deg) deg", 0), "(3 / 1 deg) deg");
     }
 
     #[test]
