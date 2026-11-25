@@ -1,18 +1,22 @@
 use caditor_document::{
     DetailParent, DetailScale, DrawnView, MAX_DRAWINGS, Projection, ResolvedPlace, ScaleRatio,
-    SectionPlace, SectionPlane, StandardView,
+    SectionPlace, SectionPlane, SheetPlan, StandardView,
 };
 use caditor_expression::Expression;
-use egui::{Key, Modifiers};
+use caditor_geometry::{Point2, Vector2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, vec2};
 use tempfile::TempDir;
 
-use super::{Harness, extruded_plate, run_from_palette};
+use super::{Harness, drag_screen, extruded_plate, run_from_palette};
 use crate::{
+    commands::Command,
     drawings_panel::{
-        ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NEW, NO_DETAILS, NO_SECTIONS,
-        NONE_YET, RENAME, WORKING, ZOOM_IN, detail_field_id, offset_field_id,
+        ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, LAID_OUT, LEAVE_SHEET_VIEW,
+        NEW, NO_DETAILS, NO_SECTIONS, NONE_YET, RENAME, SHEET_IN_VIEW_NOTE, SHEET_TO_PANEL,
+        SHEET_TO_VIEW, WORKING, detail_field_id, offset_field_id,
     },
     model::Action,
+    sheet_canvas::{MOVE_DOWN, MOVE_LEFT, RESET_POSITION, ZOOM_IN},
 };
 
 fn wait_for_views(harness: &mut Harness) {
@@ -503,4 +507,353 @@ fn renaming_selects_the_name_keeps_a_refused_one_and_the_sheet_reads_its_zoom() 
 
     assert_eq!(harness.document().drawings().drawings.len(), MAX_DRAWINGS);
     assert_eq!(harness.button_enabled(NEW), Some(false));
+}
+
+fn drawn_plate_in_view() -> Harness {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    wait_for_views(&mut harness);
+    run_from_palette(&mut harness, Command::SheetInView.title().as_str());
+    harness.frame();
+    harness.frame();
+    harness
+}
+
+fn plan(harness: &Harness) -> SheetPlan {
+    harness
+        .workspace
+        .drawings
+        .plan(&harness.model)
+        .expect("a drawing is shown")
+}
+
+fn centre_of(harness: &Harness, view: DrawnView) -> Point2 {
+    plan(harness).placed(view).unwrap().extent.center()
+}
+
+fn on_screen(harness: &Harness, point: Point2) -> Pos2 {
+    harness
+        .workspace
+        .drawings
+        .canvas()
+        .screen_of(point)
+        .expect("the sheet has been drawn")
+}
+
+fn screen_centre(harness: &Harness, view: DrawnView) -> Pos2 {
+    on_screen(harness, centre_of(harness, view))
+}
+
+fn drag_by(harness: &mut Harness, from: Pos2, by: egui::Vec2) {
+    drag_screen(harness, from, from + by);
+    harness.frame();
+}
+
+fn positions(harness: &Harness) -> Vec<DrawnView> {
+    harness.document().drawings().drawings[0]
+        .positions
+        .keys()
+        .copied()
+        .collect()
+}
+
+fn near(left: Vector2, right: Vector2, within: f64) -> bool {
+    (left - right).length() <= within
+}
+
+fn scroll_to_the_preview(harness: &mut Harness) {
+    let over_the_panel = harness.position_of(NO_SECTIONS);
+
+    harness.events.push(Event::PointerMoved(over_the_panel));
+    harness.frame();
+    for _ in 0..40 {
+        harness.events.push(Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -100.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+        harness.frame();
+    }
+    harness.settle();
+}
+
+fn press_with(harness: &mut Harness, at: Pos2, button: PointerButton) {
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        harness.frame();
+    }
+    harness.frame();
+}
+
+#[test]
+fn the_sheet_is_shown_across_the_view_and_escape_or_its_buttons_bring_the_model_back() {
+    let mut harness = drawn_plate_in_view();
+
+    let area = harness.workspace.viewport.rect().unwrap();
+    let in_view = plan(&harness);
+    let front = DrawnView::Standard(StandardView::Front);
+    let sheet_corner = on_screen(&harness, Point2::new(in_view.width, in_view.height));
+
+    assert!(harness.workspace.drawings.sheet_in_view());
+    assert!(harness.shows(LEAVE_SHEET_VIEW));
+    assert!(harness.shows(SHEET_IN_VIEW_NOTE));
+    assert!(area.contains(screen_centre(&harness, front)));
+    assert!(sheet_corner.x - on_screen(&harness, Point2::ZERO).x > area.width() * 0.5);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert!(!harness.workspace.drawings.sheet_in_view());
+    assert!(harness.workspace.drawings.open);
+
+    scroll_to_the_preview(&mut harness);
+
+    assert!(harness.shows(SHEET_TO_VIEW));
+
+    harness.click_button(SHEET_TO_VIEW);
+    harness.frame();
+
+    assert!(harness.workspace.drawings.sheet_in_view());
+
+    harness.click_button(SHEET_TO_PANEL);
+    harness.frame();
+
+    assert!(!harness.workspace.drawings.sheet_in_view());
+
+    run_from_palette(&mut harness, Command::SheetInView.title().as_str());
+    harness.frame();
+    harness.click_button(LEAVE_SHEET_VIEW);
+    harness.frame();
+
+    assert!(!harness.workspace.drawings.sheet_in_view());
+}
+
+#[test]
+fn a_view_dragged_on_the_sheet_moves_undoably_and_a_projected_one_only_along_its_line() {
+    let mut harness = drawn_plate_in_view();
+
+    let isometric = DrawnView::Standard(StandardView::Isometric);
+    let front = DrawnView::Standard(StandardView::Front);
+    let top = DrawnView::Standard(StandardView::Top);
+    let before = plan(&harness);
+    let placed = |plan: &SheetPlan, view| *plan.placed(view).unwrap();
+
+    assert!(harness.shows(LAID_OUT));
+
+    let from = screen_centre(&harness, isometric);
+
+    drag_by(&mut harness, from, vec2(-60.0, 40.0));
+
+    let moved = plan(&harness);
+    let shift = placed(&moved, isometric).origin - placed(&before, isometric).origin;
+
+    assert_eq!(positions(&harness), [isometric]);
+    assert!(shift.x < -1.0 && shift.y < -1.0, "{shift:?}");
+    assert_eq!(placed(&moved, front), placed(&before, front));
+    assert!(harness.shows("Isometric view, placed by hand"));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+
+    assert!(positions(&harness).is_empty());
+
+    let from = screen_centre(&harness, top);
+
+    drag_by(&mut harness, from, vec2(50.0, 30.0));
+
+    let dropped = plan(&harness);
+    let top_shift = placed(&dropped, top).origin - placed(&before, top).origin;
+
+    assert_eq!(positions(&harness), [top]);
+    assert!(near(Vector2::new(top_shift.x, 0.0), Vector2::ZERO, 1e-9));
+    assert!(top_shift.y < -1.0);
+    assert!((placed(&dropped, front).origin.x - placed(&dropped, top).origin.x).abs() < 1e-9);
+
+    let from = screen_centre(&harness, front);
+
+    drag_by(&mut harness, from, vec2(30.0, 0.0));
+
+    let carried = plan(&harness);
+    let front_shift = placed(&carried, front).origin - placed(&dropped, front).origin;
+    let top_followed = placed(&carried, top).origin - placed(&dropped, top).origin;
+
+    assert!(front_shift.x > 1.0);
+    assert!(near(top_followed, front_shift, 1e-6));
+
+    harness.click_button("Reset the position of front view");
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(positions(&harness), [top]);
+    assert_eq!(placed(&plan(&harness), front), placed(&before, front));
+}
+
+#[test]
+fn a_picked_view_is_nudged_by_the_arrow_keys_and_reset_from_its_menu() {
+    let mut harness = drawn_plate_in_view();
+
+    let isometric = DrawnView::Standard(StandardView::Isometric);
+    let before = centre_of(&harness, isometric);
+    let at = screen_centre(&harness, isometric);
+
+    press_with(&mut harness, at, PointerButton::Primary);
+
+    assert_eq!(
+        harness.workspace.drawings.canvas().picked(),
+        Some(isometric)
+    );
+
+    harness.key(Key::ArrowRight, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::ArrowUp, Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+
+    let nudged = centre_of(&harness, isometric) - before;
+
+    assert!(
+        near(nudged, Vector2::new(1.0, 10.0), 1e-6),
+        "{nudged:?} {:?}",
+        positions(&harness)
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert_eq!(harness.workspace.drawings.canvas().picked(), None);
+    assert!(harness.workspace.drawings.sheet_in_view());
+
+    harness.key(Key::ArrowRight, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(near(
+        centre_of(&harness, isometric) - before,
+        Vector2::new(1.0, 10.0),
+        1e-6
+    ));
+
+    harness.read_screen();
+
+    assert_eq!(harness.button_enabled(MOVE_LEFT), Some(false));
+
+    let top = DrawnView::Standard(StandardView::Top);
+    let top_before = centre_of(&harness, top);
+    let at = screen_centre(&harness, top);
+
+    press_with(&mut harness, at, PointerButton::Primary);
+    harness.read_screen();
+
+    assert_eq!(harness.button_enabled(MOVE_LEFT), Some(false));
+    assert_eq!(harness.button_enabled(MOVE_DOWN), Some(true));
+
+    harness.click_button(MOVE_DOWN);
+    harness.frame();
+    harness.frame();
+
+    assert!(near(
+        centre_of(&harness, top) - top_before,
+        Vector2::new(0.0, -10.0),
+        1e-6
+    ));
+
+    let at = screen_centre(&harness, isometric);
+
+    press_with(&mut harness, at, PointerButton::Secondary);
+    harness.read_screen();
+    harness.click_button(RESET_POSITION);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(positions(&harness), [top]);
+    assert!(near(
+        centre_of(&harness, isometric) - before,
+        Vector2::ZERO,
+        1e-9
+    ));
+}
+
+#[test]
+fn a_detail_circle_is_dragged_and_its_rim_resized_undoably_on_the_sheet() {
+    let mut harness = drawn_plate_in_view();
+
+    harness.click(ADD_DETAIL);
+    harness.frame();
+    wait_for_views(&mut harness);
+    harness.frame();
+
+    let detail = |harness: &Harness| harness.document().drawings().drawings[0].details[0];
+    let start = detail(&harness);
+    let parent = *plan(&harness).placed(start.parent.drawn()).unwrap();
+
+    let centre = parent.on_sheet(start.centre);
+    let rim = parent.on_sheet(start.centre + Vector2::new(start.radius, 0.0));
+
+    let inside = on_screen(&harness, centre);
+
+    drag_by(&mut harness, inside, vec2(20.0, -10.0));
+
+    let moved = detail(&harness);
+
+    assert!(moved.centre.x > start.centre.x && moved.centre.y > start.centre.y);
+    assert_eq!(moved.radius, start.radius);
+    assert!(positions(&harness).is_empty());
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(detail(&harness), start);
+
+    let edge = on_screen(&harness, rim);
+
+    drag_by(&mut harness, edge, vec2(25.0, 0.0));
+
+    let resized = detail(&harness);
+
+    assert!(resized.radius > start.radius);
+    assert_eq!(resized.centre, start.centre);
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+
+    assert_eq!(detail(&harness), start);
+}
+
+#[test]
+fn a_view_is_dragged_in_the_panel_preview_too() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    wait_for_views(&mut harness);
+
+    let isometric = DrawnView::Standard(StandardView::Isometric);
+
+    scroll_to_the_preview(&mut harness);
+
+    let before = centre_of(&harness, isometric);
+    let from = screen_centre(&harness, isometric);
+
+    assert!(harness.workspace.drawings.open);
+    assert!(!harness.workspace.drawings.sheet_in_view());
+
+    drag_by(&mut harness, from, vec2(-20.0, 0.0));
+
+    assert_eq!(positions(&harness), [isometric]);
+    assert!(centre_of(&harness, isometric).x < before.x);
 }

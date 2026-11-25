@@ -3155,3 +3155,79 @@ fn detail_views_are_written_clipped_with_their_circles_and_labels() {
     assert!(pdf.starts_with(b"%PDF-1.4"));
     assert!(read_back.layers.iter().any(|layer| layer == "Hatching"));
 }
+
+#[test]
+fn a_sheet_is_written_with_its_views_where_they_were_placed_by_hand() {
+    let (block, pin) = (block(), pin());
+    let mut drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Placed".to_owned(),
+    );
+    let isometric =
+        caditor_document::DrawnView::Standard(caditor_document::StandardView::Isometric);
+    let front = caditor_document::DrawnView::Standard(caditor_document::StandardView::Front);
+
+    drawing
+        .positions
+        .insert(isometric, Point2::new(-150.0, 80.0));
+    drawing.positions.insert(front, Point2::new(40.0, -30.0));
+
+    let lines = sheet_lines(&drawing, &[&block, &pin]);
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+
+    let plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .filter_map(|placed| {
+            Some(SheetView {
+                placed: *placed,
+                lines: lines.iter().find(|lines| lines.view == placed.view)?,
+            })
+        })
+        .collect();
+
+    let written_view = |view: caditor_document::DrawnView| {
+        let single: Vec<SheetView<'_>> = views
+            .iter()
+            .filter(|sheet_view| sheet_view.placed.view == view)
+            .copied()
+            .collect();
+        let empty = caditor_document::SheetPlan {
+            marks: Vec::new(),
+            texts: Vec::new(),
+            cutting: Vec::new(),
+            ..plan.clone()
+        };
+        super::drawing_sheet::sheet_figure(&empty, &single, true)
+            .0
+            .bounds()
+            .unwrap()
+    };
+    let close = |left: Point2, right: Point2| (left - right).length() < 1e-6;
+
+    let placed_isometric = plan.placed(isometric).unwrap().extent;
+    let placed_front = plan.placed(front).unwrap().extent;
+
+    assert!(close(
+        placed_isometric.center(),
+        plan.view_area.center() + Vector2::new(-150.0, 80.0)
+    ));
+    assert!(close(
+        placed_front.center(),
+        plan.view_area.center() + Vector2::new(40.0, -30.0)
+    ));
+    assert!(close(
+        written_view(isometric).center(),
+        placed_isometric.center()
+    ));
+    assert!(close(written_view(front).center(), placed_front.center()));
+}

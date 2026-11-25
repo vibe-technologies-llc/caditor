@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Point2, Vector3};
@@ -23,6 +23,7 @@ pub const MAX_DETAIL_VIEWS: usize = VIEW_LETTERS.len();
 pub const MIN_DETAIL_RADIUS: f64 = 0.01;
 pub const MAX_DETAIL_EXTENT: f64 = MAX_SIZE;
 pub const MAX_SECTION_OFFSET: f64 = MAX_SIZE;
+pub const MAX_VIEW_PLACE: f64 = 1189.0;
 const NUMBERED_NAME: &str = "Drawing";
 const ENLARGEMENT: f64 = 2.0;
 const RATIO_SLACK: f64 = 1e-9;
@@ -465,6 +466,7 @@ pub struct Drawing {
     pub hidden_lines: bool,
     pub sections: Vec<SectionView>,
     pub details: Vec<DetailView>,
+    pub positions: BTreeMap<DrawnView, Point2>,
 }
 
 impl Drawing {
@@ -488,6 +490,7 @@ impl Drawing {
             hidden_lines: true,
             sections: Vec::new(),
             details: Vec::new(),
+            positions: BTreeMap::new(),
         }
     }
 
@@ -502,6 +505,43 @@ impl Drawing {
                 .map(|section| section.place.heap_size())
                 .sum::<usize>()
             + size_of_val(self.details.as_slice())
+            + self.positions.len() * size_of::<(DrawnView, Point2)>()
+    }
+
+    pub fn has_view(&self, view: DrawnView) -> bool {
+        match view {
+            DrawnView::Standard(standard) => self.views.contains(&standard),
+            DrawnView::Section(letter) => self.section(letter).is_some(),
+            DrawnView::Detail(letter) => self.detail(letter).is_some(),
+        }
+    }
+
+    pub fn position(&self, view: DrawnView) -> Option<Point2> {
+        self.positions.get(&view).copied()
+    }
+
+    #[must_use]
+    fn without_stray_positions(mut self) -> Self {
+        let positions = std::mem::take(&mut self.positions);
+
+        self.positions = positions
+            .into_iter()
+            .filter(|(view, _)| self.has_view(*view))
+            .collect();
+        self
+    }
+
+    fn checked_positions(&self) -> Result<(), EditError> {
+        let usable = |at: &Point2| {
+            at.is_finite() && at.x.abs() <= MAX_VIEW_PLACE && at.y.abs() <= MAX_VIEW_PLACE
+        };
+
+        match self.positions.iter().find(|(_, at)| !usable(at)) {
+            Some((view, _)) => Err(EditError::ViewPlaceOutOfRange {
+                view: view.describe(),
+            }),
+            None => Ok(()),
+        }
     }
 
     pub fn section(&self, letter: char) -> Option<&SectionView> {
@@ -736,9 +776,12 @@ impl Drawings {
             drawings: self
                 .drawings
                 .into_iter()
-                .map(|drawing| Drawing {
-                    name: drawing_name(&drawing.name),
-                    ..drawing
+                .map(|drawing| {
+                    Drawing {
+                        name: drawing_name(&drawing.name),
+                        ..drawing
+                    }
+                    .without_stray_positions()
                 })
                 .collect(),
             next_id: self.next_id,
@@ -800,6 +843,7 @@ impl Drawings {
             drawing.checked_letters()?;
             drawing.checked_sections(document)?;
             drawing.checked_details()?;
+            drawing.checked_positions()?;
         }
         Ok(drawings)
     }

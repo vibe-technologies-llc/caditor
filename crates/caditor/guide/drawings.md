@@ -59,12 +59,13 @@ detail views together.
 - **Enlarges** is the view the circle is on: one of the views the drawing shows, or a section view.
 - **Centre across**, **Centre up** and **Radius** place the circle in the view's own model
   lengths, so it stays on the same part of the model when the sheet scale changes. They take units
-  and parameters like any value; the value is kept as a length.
+  and parameters like any value; the value is kept as a length. The circle can also be dragged on
+  the sheet: drag inside it to move it, or its rim to make it larger or smaller.
 - **Scale** is twice the scale of the sheet by default (the nearest ISO 5455 ratio at least that
   large, for example 2:1 on a sheet at 1:1), or any ISO 5455 ratio.
 
 The circle is drawn on its view as a thin line with the letter beside it. The detail view stands
-in the column right of the other views, under the label **B (2:1)**: the letter and its scale. It
+in the column right of the other views (until it is placed by hand), under the label **B (2:1)**: the letter and its scale. It
 shows the lines of the view inside the circle, clipped exactly to it, and the circle round them;
 the hatching of a section carries on inside it. A detail of a view that is not on the sheet, or
 that could not be drawn, says so in the panel. Deleting a section view also deletes the details of
@@ -74,20 +75,49 @@ The title block takes the title, part number, revision, author and organisation 
 [model properties](templates) (the title falls back to the model's file name), and shows the scale,
 sheet size, projection with its ISO symbol, the units (mm) and the drawing's name.
 
+## Placing views by hand
+
+Each view stands where the drawing lays it out until it is dragged on the sheet, in the panel's
+preview or in the sheet view. Dropping a view places it there, and each drop can be undone.
+
+- The top, right and left views stay lined up with the front view: the top view moves only up and
+  down, the right and left views only across. Dragging the front view carries them with it.
+- The isometric, section and detail views move freely, their labels and circles with them.
+- A view placed by hand keeps its place when the scale changes, growing or shrinking about its
+  middle, and when other views are added or removed. Its place is kept from the middle of the
+  sheet, so a larger or smaller sheet keeps the views together; a view that would fall off a
+  smaller sheet is held at its edge.
+- **Layout** in the panel lists the views placed by hand, each with a button putting it back where
+  the drawing lays it out. Right-clicking a view on the sheet offers the same as **Reset
+  position**.
+
+Without dragging, click a view to pick it, drawn with a solid outline: the arrow buttons above the
+sheet move it 10 mm on the sheet, and with the sheet focused (Tab) the arrow keys move it 1 mm,
+10 mm with Shift. Escape lets it go; with no view picked, the arrow keys move the sheet.
+
+## The sheet in the view
+
+{command:view.drawing_sheet} (also **Show the sheet in the view** under the panel's preview, and
+in the View menu) shows the open drawing's sheet across the whole view instead of the model, with
+the Drawings panel beside it, so the views are larger to arrange and every setting stays at hand.
+**Back to the 3D view**, the same command again or Escape (once no view is picked) shows the
+model again. Editing a sketch shows the model too.
+
 ## Working out the views
 
 Views are worked out in the background while the panel is open and again whenever the model
 changes; the panel shows how many are done and the rest of caditor stays usable. A view that
 cannot be drawn says why in the panel, and the other views are drawn as usual.
 
-The sheet below the settings is a preview: drag it to move it, pinch or hold Ctrl and scroll to
-zoom about the pointer, or use **Zoom in**, **Zoom out** and **Fit the sheet**; the percentage beside
-them is how large the sheet is drawn. With the sheet focused (Tab), the arrow keys move it.
+The sheet below the settings is a preview: drag the paper to move it, pinch or hold Ctrl and scroll
+to zoom about the pointer, or use **Zoom in**, **Zoom out** and **Fit the sheet**; the percentage
+beside them is how large the sheet is drawn. With the sheet focused (Tab) and no view picked, the
+arrow keys move it. The sheet view works the same way.
 
 ## Exporting
 
 {command:file.export_drawing_sheet} (or **Export…** in the panel) writes the sheet at its real
-size in millimetres as:
+size in millimetres, with every view where the sheet shows it, as:
 
 - **PDF**, to print at 100% or send.
 - **SVG**, for documents and the web.

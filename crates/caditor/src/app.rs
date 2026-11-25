@@ -823,6 +823,7 @@ pub fn show(
         comb: comb.open,
         isocurves: isocurves.open,
         drawings: drawings.open,
+        sheet_in_view: drawings.sheet_in_view(),
         lighting: lighting.open,
         full_screen: ui
             .ctx()
@@ -1127,6 +1128,9 @@ pub fn show(
     };
 
     viewport.set_interference(marks);
+    if editing.active().is_some() {
+        drawings.show_sheet_in_view(false);
+    }
     if drawings.open {
         drawings.refresh(model);
 
@@ -1335,7 +1339,7 @@ pub fn show(
 
     viewport.set_contrast(contrast);
     viewport.set_start_card(preferences.onboarding.start_card);
-    viewport.cover(home.is_open());
+    viewport.cover(home.is_open() || drawings.sheet_in_view());
     canvas::set_contrast(ui.ctx(), contrast);
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     viewport.set_grid(canvas::grid(ui.ctx()));
@@ -1347,10 +1351,23 @@ pub fn show(
         ui,
         model,
         editing,
-        keys_free && !home.is_open(),
+        keys_free && !home.is_open() && !drawings.sheet_in_view(),
         &mut commands,
         actions,
     );
+    if !home.is_open()
+        && drawings.sheet_in_view()
+        && let Some(area) = viewport.rect()
+    {
+        let escaped = !dialog_open
+            && !ui.ctx().text_edit_focused()
+            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+
+        if escaped {
+            drawings.escape_sheet_view();
+        }
+        drawings_panel::show_in_view(ui.ctx(), area, model, drawings, actions);
+    }
     if home.is_open()
         && let Some(area) = viewport.rect()
     {

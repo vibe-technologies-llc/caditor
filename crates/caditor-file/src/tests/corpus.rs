@@ -36,7 +36,10 @@ use serde_json::Value;
 
 use super::{
     configurations::configured_model,
-    drawings::{parameter_offset_document, with_detail_views, with_drawings, with_section_views},
+    drawings::{
+        parameter_offset_document, with_detail_views, with_drawings, with_placed_views,
+        with_section_views,
+    },
     seeds::seed_journal_by_reference,
     selection_sets::sets_of,
     *,
@@ -60,7 +63,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 90] = [
+const KEPT: [(&str, &str); 92] = [
+    (
+        "journal-1/placed-views.journal",
+        "455b9acbea10cd6b15f9437f36d900acf203e2dde6f64de8fe560db424f7d8fc",
+    ),
+    (
+        "model-1/placed-views.caditor",
+        "12b073a8ca0ed1d626422683e821798c0f503dcc20621d57536aba0c74b5b277",
+    ),
     (
         "model-1/body-edge-regions.caditor",
         "15367f93cce4c3b6b8fd1764ab44f9a63d59fdd44b6147e8e7e64ab74fbf84c1",
@@ -1202,6 +1213,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("detail-views"), detail_views_journal()),
         (
+            model("placed-views"),
+            saved(&placed_model(), "Placed views"),
+        ),
+        (journal("placed-views"), placed_views_journal()),
+        (
             model("section-parameter-offsets"),
             saved(&parameter_offset_sections(), "Section parameter offsets"),
         ),
@@ -2148,6 +2164,33 @@ fn detail_views_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/detail-views.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn placed_model() -> Document {
+    let (mut document, change) = with_placed_views();
+
+    document.apply(change).unwrap();
+    document
+}
+
+fn placed_views_journal() -> Vec<u8> {
+    let (base, change) = with_placed_views();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+
+    session.apply(change);
+
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Placed views")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/placed-views.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

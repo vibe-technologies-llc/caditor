@@ -2,18 +2,13 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
     DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale,
-    DrawingViewError, FeatureId, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MIN_DETAIL_RADIUS,
-    PlacedView, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetMark,
-    SheetOrientation, SheetPlan, SheetSize, StandardView, TextAnchor, TitleFields, Transaction,
-    ViewLines, drawn_hatching, lay_out_sheet,
+    DrawingViewError, DrawnView, FeatureId, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS,
+    MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
+    SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction, lay_out_sheet,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
-use caditor_kernel::{Curve2, ViewPiece, Visibility};
-use egui::{
-    Align2, EventFilter, FontId, Id, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2,
-    vec2,
-};
+use egui::{Align, Area, Id, Key, Layout, Order, Rect, Sense, TextEdit, Ui, UiBuilder, vec2};
 use thiserror::Error;
 
 use crate::{
@@ -26,6 +21,7 @@ use crate::{
     icons,
     layout::RightPanel,
     model::{Action, Model, Notice},
+    sheet_canvas::{self, SheetCanvas, SheetContext},
     sheet_export::SheetJob,
     sheet_views::{DrawingViews, SheetViews},
     widgets::{self, PanelTitle, Tone},
@@ -34,17 +30,18 @@ use crate::{
 pub const TITLE: &str = "Drawings";
 pub const CLOSE: &str = "Close the drawings panel";
 pub const NEW: &str = "New drawing";
-pub const MOST_ZOOMED: &str = "The sheet is zoomed in as far as it goes";
-pub const LEAST_ZOOMED: &str = "The sheet is zoomed out as far as it goes";
-pub const ZOOM_READOUT_HOVER: &str =
-    "How large the sheet is drawn, against fitting it to the panel";
 pub const EXPORT: &str = "Export…";
 pub const RENAME: &str = "Rename";
 pub const DELETE: &str = "Delete";
-pub const ZOOM_IN: &str = "Zoom in";
-pub const ZOOM_OUT: &str = "Zoom out";
-pub const FIT: &str = "Fit the sheet";
-pub const SHEET: &str = "Drawing sheet";
+pub const SHEET_TO_VIEW: &str = "Show the sheet in the view";
+pub const SHEET_TO_PANEL: &str = "Show the sheet in this panel";
+pub const LEAVE_SHEET_VIEW: &str = "Back to the 3D view";
+pub const SHEET_IN_VIEW_NOTE: &str = "The sheet is shown in the view, where its views and detail \
+                                      circles can be dragged.";
+pub const LAYOUT: &str = "Layout";
+pub const LAID_OUT: &str = "Every view stands where the drawing lays it out. Drag a view on the \
+                            sheet to place it by hand; a top or side view moves only along its \
+                            line with the front view.";
 pub const NONE_YET: &str = "The model has no drawings yet. A drawing lays out views of the bodies \
                             on an ISO sheet with a title block, ready to print or send.";
 pub const WORKING: &str = "Working out the views…";
@@ -83,20 +80,6 @@ const HEADER: PanelTitle<'static> = PanelTitle {
 };
 const DEFAULT_DETAIL_RADIUS: f64 = 10.0;
 const DETAIL_RADIUS_SHARE: f64 = 0.25;
-const CAP_HEIGHT: f32 = 0.727;
-const SMALLEST_TEXT: f32 = 4.0;
-const DESCENT: f32 = 0.21;
-const CURVE_STEPS: usize = 32;
-const ZOOM_STEP: f32 = 1.25;
-const LEAST_ZOOM: f32 = 0.5;
-const MOST_ZOOM: f32 = 64.0;
-const PAN_STEP: f32 = 0.1;
-const HIDDEN_DASH: f32 = 4.0;
-const HIDDEN_GAP: f32 = 3.0;
-const VISIBLE_WIDTH: f32 = 1.5;
-const THIN_WIDTH: f32 = 1.0;
-const CHAIN_DASHES: [f32; 2] = [12.0, 0.5];
-const CHAIN_GAPS: [f32; 2] = [3.0, 3.0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum SheetRefusal {
@@ -114,57 +97,14 @@ impl Reason for SheetRefusal {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct SheetCamera {
-    zoom: f32,
-    pan: Vec2,
-}
-
-impl Default for SheetCamera {
-    fn default() -> Self {
-        Self {
-            zoom: 1.0,
-            pan: Vec2::ZERO,
-        }
-    }
-}
-
-impl SheetCamera {
-    fn zoom_by(&mut self, factor: f32) {
-        self.zoom = (self.zoom * factor).clamp(LEAST_ZOOM, MOST_ZOOM);
-    }
-
-    fn zoom_about(&mut self, factor: f32, from_centre: Vec2, fit: f32) {
-        let before = fit * self.zoom;
-
-        self.zoom_by(factor);
-
-        let after = fit * self.zoom;
-        let kept = from_centre * (1.0 / before - 1.0 / after);
-
-        self.pan += vec2(kept.x, -kept.y);
-    }
-
-    fn can_zoom_in(&self) -> bool {
-        self.zoom < MOST_ZOOM
-    }
-
-    fn can_zoom_out(&self) -> bool {
-        self.zoom > LEAST_ZOOM
-    }
-
-    fn percent(&self) -> String {
-        format!("{:.0}%", self.zoom * 100.0)
-    }
-}
-
 #[derive(Default)]
 pub struct DrawingsTool {
     pub open: bool,
     pub chosen: Option<DrawingId>,
     views: DrawingViews,
     sheet: SheetViews,
-    camera: SheetCamera,
+    canvas: SheetCanvas,
+    in_view: bool,
     renaming: Option<String>,
     rename_focus_pending: bool,
     export_pending: bool,
@@ -183,6 +123,35 @@ impl DrawingsTool {
         self.sheet = SheetViews::default();
         self.renaming = None;
         self.export_pending = false;
+        self.in_view = false;
+        self.canvas.reset();
+    }
+
+    pub fn sheet_in_view(&self) -> bool {
+        self.open && self.in_view
+    }
+
+    pub fn show_sheet_in_view(&mut self, shown: bool) {
+        if shown == self.sheet_in_view() {
+            return;
+        }
+        self.open = true;
+        self.in_view = shown;
+        self.canvas.reset();
+        if shown {
+            self.canvas.focus();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn canvas(&self) -> &SheetCanvas {
+        &self.canvas
+    }
+
+    pub fn escape_sheet_view(&mut self) {
+        if !self.canvas.let_go() {
+            self.show_sheet_in_view(false);
+        }
     }
 
     fn current<'a>(&self, document: &'a Document) -> Option<&'a Drawing> {
@@ -198,12 +167,13 @@ impl DrawingsTool {
             self.chosen = None;
             self.views.forget();
             self.sheet = SheetViews::default();
+            self.in_view = false;
             return;
         };
 
         if self.chosen != Some(drawing.id) {
             self.chosen = Some(drawing.id);
-            self.camera = SheetCamera::default();
+            self.canvas.reset();
             self.renaming = None;
         }
         self.sheet = self.views.refresh(model, drawing);
@@ -297,7 +267,7 @@ pub fn new_drawing(
             actions.push(Action::Apply(transaction));
             tool.open = true;
             tool.chosen = Some(id);
-            tool.camera = SheetCamera::default();
+            tool.canvas.reset();
         }
         Err(error) => actions.push(Action::Inform(Notice::failure(format!(
             "No drawing was made: {error}."
@@ -332,9 +302,15 @@ pub fn commands(
     } else {
         Ok(())
     };
+
     if commands.invoke(Command::ExportDrawingSheet, &exportable) {
         tool.open = true;
         tool.export_pending = true;
+    }
+    if commands.invoke(Command::SheetInView, &exportable) {
+        let shown = !tool.sheet_in_view();
+
+        tool.show_sheet_in_view(shown);
     }
 }
 
@@ -1246,246 +1222,6 @@ fn status(ui: &mut Ui, sheet: &SheetViews, plan: &SheetPlan) {
     }
 }
 
-fn sampled(piece: &ViewPiece) -> Vec<Point2> {
-    let steps = match piece.curve {
-        Curve2::Line(_) => 1,
-        _ => CURVE_STEPS,
-    };
-    (0..=steps)
-        .map(|step| {
-            let along = step as f64 / steps as f64;
-            let at = piece.range.start() + (piece.range.end() - piece.range.start()) * along;
-            piece.curve.point(at)
-        })
-        .collect()
-}
-
-struct Mapping {
-    rect: Rect,
-    centre: Point2,
-    scale: f32,
-}
-
-impl Mapping {
-    fn screen(&self, point: Point2) -> Pos2 {
-        let offset = point - self.centre;
-        self.rect.center()
-            + vec2(
-                offset.x as f32 * self.scale,
-                -(offset.y as f32) * self.scale,
-            )
-    }
-}
-
-fn view_lines(
-    painter: &egui::Painter,
-    mapping: &Mapping,
-    placed: &PlacedView,
-    lines: &ViewLines,
-    hidden_lines: bool,
-    tokens: &appearance::Tokens,
-) {
-    for (from, to) in drawn_hatching(lines, placed) {
-        painter.line_segment(
-            [mapping.screen(from), mapping.screen(to)],
-            Stroke::new(THIN_WIDTH, tokens.text_muted),
-        );
-    }
-    for piece in lines.drawn_pieces(hidden_lines) {
-        let points: Vec<Pos2> = sampled(piece)
-            .into_iter()
-            .map(|point| mapping.screen(placed.on_sheet(point)))
-            .collect();
-        match piece.visibility {
-            Visibility::Visible => {
-                painter.add(Shape::line(points, Stroke::new(VISIBLE_WIDTH, tokens.text)));
-            }
-            _ => {
-                painter.extend(Shape::dashed_line(
-                    &points,
-                    Stroke::new(THIN_WIDTH, tokens.text_muted),
-                    HIDDEN_DASH,
-                    HIDDEN_GAP,
-                ));
-            }
-        }
-    }
-}
-
-fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_lines: bool) {
-    let tokens = appearance::tokens(ui);
-
-    ui.horizontal_wrapped(|ui| {
-        if small_enabled(ui, tool.camera.can_zoom_in(), icons::ZOOM_IN, ZOOM_IN)
-            .on_disabled_hover_text(MOST_ZOOMED)
-            .clicked()
-        {
-            tool.camera.zoom_by(ZOOM_STEP);
-        }
-        if small_enabled(ui, tool.camera.can_zoom_out(), icons::ZOOM_OUT, ZOOM_OUT)
-            .on_disabled_hover_text(LEAST_ZOOMED)
-            .clicked()
-        {
-            tool.camera.zoom_by(1.0 / ZOOM_STEP);
-        }
-        if small(ui, icons::FIT_SHEET, FIT).clicked() {
-            tool.camera = SheetCamera::default();
-        }
-        ui.label(widgets::muted(tool.camera.percent(), ui))
-            .on_hover_text(ZOOM_READOUT_HOVER);
-    });
-    ui.add_space(SPACE_S);
-
-    let width = ui.available_width().max(1.0);
-    let height = width * (plan.height / plan.width.max(1.0)) as f32;
-
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
-    let response = widgets::named(response, SHEET).on_hover_text(
-        "Drag to move the sheet, pinch or Ctrl and scroll to zoom; with the sheet focused, the \
-         arrow keys move it",
-    );
-    let fit = width / plan.width.max(1.0) as f32;
-
-    if response.hovered() {
-        let zoom = ui.input(|input| input.zoom_delta());
-        let from_centre = response
-            .hover_pos()
-            .map_or(Vec2::ZERO, |pointer| pointer - rect.center());
-
-        if (zoom - 1.0).abs() > f32::EPSILON {
-            tool.camera.zoom_about(zoom, from_centre, fit);
-        }
-    }
-
-    let scale = fit * tool.camera.zoom;
-
-    if response.dragged() {
-        let moved = response.drag_delta() / scale;
-
-        tool.camera.pan += vec2(-moved.x, moved.y);
-    }
-    if response.has_focus() {
-        ui.memory_mut(|memory| {
-            memory.set_focus_lock_filter(
-                response.id,
-                EventFilter {
-                    horizontal_arrows: true,
-                    vertical_arrows: true,
-                    ..EventFilter::default()
-                },
-            );
-        });
-
-        let step = PAN_STEP * plan.width as f32 / tool.camera.zoom;
-        let keys = [
-            (Key::ArrowLeft, vec2(-step, 0.0)),
-            (Key::ArrowRight, vec2(step, 0.0)),
-            (Key::ArrowUp, vec2(0.0, step)),
-            (Key::ArrowDown, vec2(0.0, -step)),
-        ];
-        for (key, by) in keys {
-            if ui.input(|input| input.key_pressed(key)) {
-                tool.camera.pan += by;
-            }
-        }
-    }
-
-    let mapping = Mapping {
-        rect,
-        centre: Point2::new(
-            plan.width / 2.0 + f64::from(tool.camera.pan.x),
-            plan.height / 2.0 + f64::from(tool.camera.pan.y),
-        ),
-        scale,
-    };
-    let painter = ui.painter_at(rect);
-
-    painter.rect_filled(rect, 0.0, tokens.sunken);
-
-    let paper = Rect::from_two_pos(
-        mapping.screen(Point2::new(0.0, 0.0)),
-        mapping.screen(Point2::new(plan.width, plan.height)),
-    );
-
-    painter.rect_filled(paper, 0.0, tokens.raised);
-    painter.rect_stroke(
-        paper,
-        0.0,
-        Stroke::new(THIN_WIDTH, tokens.border_strong),
-        egui::StrokeKind::Inside,
-    );
-    for mark in &plan.marks {
-        match mark {
-            SheetMark::Line(from, to) => {
-                painter.line_segment(
-                    [mapping.screen(*from), mapping.screen(*to)],
-                    Stroke::new(THIN_WIDTH, tokens.text),
-                );
-            }
-            SheetMark::Circle { center, radius } => {
-                painter.circle_stroke(
-                    mapping.screen(*center),
-                    *radius as f32 * scale,
-                    Stroke::new(THIN_WIDTH, tokens.text),
-                );
-            }
-        }
-    }
-    for text in &plan.texts {
-        let size = text.height as f32 * scale / CAP_HEIGHT;
-
-        if size < SMALLEST_TEXT {
-            continue;
-        }
-
-        let at = mapping.screen(text.at);
-        let (at, align) = match text.anchor {
-            TextAnchor::Start => (at + vec2(0.0, size * DESCENT), Align2::LEFT_BOTTOM),
-            TextAnchor::Middle => (at, Align2::CENTER_CENTER),
-        };
-
-        painter.text(
-            at,
-            align,
-            &text.content,
-            FontId::proportional(size),
-            tokens.text,
-        );
-    }
-    for line in &plan.cutting {
-        let chain = [mapping.screen(line.chain.0), mapping.screen(line.chain.1)];
-        let dashes = CHAIN_DASHES.map(|length| (length * scale).max(1.0));
-        let gaps = CHAIN_GAPS.map(|length| (length * scale).max(1.0));
-
-        painter.extend(Shape::dashed_line_with_offset(
-            &chain,
-            Stroke::new(THIN_WIDTH, tokens.text),
-            &dashes,
-            &gaps,
-            0.0,
-        ));
-        for (from, to) in line.ends {
-            painter.line_segment(
-                [mapping.screen(from), mapping.screen(to)],
-                Stroke::new(VISIBLE_WIDTH, tokens.text),
-            );
-        }
-    }
-    for placed in &plan.views {
-        if let Some(lines) = tool
-            .sheet
-            .finished()
-            .find(|(view, _)| *view == placed.view)
-            .map(|(_, lines)| lines)
-        {
-            view_lines(&painter, &mapping, placed, lines, hidden_lines, &tokens);
-        }
-    }
-    if response.has_focus() {
-        widgets::paint_focus_ring(ui, rect);
-    }
-}
-
 pub struct DrawingsContext<'a> {
     pub model: &'a Model,
     pub selected: &'a [FeatureId],
@@ -1526,7 +1262,7 @@ pub fn show(
             });
             if let Some(id) = chosen {
                 tool.chosen = Some(id);
-                tool.camera = SheetCamera::default();
+                tool.canvas.reset();
                 tool.renaming = None;
             }
             ui.horizontal_wrapped(|ui| {
@@ -1567,7 +1303,8 @@ pub fn show(
                 .on_disabled_hover_text(SheetRefusal::Working.to_string())
                 .clicked();
             ui.add_space(SPACE_M);
-            sheet_canvas(ui, tool, plan, drawing.hidden_lines);
+            preview(ui, model, tool, drawing, plan, actions);
+            layout_rows(ui, model, drawing, actions);
         },
     );
 
@@ -1577,4 +1314,135 @@ pub fn show(
     if panel.closed {
         tool.toggle();
     }
+}
+
+fn position_label(view: DrawnView) -> String {
+    match view {
+        DrawnView::Standard(standard) => format!("{} view", standard.name()),
+        DrawnView::Section(letter) => format!("Section {letter}\u{2013}{letter}"),
+        DrawnView::Detail(letter) => format!("Detail {letter}"),
+    }
+}
+
+fn layout_rows(ui: &mut Ui, model: &Model, drawing: &Drawing, actions: &mut Vec<Action>) {
+    ui.add_space(SPACE_S);
+    ui.label(widgets::section_title(LAYOUT));
+    if drawing.positions.is_empty() {
+        ui.label(widgets::muted(LAID_OUT, ui));
+        return;
+    }
+    for view in drawing.positions.keys() {
+        let label = position_label(*view);
+
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(ui, &format!("{label}, placed by hand"), 1);
+
+            let reset = format!("Reset the position of {}", view.describe());
+            if widgets::icon_button(ui, icons::RESET, &reset).clicked() {
+                sheet_canvas::reset_position(model, drawing, *view, actions);
+            }
+        });
+    }
+}
+
+fn preview(
+    ui: &mut Ui,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    if tool.in_view {
+        ui.label(SHEET_IN_VIEW_NOTE);
+        ui.horizontal_wrapped(|ui| {
+            if small(ui, icons::SHEET_IN_PANEL, SHEET_TO_PANEL).clicked() {
+                tool.show_sheet_in_view(false);
+            }
+        });
+        return;
+    }
+
+    let context = SheetContext {
+        model,
+        drawing,
+        plan,
+        views: &tool.sheet,
+    };
+    let mut in_view = false;
+
+    ui.horizontal_wrapped(|ui| {
+        sheet_canvas::toolbar(ui, &mut tool.canvas, &context, actions);
+        in_view = small(ui, icons::SHEET_IN_VIEW, SHEET_TO_VIEW)
+            .on_hover_text("Show the sheet across the view, the panel beside it")
+            .clicked();
+    });
+    ui.add_space(SPACE_S);
+
+    let width = ui.available_width().max(1.0);
+    let height = width * (plan.height / plan.width.max(1.0)) as f32;
+
+    sheet_canvas::canvas(ui, &mut tool.canvas, &context, vec2(width, height), actions);
+    if in_view {
+        tool.show_sheet_in_view(true);
+    }
+}
+
+pub fn sheet_view_id() -> Id {
+    Id::unique("drawing sheet in the view")
+}
+
+pub fn show_in_view(
+    ctx: &egui::Context,
+    area: Rect,
+    model: &Model,
+    tool: &mut DrawingsTool,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let (Some(drawing), Some(plan)) = (tool.current(document).cloned(), tool.plan(model)) else {
+        tool.in_view = false;
+        return;
+    };
+    let tokens = appearance::tokens_of(ctx);
+
+    Area::new(sheet_view_id())
+        .order(Order::Middle)
+        .fixed_pos(area.min)
+        .constrain(false)
+        .show(ctx, |ui| {
+            ui.set_clip_rect(area);
+            ui.allocate_rect(area, Sense::hover());
+            ui.painter().rect_filled(area, 0.0, tokens.panel);
+
+            let mut page = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(area.shrink(SPACE_S))
+                    .layout(Layout::top_down(Align::Min)),
+            );
+
+            let context = SheetContext {
+                model,
+                drawing: &drawing,
+                plan: &plan,
+                views: &tool.sheet,
+            };
+            let mut leave = false;
+
+            page.horizontal_wrapped(|ui| {
+                leave = small(ui, icons::BACK, LEAVE_SHEET_VIEW)
+                    .on_hover_text("Show the 3D view again (Esc)")
+                    .clicked();
+                ui.label(widgets::strong(drawing.name.as_str()));
+                sheet_canvas::toolbar(ui, &mut tool.canvas, &context, actions);
+            });
+            page.add_space(SPACE_S);
+
+            let size = page.available_size();
+
+            sheet_canvas::canvas(&mut page, &mut tool.canvas, &context, size, actions);
+            if leave {
+                tool.show_sheet_in_view(false);
+            }
+        });
 }

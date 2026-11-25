@@ -813,6 +813,7 @@ impl Menus<'_> {
                     Command::LookAtSketch,
                 ],
             );
+            self.choice(ui, Command::SheetInView);
             submenu(
                 ui,
                 icons::command(Command::View(StandardView::Front)),

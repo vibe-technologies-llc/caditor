@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Aabb2, Point2, Point3};
+use caditor_geometry::{Aabb2, Point2, Point3, Vector2};
 use caditor_kernel::{Curve2, ViewPiece, Visibility};
 
 use crate::{
@@ -585,10 +585,13 @@ fn hatching_fills_the_cut_face_at_one_spacing_on_the_sheet() {
         edges: square.to_vec(),
         angle: HATCH_ANGLES[0],
     };
-    let at = |scale: f64| PlacedView {
-        view: DrawnView::Section('A'),
-        origin: Point2::new(100.0, 50.0),
-        scale,
+    let at = |scale: f64| {
+        PlacedView::new(
+            DrawnView::Section('A'),
+            Point2::new(100.0, 50.0),
+            scale,
+            Aabb2::from_point(Point2::ZERO).including(Point2::splat(10.0)),
+        )
     };
     let inside = |placed: &PlacedView, point: Point2| {
         let local = (point - placed.origin) / placed.scale;
@@ -1192,11 +1195,12 @@ fn a_detail_of_a_section_keeps_its_hatching_inside_the_circle() {
     };
 
     let lines = detail_view(&corner, &cut).unwrap();
-    let placed = PlacedView {
-        view: DrawnView::Detail('B'),
-        origin: Point2::new(100.0, 100.0),
-        scale: 4.0,
-    };
+    let placed = PlacedView::new(
+        DrawnView::Detail('B'),
+        Point2::new(100.0, 100.0),
+        4.0,
+        lines.bounds.unwrap(),
+    );
 
     let disc = lines.clip.unwrap().scaled_onto(&placed);
     let whole = hatch_lines(&lines.hatching()[0], &placed);
@@ -1355,4 +1359,304 @@ fn deleting_the_section_a_detail_enlarges_is_refused_and_scaling_the_model_moves
     assert_eq!(details[0].radius, 4.0);
     assert_eq!(details[1].radius, 2.0);
     assert_eq!(details[1].centre, Point2::new(2.0, 4.0));
+}
+
+fn laid_out(drawing: &Drawing, extents: &BTreeMap<DrawnView, Aabb2>) -> SheetPlan {
+    lay_out_sheet(drawing, &TitleFields::default(), extents, &BTreeMap::new())
+}
+
+fn near(left: Point2, right: Point2) -> bool {
+    (left - right).length() < 1e-6
+}
+
+#[test]
+fn a_view_placed_by_hand_stands_there_and_the_others_keep_the_automatic_layout() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    let extents = extents_of_a_box(100.0, 60.0, 40.0);
+
+    let automatic = laid_out(&drawing, &extents);
+
+    drawing.positions.insert(
+        DrawnView::Standard(StandardView::Isometric),
+        Point2::new(-120.0, 70.0),
+    );
+
+    let by_hand = laid_out(&drawing, &extents);
+    let isometric = placed_as(&by_hand, DrawnView::Standard(StandardView::Isometric));
+
+    assert!(near(
+        isometric.extent.center(),
+        by_hand.view_area.center() + Point2::new(-120.0, 70.0)
+    ));
+    assert_eq!(by_hand.scale, automatic.scale);
+    for view in [StandardView::Front, StandardView::Top, StandardView::Right] {
+        assert_eq!(placed(&by_hand, view), placed(&automatic, view));
+    }
+}
+
+#[test]
+fn projected_views_move_only_along_their_alignment_and_follow_the_front() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    let extents = extents_of_a_box(100.0, 60.0, 40.0);
+
+    let before = laid_out(&drawing, &extents);
+
+    before.moved(
+        &mut drawing,
+        DrawnView::Standard(StandardView::Top),
+        Vector2::new(30.0, -10.0),
+    );
+    before.moved(
+        &mut drawing,
+        DrawnView::Standard(StandardView::Right),
+        Vector2::new(-15.0, 25.0),
+    );
+
+    let moved = laid_out(&drawing, &extents);
+    let shift = |layout: &SheetPlan, view: StandardView| {
+        placed(layout, view).origin - placed(&before, view).origin
+    };
+
+    assert_eq!(
+        before.movement(DrawnView::Standard(StandardView::Top)),
+        ViewMovement::Up
+    );
+    assert_eq!(
+        before.movement(DrawnView::Standard(StandardView::Left)),
+        ViewMovement::Across
+    );
+    assert_eq!(
+        before.movement(DrawnView::Standard(StandardView::Isometric)),
+        ViewMovement::Free
+    );
+    assert!(near(
+        shift(&moved, StandardView::Top),
+        Vector2::new(0.0, -10.0)
+    ));
+    assert!(near(
+        shift(&moved, StandardView::Right),
+        Vector2::new(-15.0, 0.0)
+    ));
+    assert!(near(shift(&moved, StandardView::Front), Vector2::ZERO));
+
+    moved.moved(
+        &mut drawing,
+        DrawnView::Standard(StandardView::Front),
+        Vector2::new(12.0, 8.0),
+    );
+    drawing
+        .positions
+        .remove(&DrawnView::Standard(StandardView::Right));
+
+    let carried = laid_out(&drawing, &extents);
+
+    assert!(near(
+        shift(&carried, StandardView::Front),
+        Vector2::new(12.0, 8.0)
+    ));
+    assert!(near(
+        shift(&carried, StandardView::Top),
+        Vector2::new(12.0, -2.0)
+    ));
+    assert!(near(
+        shift(&carried, StandardView::Right),
+        Vector2::new(12.0, 8.0)
+    ));
+    assert!(near(
+        shift(&carried, StandardView::Isometric),
+        Vector2::ZERO
+    ));
+
+    let front = placed(&carried, StandardView::Front);
+
+    assert!(close(
+        front.origin.x,
+        placed(&carried, StandardView::Top).origin.x
+    ));
+    assert!(close(
+        front.origin.y,
+        placed(&carried, StandardView::Right).origin.y
+    ));
+}
+
+#[test]
+fn without_the_front_a_projected_view_moves_freely() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    let extents = extents_of_a_box(100.0, 60.0, 40.0);
+
+    drawing.views.remove(&StandardView::Front);
+
+    let before = laid_out(&drawing, &extents);
+    let top = DrawnView::Standard(StandardView::Top);
+
+    before.moved(&mut drawing, top, Vector2::new(20.0, 5.0));
+
+    let after = laid_out(&drawing, &extents);
+
+    assert_eq!(before.movement(top), ViewMovement::Free);
+    assert!(near(
+        placed_as(&after, top).origin - placed_as(&before, top).origin,
+        Vector2::new(20.0, 5.0)
+    ));
+}
+
+#[test]
+fn a_moved_detail_carries_its_label_and_circle_and_leaves_the_one_on_its_parent() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
+    drawing.details = vec![front_detail('A', Point2::new(10.0, 10.0), 8.0)];
+
+    let extents = extents_with_detail(8.0);
+    let detail = DrawnView::Detail('A');
+
+    let before = laid_out(&drawing, &extents);
+
+    before.moved(&mut drawing, detail, Vector2::new(-40.0, 30.0));
+
+    let after = laid_out(&drawing, &extents);
+    let label_at = |layout: &SheetPlan| {
+        layout
+            .texts
+            .iter()
+            .find(|text| text.content == "A (2:1)")
+            .unwrap()
+            .at
+    };
+    let circles = |layout: &SheetPlan| -> Vec<Point2> {
+        layout
+            .marks
+            .iter()
+            .filter_map(|mark| match mark {
+                SheetMark::Circle { center, .. } => Some(*center),
+                SheetMark::Line(..) => None,
+            })
+            .collect()
+    };
+    let enlarged = placed_as(&after, detail);
+    let front = placed(&after, StandardView::Front);
+
+    assert_eq!(before.movement(detail), ViewMovement::Free);
+    assert!(near(
+        enlarged.origin - placed_as(&before, detail).origin,
+        Vector2::new(-40.0, 30.0)
+    ));
+    assert!(near(
+        label_at(&after) - label_at(&before),
+        Vector2::new(-40.0, 30.0)
+    ));
+    assert!(
+        circles(&after)
+            .iter()
+            .any(|centre| near(*centre, enlarged.on_sheet(Point2::new(10.0, 10.0))))
+    );
+    assert!(
+        circles(&after)
+            .iter()
+            .any(|centre| near(*centre, front.on_sheet(Point2::new(10.0, 10.0))))
+    );
+}
+
+#[test]
+fn a_placed_view_stays_on_a_smaller_sheet() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    let extents = extents_of_a_box(100.0, 60.0, 40.0);
+    let isometric = DrawnView::Standard(StandardView::Isometric);
+
+    drawing.size = SheetSize::A0;
+    drawing
+        .positions
+        .insert(isometric, Point2::new(500.0, 300.0));
+
+    let large = laid_out(&drawing, &extents);
+
+    drawing.size = SheetSize::A4;
+
+    let small = laid_out(&drawing, &extents);
+
+    assert!(near(
+        placed_as(&large, isometric).extent.center(),
+        large.view_area.center() + Point2::new(500.0, 300.0)
+    ));
+    assert!(
+        small
+            .view_area
+            .contains(placed_as(&small, isometric).extent.center())
+    );
+}
+
+#[test]
+fn view_positions_are_checked_undoable_and_dropped_with_their_view() {
+    let mut editor = Editor::new(pair().document);
+
+    let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
+
+    editor.apply(transaction).unwrap();
+
+    let far = editor
+        .document()
+        .changing_drawing(id, "Move view", |drawing| {
+            drawing.positions.insert(
+                DrawnView::Standard(StandardView::Top),
+                Point2::new(MAX_VIEW_PLACE * 2.0, 0.0),
+            );
+        });
+    let unusable = editor
+        .document()
+        .changing_drawing(id, "Move view", |drawing| {
+            drawing.positions.insert(
+                DrawnView::Standard(StandardView::Top),
+                Point2::new(f64::NAN, 0.0),
+            );
+        });
+    let moved = editor
+        .document()
+        .changing_drawing(id, "Move view", |drawing| {
+            drawing.positions.insert(
+                DrawnView::Standard(StandardView::Top),
+                Point2::new(10.0, -20.0),
+            );
+            drawing
+                .positions
+                .insert(DrawnView::Section('A'), Point2::new(5.0, 5.0));
+        })
+        .unwrap();
+
+    editor.apply(moved).unwrap();
+
+    let positions = editor.document().drawing(id).unwrap().positions.clone();
+
+    editor.undo().unwrap();
+
+    let undone = editor.document().drawing(id).unwrap().positions.clone();
+
+    editor.redo().unwrap();
+
+    let hidden = editor
+        .document()
+        .changing_drawing(id, "Change drawing views", |drawing| {
+            drawing.views.remove(&StandardView::Top);
+        })
+        .unwrap();
+
+    editor.apply(hidden).unwrap();
+
+    assert_eq!(
+        far.unwrap_err(),
+        EditError::ViewPlaceOutOfRange {
+            view: "top view".into()
+        }
+    );
+    assert!(matches!(
+        unusable.unwrap_err(),
+        EditError::ViewPlaceOutOfRange { .. }
+    ));
+    assert_eq!(
+        positions,
+        BTreeMap::from([(
+            DrawnView::Standard(StandardView::Top),
+            Point2::new(10.0, -20.0)
+        )])
+    );
+    assert!(undone.is_empty());
+    assert!(editor.document().drawing(id).unwrap().positions.is_empty());
 }

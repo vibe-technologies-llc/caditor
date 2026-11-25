@@ -198,6 +198,7 @@ pub enum Command {
     Drawings,
     NewDrawing,
     ExportDrawingSheet,
+    SheetInView,
     FitView,
     ZoomToBox,
     PreviousView,
@@ -956,6 +957,7 @@ plain_commands! {
     Drawings,
     NewDrawing,
     ExportDrawingSheet,
+    SheetInView,
     FinishSketch,
     CancelSketch,
     ReverseArc,
@@ -1294,6 +1296,7 @@ impl Command {
             Self::Drawings => "model.drawings",
             Self::NewDrawing => "model.new_drawing",
             Self::ExportDrawingSheet => "file.export_drawing_sheet",
+            Self::SheetInView => "view.drawing_sheet",
             Self::FitView => "view.fit",
             Self::ZoomToBox => "view.zoom_box",
             Self::PreviousView => "view.previous",
@@ -1644,6 +1647,7 @@ impl Command {
             Self::Drawings => "Drawings",
             Self::NewDrawing => "New drawing",
             Self::ExportDrawingSheet => "Export drawing sheet…",
+            Self::SheetInView => "Drawing sheet in the view",
             Self::FitView => "Fit view",
             Self::ZoomToBox => "Zoom to box",
             Self::PreviousView => "Go back to the previous view",
@@ -2027,6 +2031,14 @@ impl Command {
             Self::ExportDrawingSheet => {
                 &["pdf", "svg", "dxf", "print", "technical drawing", "sheet"]
             }
+            Self::SheetInView => &[
+                "technical drawing",
+                "sheet",
+                "full size",
+                "enlarge",
+                "layout",
+                "arrange views",
+            ],
             Self::ImportConfigurations | Self::ExportConfigurations => &[
                 "csv",
                 "spreadsheet",
@@ -2153,6 +2165,7 @@ impl Command {
             | Self::DismissNotice => Category::Edit,
             Self::FitView
             | Self::ZoomToBox
+            | Self::SheetInView
             | Self::PreviousView
             | Self::NextView
             | Self::Measure
@@ -2734,6 +2747,7 @@ impl Command {
             | Self::ReloadImport
             | Self::ReloadFromDisk
             | Self::ZoomToBox
+            | Self::SheetInView
             | Self::DismissOutsideChange
             | Self::DismissNotice
             | Self::DismissTip

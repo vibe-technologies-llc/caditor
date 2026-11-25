@@ -102,11 +102,57 @@ pub struct PlacedView {
     pub view: DrawnView,
     pub origin: Point2,
     pub scale: f64,
+    pub extent: Aabb2,
 }
 
 impl PlacedView {
+    pub fn new(view: DrawnView, origin: Point2, scale: f64, bounds: Aabb2) -> Self {
+        let on_sheet = |point: Point2| origin + point * scale;
+        Self {
+            view,
+            origin,
+            scale,
+            extent: Aabb2::from_point(on_sheet(bounds.min())).including(on_sheet(bounds.max())),
+        }
+    }
+
     pub fn on_sheet(&self, point: Point2) -> Point2 {
         self.origin + point * self.scale
+    }
+
+    fn shifted(self, by: Vector2) -> Self {
+        Self {
+            origin: self.origin + by,
+            extent: Aabb2::from_point(self.extent.min() + by).including(self.extent.max() + by),
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMovement {
+    Free,
+    Across,
+    Up,
+}
+
+impl ViewMovement {
+    fn of(view: DrawnView, front_drawn: bool) -> Self {
+        match view {
+            DrawnView::Standard(StandardView::Top) if front_drawn => Self::Up,
+            DrawnView::Standard(StandardView::Right | StandardView::Left) if front_drawn => {
+                Self::Across
+            }
+            _ => Self::Free,
+        }
+    }
+
+    pub fn allowed(self, by: Vector2) -> Vector2 {
+        match self {
+            Self::Free => by,
+            Self::Across => Vector2::new(by.x, 0.0),
+            Self::Up => Vector2::new(0.0, by.y),
+        }
     }
 }
 
@@ -123,6 +169,51 @@ pub struct SheetPlan {
     pub unmarked: Vec<char>,
     pub scale: ScaleRatio,
     pub fits: bool,
+}
+
+impl SheetPlan {
+    pub fn placed(&self, view: DrawnView) -> Option<&PlacedView> {
+        self.views.iter().find(|placed| placed.view == view)
+    }
+
+    fn front_drawn(&self) -> bool {
+        self.placed(DrawnView::Standard(StandardView::Front))
+            .is_some()
+    }
+
+    pub fn movement(&self, view: DrawnView) -> ViewMovement {
+        ViewMovement::of(view, self.front_drawn())
+    }
+
+    fn position_of(&self, centre: Point2) -> Point2 {
+        let half = self.view_area.size() / 2.0;
+        (centre - self.view_area.center()).clamp(-half, half)
+    }
+
+    pub fn moved(&self, drawing: &mut Drawing, view: DrawnView, by: Vector2) {
+        let Some(placed) = self.placed(view) else {
+            return;
+        };
+        let by = self.movement(view).allowed(by);
+
+        drawing
+            .positions
+            .insert(view, self.position_of(placed.extent.center() + by));
+        if view != DrawnView::Standard(StandardView::Front) {
+            return;
+        }
+        for aligned in [StandardView::Top, StandardView::Right, StandardView::Left] {
+            let aligned = DrawnView::Standard(aligned);
+
+            if let Some(placed) = self.placed(aligned)
+                && drawing.positions.contains_key(&aligned)
+            {
+                let at = self.position_of(placed.extent.center() + by);
+
+                drawing.positions.insert(aligned, at);
+            }
+        }
+    }
 }
 
 pub fn sheet_size(size: SheetSize, orientation: SheetOrientation) -> (f64, f64) {
@@ -661,13 +752,7 @@ fn starts<Key: Copy + Ord>(
     placed
 }
 
-fn placed_side(
-    column: &SideColumn,
-    left: f64,
-    center_y: f64,
-    sheet_scale: f64,
-    marking: &mut Marking<'_>,
-) -> Vec<PlacedView> {
+fn placed_side(column: &SideColumn, left: f64, center_y: f64, sheet_scale: f64) -> Vec<PlacedView> {
     let width = column.width(sheet_scale);
     let mut top = center_y + column.total_height(sheet_scale) / 2.0;
     let mut views = Vec::new();
@@ -677,33 +762,77 @@ fn placed_side(
         let size = side.bounds.size() * scale;
         let middle = left + width / 2.0;
 
+        let view_top = top - SECTION_LABEL_ROOM;
+        let origin = Point2::new(
+            middle - size.x / 2.0 - side.bounds.min().x * scale,
+            view_top - size.y - side.bounds.min().y * scale,
+        );
+
+        views.push(PlacedView::new(side.view(), origin, scale, side.bounds));
+        top = view_top - size.y - VIEW_GAP;
+    }
+    views
+}
+
+fn side_labels(
+    column: &SideColumn,
+    views: &[PlacedView],
+    sheet_scale: f64,
+    marking: &mut Marking<'_>,
+) {
+    for side in &column.views {
+        let Some(placed) = views.iter().find(|placed| placed.view == side.view()) else {
+            continue;
+        };
+        let extent = placed.extent;
+
         marking.texts.push(SheetText {
-            at: Point2::new(middle, top - SECTION_LETTER_HEIGHT / 2.0),
+            at: Point2::new(
+                extent.center().x,
+                extent.max().y + SECTION_LABEL_GAP + SECTION_LETTER_HEIGHT / 2.0,
+            ),
             height: SECTION_LETTER_HEIGHT,
             content: side.label(sheet_scale),
             anchor: TextAnchor::Middle,
         });
-
-        let view_top = top - SECTION_LABEL_ROOM;
-        let placed = PlacedView {
-            view: side.view(),
-            origin: Point2::new(
-                middle - size.x / 2.0 - side.bounds.min().x * scale,
-                view_top - size.y - side.bounds.min().y * scale,
-            ),
-            scale,
-        };
-
         if let SideKind::Detail(detail) = side.kind {
             marking.marks.push(SheetMark::Circle {
                 center: placed.on_sheet(detail.centre),
-                radius: detail.radius * scale,
+                radius: detail.radius * placed.scale,
             });
         }
-        views.push(placed);
-        top = view_top - size.y - VIEW_GAP;
     }
-    views
+}
+
+fn by_hand(drawing: &Drawing, area: Aabb2, views: &mut [PlacedView]) {
+    let half = area.size() / 2.0;
+    let wanted = |view: DrawnView| {
+        drawing
+            .position(view)
+            .map(|at| area.center() + at.clamp(-half, half))
+    };
+    let front_view = DrawnView::Standard(StandardView::Front);
+
+    let front_shift = views
+        .iter()
+        .find(|placed| placed.view == front_view)
+        .map(|front| wanted(front_view).map_or(Vector2::ZERO, |at| at - front.extent.center()));
+
+    for placed in views.iter_mut() {
+        let centre = placed.extent.center();
+        let at = wanted(placed.view);
+        let carried = front_shift.unwrap_or(Vector2::ZERO);
+
+        let shift = match ViewMovement::of(placed.view, front_shift.is_some()) {
+            ViewMovement::Free => at.map_or(Vector2::ZERO, |at| at - centre),
+            ViewMovement::Up => Vector2::new(carried.x, at.map_or(carried.y, |at| at.y - centre.y)),
+            ViewMovement::Across => {
+                Vector2::new(at.map_or(carried.x, |at| at.x - centre.x), carried.y)
+            }
+        };
+
+        *placed = placed.shifted(shift);
+    }
 }
 
 fn placed_views(
@@ -712,7 +841,6 @@ fn placed_views(
     grid: &Grid,
     area: Aabb2,
     scale: f64,
-    marking: &mut Marking<'_>,
 ) -> Vec<PlacedView> {
     let (across, across_gaps) = Grid::lengths(&grid.columns);
     let (down, down_gaps) = Grid::lengths(&grid.rows);
@@ -758,19 +886,20 @@ fn placed_views(
             )
         };
 
-        views.push(PlacedView {
-            view: DrawnView::Standard(*view),
+        views.push(PlacedView::new(
+            DrawnView::Standard(*view),
             origin,
             scale,
-        });
+            *bounds,
+        ));
     }
     views.extend(placed_side(
         &grid.side,
         grid_left + width + grid.joining_gap(),
         center.y,
         scale,
-        marking,
     ));
+    by_hand(drawing, area, &mut views);
     views
 }
 
@@ -937,14 +1066,10 @@ pub fn lay_out_sheet(
         texts: &mut texts,
     };
 
-    let views = placed_views(
-        drawing,
-        extents,
-        &grid,
-        view_area,
-        scale.factor(),
-        &mut marking,
-    );
+    let views = placed_views(drawing, extents, &grid, view_area, scale.factor());
+
+    side_labels(&grid.side, &views, scale.factor(), &mut marking);
+
     let (cutting, unmarked) = cutting_lines(
         drawing,
         &Cuts {

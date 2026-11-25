@@ -4,9 +4,9 @@ use arbitrary::{Result, Unstructured};
 use caditor_document::{
     Between, BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue,
     Datum, DatumPoint, DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale,
-    Drawings, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem, Measurement,
-    ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns, Pieces,
-    PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    Drawings, DrawnView, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem,
+    Measurement, ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns,
+    Pieces, PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     PrincipalShowing, Projection, ProjectionSource, Reading, Rgb, RollbackBar, SavedView,
     SavedViews, ScaleRatio, SectionPlace, SectionPlane, SectionView, SelectionSet, SelectionSets,
     SetMember, Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView, Transaction,
@@ -907,6 +907,19 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
                 ))
             },
         });
+    }
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        let view = match input.int_in_range(0u8..=2)? {
+            0 => DrawnView::Standard(*input.choose(&StandardView::ALL)?),
+            1 => DrawnView::Section(*input.choose(&VIEW_LETTERS)?),
+            _ => DrawnView::Detail(*input.choose(&VIEW_LETTERS)?),
+        };
+        let at = Vector2::new(
+            f64::from(input.int_in_range(-1300i32..=1300)?),
+            f64::from(input.int_in_range(-1300i32..=1300)?),
+        );
+
+        drawing.positions.insert(view, at);
     }
     Ok(drawing)
 }

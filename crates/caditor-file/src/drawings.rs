@@ -1,11 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
     DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale, Drawings,
-    FIRST_UNSTORABLE_ID, FeatureId, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES,
-    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS, MIN_DETAIL_RADIUS,
-    Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize,
-    StandardView, VIEW_LETTERS, drawing_name,
+    DrawnView, FIRST_UNSTORABLE_ID, FeatureId, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS,
+    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET,
+    MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace,
+    SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView, VIEW_LETTERS,
+    drawing_name,
 };
 use caditor_expression::{EvalError, Expression, ParameterId};
 use caditor_geometry::Point2;
@@ -48,6 +49,30 @@ pub(crate) struct DrawingRecord {
     pub sections: Vec<Lenient<SectionRecord>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<Lenient<DetailRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub positions: Vec<Lenient<PositionRecord>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct PositionRecord {
+    pub view: Lenient<ViewKeyRecord>,
+    pub at: [f64; 2],
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ViewKeyRecord {
+    Standard(String),
+    Section(String),
+    Detail(String),
+}
+
+fn view_key_record(view: DrawnView) -> ViewKeyRecord {
+    match view {
+        DrawnView::Standard(standard) => ViewKeyRecord::Standard(standard.key().to_owned()),
+        DrawnView::Section(letter) => ViewKeyRecord::Section(letter.to_string()),
+        DrawnView::Detail(letter) => ViewKeyRecord::Detail(letter.to_string()),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -190,6 +215,16 @@ fn drawing_record(drawing: &Drawing) -> DrawingRecord {
             .details
             .iter()
             .map(|detail| Lenient::Read(detail_record(detail)))
+            .collect(),
+        positions: drawing
+            .positions
+            .iter()
+            .map(|(view, at)| {
+                Lenient::Read(PositionRecord {
+                    view: Lenient::Read(view_key_record(*view)),
+                    at: [at.x, at.y],
+                })
+            })
             .collect(),
     }
 }
@@ -598,6 +633,69 @@ fn restored_details(
     details
 }
 
+fn single_letter(text: &str) -> Option<char> {
+    let mut characters = text.chars();
+
+    characters.next().filter(|_| characters.next().is_none())
+}
+
+fn restored_view_key(record: &Lenient<ViewKeyRecord>) -> Option<DrawnView> {
+    match record {
+        Lenient::Read(ViewKeyRecord::Standard(key)) => {
+            StandardView::from_key(key).map(DrawnView::Standard)
+        }
+        Lenient::Read(ViewKeyRecord::Section(letter)) => {
+            single_letter(letter).map(DrawnView::Section)
+        }
+        Lenient::Read(ViewKeyRecord::Detail(letter)) => {
+            single_letter(letter).map(DrawnView::Detail)
+        }
+        Lenient::Unreadable(_) => None,
+    }
+}
+
+fn restored_positions(
+    records: &[Lenient<PositionRecord>],
+    drawing: &Drawing,
+    issues: &mut Vec<String>,
+) -> BTreeMap<DrawnView, Point2> {
+    let mut positions = BTreeMap::new();
+    let mut lost = 0_usize;
+
+    for record in records {
+        let Lenient::Read(record) = record else {
+            lost += 1;
+            continue;
+        };
+        let [x, y] = record.at;
+
+        let at = Point2::new(x, y);
+        let usable = at.is_finite() && x.abs() <= MAX_VIEW_PLACE && y.abs() <= MAX_VIEW_PLACE;
+
+        match restored_view_key(&record.view) {
+            Some(view) if usable && drawing.has_view(view) && !positions.contains_key(&view) => {
+                positions.insert(view, at);
+            }
+            _ => lost += 1,
+        }
+    }
+
+    let name = &drawing.name;
+
+    match lost {
+        0 => {}
+        1 => issues.push(format!(
+            "Where a view of the drawing “{name}” was placed could not be used, so it stands \
+             where the drawing lays it out."
+        )),
+        _ => issues.push(format!(
+            "Where {lost} views of the drawing “{name}” were placed could not be used, so they \
+             stand where the drawing lays them out."
+        )),
+    }
+    positions
+}
+
 pub(crate) fn restore_drawings(
     record: DrawingsRecord,
     exists: &dyn Fn(ParameterId) -> bool,
@@ -635,7 +733,7 @@ pub(crate) fn restore_drawings(
         let sections = restored_sections(&drawing.sections, &name, exists, issues);
 
         let details = restored_details(&drawing.details, &sections, &name, issues);
-        let restored = Drawing {
+        let mut restored = Drawing {
             id,
             size: understood(
                 &drawing.size,
@@ -667,9 +765,11 @@ pub(crate) fn restore_drawings(
             hidden_lines: drawing.hidden_lines,
             sections,
             details,
+            positions: BTreeMap::new(),
             name,
         };
 
+        restored.positions = restored_positions(&drawing.positions, &restored, issues);
         drawings.drawings.push(restored);
     }
     drawings.next_id = drawings.first_free_id();

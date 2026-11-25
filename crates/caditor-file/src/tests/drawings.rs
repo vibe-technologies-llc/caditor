@@ -1,8 +1,9 @@
 use std::{collections::BTreeSet, fs};
 
 use caditor_document::{
-    DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale, Drawings, Projection,
-    ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView,
+    DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale, Drawings, DrawnView,
+    Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize,
+    StandardView,
 };
 use caditor_geometry::Point2;
 
@@ -74,6 +75,39 @@ pub(super) fn detailed_drawings_of(base: FeatureId) -> Drawings {
         ];
     }
     drawings
+}
+
+pub(super) fn placed_drawings_of(base: FeatureId) -> Drawings {
+    let mut drawings = detailed_drawings_of(base);
+
+    if let Some(workshop) = drawings.drawings.first_mut() {
+        workshop.positions = [
+            (
+                DrawnView::Standard(StandardView::Front),
+                Point2::new(-20.5, 12.0),
+            ),
+            (
+                DrawnView::Standard(StandardView::Left),
+                Point2::new(60.0, 0.0),
+            ),
+            (DrawnView::Section('C'), Point2::new(40.0, -75.25)),
+            (DrawnView::Detail('B'), Point2::new(-80.0, -60.0)),
+        ]
+        .into_iter()
+        .collect();
+    }
+    drawings
+}
+
+pub(super) fn with_placed_views() -> (Document, Transaction) {
+    let (document, base, _) = solid_model();
+    let change = Transaction::single(
+        "Placed views",
+        Edit::SetDrawings {
+            drawings: Box::new(placed_drawings_of(base)),
+        },
+    );
+    (document, change)
 }
 
 pub(super) fn with_detail_views() -> (Document, Transaction) {
@@ -422,5 +456,104 @@ fn detail_views_that_cannot_be_read_are_repaired_and_reported() {
     assert!(issues_mention(
         &loaded,
         "A detail view of the drawing “Shop” could not be read"
+    ));
+}
+
+#[test]
+fn view_positions_survive_saving_and_the_journal() {
+    let (mut document, change) = with_placed_views();
+
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+
+    assert!(text.contains("\"positions\""), "{text}");
+    assert!(
+        text.contains(r#"{"at":[40.0,-75.25],"view":{"section":"C"}}"#),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(loaded.document.drawings().drawings[0].positions.len(), 4);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn drawings_saved_before_views_were_placed_by_hand_load_laid_out_automatically() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/model-1");
+
+    for name in [
+        "drawings.caditor",
+        "section-views.caditor",
+        "detail-views.caditor",
+        "section-parameter-offsets.caditor",
+    ] {
+        let bytes = fs::read(folder.join(name)).unwrap();
+        let loaded = decode(&bytes).unwrap();
+        let drawings = &loaded.document.drawings().drawings;
+
+        assert_eq!(loaded.issues, Vec::<String>::new(), "{name}");
+        assert!(!drawings.is_empty(), "{name}");
+        assert!(
+            drawings.iter().all(|drawing| drawing.positions.is_empty()),
+            "{name}"
+        );
+    }
+
+    let journal = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/journal-1/detail-views.journal"),
+    )
+    .unwrap();
+    let contents = journal::decode_journal(&journal).unwrap();
+    let replayed = journal::replay(contents.base, contents.entries);
+
+    assert_eq!(contents.issues, Vec::<String>::new());
+    assert!(
+        replayed
+            .editor
+            .document()
+            .drawings()
+            .drawings
+            .iter()
+            .all(|drawing| drawing.positions.is_empty())
+    );
+}
+
+#[test]
+fn view_positions_that_cannot_be_used_are_left_out_and_reported() {
+    let (document, _, _) = solid_model();
+    let drawings = r#"{"drawings":{"drawings":[{"id":1,"name":"Shop","views":["front","top"],"sections":[{"letter":"A","parent":"front","plane":"yz"}],"positions":[{"view":{"standard":"front"},"at":[10.0,-5.0]},{"view":{"section":"A"},"at":[30.0,40.0]},{"view":{"standard":"front"},"at":[1.0,1.0]},{"view":{"standard":"right"},"at":[0.0,0.0]},{"view":{"detail":"B"},"at":[0.0,0.0]},{"view":{"standard":"top"},"at":[1e300,0.0]},{"view":{"sideways":"A"},"at":[0.0,0.0]},{"view":{"section":"AA"},"at":[0.0,0.0]},7]},{"id":2,"name":"Bench","views":["front"],"positions":[{"view":{"standard":"left"},"at":[0.0,0.0]}]}],"next_id":3}}"#;
+    let text = format!("{}\n{drawings}", encode(&document).unwrap());
+
+    let loaded = decode_text(&text);
+    let shop = &loaded.document.drawings().drawings[0];
+
+    assert_eq!(
+        shop.positions
+            .iter()
+            .map(|(view, at)| (*view, *at))
+            .collect::<Vec<_>>(),
+        [
+            (
+                DrawnView::Standard(StandardView::Front),
+                Point2::new(10.0, -5.0)
+            ),
+            (DrawnView::Section('A'), Point2::new(30.0, 40.0)),
+        ]
+    );
+    assert!(loaded.document.drawings().drawings[1].positions.is_empty());
+    assert!(issues_mention(
+        &loaded,
+        "Where 7 views of the drawing “Shop” were placed could not be used"
+    ));
+    assert!(issues_mention(
+        &loaded,
+        "Where a view of the drawing “Bench” was placed could not be used"
     ));
 }

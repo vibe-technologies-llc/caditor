@@ -424,7 +424,7 @@ paths:
   interface, Model's Modify shape and Sketch's Drawing tools, Modify geometry, Select geometry and
   Constrain automatically. An entry whose command `ToggleStates::shown` answers is drawn with its
   checkmark wherever it sits (`Menus::item`), the open panels (Measure, Interference, each face
-  analysis, comb, isocurves, Drawings, Lighting, the AI assistant) and full screen included through
+  analysis, comb, isocurves, Drawings, the drawing sheet in the view, Lighting, the AI assistant) and full screen included through
   `toggles::OpenPanels`, which the palette reads for its On and Off pills too; the AI assistant is
   listed once, under View › Window and interface. Then come the model title, a Preferences icon button (the gear; no menu
   entry) and the Search commands field (opens the palette on click; keys as `widgets::key_cap`s)

@@ -31,7 +31,7 @@ use crate::{
     },
     drawings::{
         Drawings, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS,
-        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MIN_DETAIL_RADIUS,
+        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS,
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
@@ -551,6 +551,10 @@ pub enum EditError {
         plane: &'static str,
         view: &'static str,
     },
+    #[error(
+        "The {view} cannot be placed there; a view stands at most {MAX_VIEW_PLACE} mm from the middle of the sheet's view area"
+    )]
+    ViewPlaceOutOfRange { view: String },
     #[error("A configuration needs a name")]
     ConfigurationNameEmpty,
     #[error(

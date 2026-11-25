@@ -211,6 +211,7 @@ mod selection;
 mod selection_sets;
 mod shape_modes;
 mod shapes;
+mod sheet_canvas;
 mod sheet_export;
 mod sheet_views;
 mod shell_panel;

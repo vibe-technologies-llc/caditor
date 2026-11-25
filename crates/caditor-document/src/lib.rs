@@ -150,7 +150,7 @@ pub use crate::{
     },
     drawing_sheet::{
         PlacedView, SheetMark, SheetPlan, SheetText, TITLE_BLOCK_HEIGHT, TITLE_BLOCK_WIDTH,
-        TextAnchor, TitleFields, VIEW_GAP, lay_out_sheet, sheet_size, text_width,
+        TextAnchor, TitleFields, VIEW_GAP, ViewMovement, lay_out_sheet, sheet_size, text_width,
     },
     drawing_views::{
         Disc, DrawingViewError, DrawnBodies, HatchRegion, SectionLines, ViewLines, drawing_view,
@@ -159,9 +159,9 @@ pub use crate::{
     drawings::{
         DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale, Drawings,
         DrawnView, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS,
-        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS, MIN_DETAIL_RADIUS,
-        Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation,
-        SheetSize, StandardView, VIEW_LETTERS, drawing_name,
+        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS, MAX_VIEW_PLACE,
+        MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
+        SheetOrientation, SheetSize, StandardView, VIEW_LETTERS, drawing_name,
     },
     edit::{
         Edit, EditError, MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, Touched, Transaction,
