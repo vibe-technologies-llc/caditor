@@ -20,7 +20,8 @@ use crate::{
     scene_palette::ScenePalette,
     selection::Axis,
     sketch_drag::{
-        Transform, TransformError, Transforming, circles_of, extent_centre, points_of, subject,
+        MoveError, Transform, TransformError, Transforming, circles_of, extent_centre, movable,
+        points_of, selects_projected, subject,
     },
     typed_point::{self, TypedValueError},
     units::Units,
@@ -96,6 +97,8 @@ pub enum SketchHandleTypingError {
     Value(#[from] TypedValueError),
     #[error(transparent)]
     Transform(#[from] TransformError),
+    #[error(transparent)]
+    Move(#[from] MoveError),
     #[error("Keep the geometry within {} m of the sketch's origin", MAX_LENGTH / 1_000.0)]
     TooFar,
     #[error("Select sketch geometry to move it")]
@@ -616,7 +619,11 @@ pub fn apply_typed(
             let points = points_of(sketch, &entities);
 
             if points.is_empty() {
-                return Err(SketchHandleTypingError::NothingSelected);
+                return Err(if selects_projected(sketch, selected) {
+                    SketchHandleTypingError::Move(MoveError::Projected)
+                } else {
+                    SketchHandleTypingError::NothingSelected
+                });
             }
 
             let drags =
@@ -725,12 +732,7 @@ fn movable_entities(sketch: &Sketch, selected: &[EntityId]) -> Vec<EntityId> {
     selected
         .iter()
         .copied()
-        .filter(|entity| {
-            !entity.is_reference()
-                && (sketch.entity(*entity).is_some()
-                    || sketch.text(*entity).is_some()
-                    || sketch.gear(*entity).is_some())
-        })
+        .filter(|entity| movable(sketch, *entity))
         .collect()
 }
 
@@ -784,7 +786,7 @@ fn selection_targets(
     };
     let moved: Vec<EntityId> = present
         .into_iter()
-        .filter(|entity| !entity.is_reference() && Some(*entity) != pivot_point)
+        .filter(|entity| !sketch.is_fixed(*entity) && Some(*entity) != pivot_point)
         .collect();
 
     if moved.is_empty() {
@@ -977,6 +979,46 @@ mod tests {
 
         assert!(drag.has_moved());
         assert_eq!(drag.readout(Units::default()), "X +15.00 mm");
+    }
+
+    #[test]
+    fn handles_leave_projected_geometry_out_and_stand_for_nothing_when_all_is_projected() {
+        let view = facing_view();
+        let (mut sketch, line, circle) = sketch_with_line_and_circle();
+        let feature = FeatureId::from_raw(1);
+        let start_ray = Ray::new(Point3::new(20.0, 0.0, 100.0), Vector3::NEG_Z).unwrap();
+        let moved_ray = Ray::new(Point3::new(35.0, 0.0, 100.0), Vector3::NEG_Z).unwrap();
+
+        for id in sketch.entity(line).unwrap().points() {
+            sketch.set_projected(id, true).unwrap();
+        }
+        sketch.set_projected(line, true).unwrap();
+
+        let both = [line, circle];
+        let (pivot, can_transform) = pivot_and_transformable(&sketch, &both, None).unwrap();
+
+        let handles =
+            SketchHandles::of(&sketch, feature, pivot, can_transform, &view, 1.0).unwrap();
+        let mut drag =
+            SketchHandleDrag::begin(&sketch, &handles, SketchGrip::AlongX, &both, start_ray)
+                .unwrap();
+
+        let DragCommand::Move { drags, .. } = drag.follow(moved_ray, true).unwrap() else {
+            panic!("expected move drag command");
+        };
+        let centre = sketch.entity(circle).unwrap().points();
+
+        assert_eq!(pivot, Point2::new(10.0, 10.0));
+        assert!(pivot_and_transformable(&sketch, &[line], None).is_none());
+        assert!(
+            SketchHandleDrag::begin(&sketch, &handles, SketchGrip::Rotate, &[line], start_ray)
+                .is_none()
+        );
+        assert_eq!(drags.len(), 1);
+        assert!(drags.iter().all(|drag| matches!(
+            drag,
+            Drag::Point { point, .. } if centre.contains(point)
+        )));
     }
 
     #[test]

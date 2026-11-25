@@ -17,7 +17,9 @@ it and choose **Edit text** or **Edit gear**.
 
 Constraints still hold, so geometry tied to the rest may not go all the way. With one dimension
 selected, Move places its label instead. Projected geometry, the origin and the axes never move:
-dragging them says so beside the pointer. A value entered while the sketch is still being
+dragging them says so beside the pointer, and Move, Rotate and Scale leave them out of a selection
+or, when nothing else is selected, say so. To move projected geometry, choose
+{command:sketch.unlink_projection} first. A value entered while the sketch is still being
 recalculated waits, shown in the status bar, and moves the geometry once the sketch is solved;
 Escape or the status bar's Cancel drops it.
 

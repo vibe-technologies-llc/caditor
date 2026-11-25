@@ -2,7 +2,7 @@ use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{EntityId, Sketch};
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 
-use super::{DRAWN, Harness, edit_free_sketch, line_ends, run_from_palette};
+use super::{DRAWN, Harness, edit_free_sketch, extruded_plate, line_ends, run_from_palette};
 use crate::{model::Action, selection::Pickable, sketch_handles::SketchGrip};
 
 fn drag_between(harness: &mut Harness, from: Pos2, to: Pos2, modifiers: Modifiers) {
@@ -316,4 +316,46 @@ fn sketch_handles_rotate_scale_cancel_with_escape_and_accept_typed_values() {
 
     assert!(centre.distance(Point2::new(40.0, 0.0)) < DRAWN);
     assert!((radius - 10.0).abs() < DRAWN);
+}
+
+#[test]
+fn move_refuses_projected_geometry_in_words_until_it_is_kept_as_ordinary_curves() {
+    let mut harness = Harness::new();
+
+    let (_, top) = extruded_plate(&mut harness);
+    let sketch = harness.draw_on_new_sketch();
+
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    harness.use_tool(Key::Escape);
+
+    let projected: Vec<Pickable> = harness
+        .sketch(sketch)
+        .projected()
+        .map(|entity| Pickable::SketchEntity {
+            feature: sketch,
+            entity,
+        })
+        .collect();
+    let before = harness.sketch(sketch).clone();
+
+    harness.select(projected);
+    harness.frame();
+    harness.key(Key::M, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows_containing("keep the selected projections as ordinary curves to move"));
+    assert!(!harness.workspace.viewport.has_sketch_handles());
+    assert_eq!(harness.sketch(sketch), &before);
+
+    run_from_palette(&mut harness, "keep the selected projections");
+    harness.settle();
+    harness.key(Key::M, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.sketch(sketch).projected().count(), 0);
+    assert!(harness.workspace.viewport.has_sketch_handles());
 }

@@ -45,6 +45,11 @@ pub enum MoveError {
     WhileDrawing,
     #[error("Select sketch geometry to move it")]
     NothingSelected,
+    #[error(
+        "Projected geometry follows the model geometry it comes from; keep the selected \
+         projections as ordinary curves to move them"
+    )]
+    Projected,
 }
 
 impl Reason for MoveError {
@@ -65,6 +70,12 @@ pub enum TransformError {
         .transform.pivot_verb()
     )]
     NeedsPivot { transform: Transform },
+    #[error(
+        "Projected geometry follows the model geometry it comes from; keep the selected \
+         projections as ordinary curves to {} them",
+        .transform.verb().to_lowercase()
+    )]
+    Projected { transform: Transform },
     #[error("The factor must be a number above zero")]
     FactorNotPositive,
     #[error("Keep the geometry within {} m of the sketch's origin", MAX_LENGTH / 1_000.0)]
@@ -555,16 +566,15 @@ impl Moving {
         let entities: Vec<EntityId> = selected
             .iter()
             .copied()
-            .filter(|entity| {
-                !entity.is_reference()
-                    && (sketch.entity(*entity).is_some()
-                        || sketch.text(*entity).is_some()
-                        || sketch.gear(*entity).is_some())
-            })
+            .filter(|entity| movable(sketch, *entity))
             .collect();
         let points = points_of(sketch, &entities);
         let Some(&(_, anchor)) = points.first() else {
-            return Err(MoveError::NothingSelected);
+            return Err(if selects_projected(sketch, selected) {
+                MoveError::Projected
+            } else {
+                MoveError::NothingSelected
+            });
         };
         Ok(Self {
             feature,
@@ -718,12 +728,16 @@ impl Transforming {
         let moved: Vec<EntityId> = present
             .iter()
             .copied()
-            .filter(|entity| !entity.is_reference() && Some(*entity) != pivot_point)
+            .filter(|entity| !sketch.is_fixed(*entity) && Some(*entity) != pivot_point)
             .collect();
         let points = points_of(sketch, &moved);
 
         if points.is_empty() {
-            return Err(TransformError::NothingSelected { transform });
+            return Err(if selects_projected(sketch, selected) {
+                TransformError::Projected { transform }
+            } else {
+                TransformError::NothingSelected { transform }
+            });
         }
 
         let circles = circles_of(sketch, &moved);
@@ -899,6 +913,17 @@ fn ellipse_half_extent(major: Vector2, minor_radius: f64) -> Vector2 {
         (along * direction.x).hypot(minor_radius * direction.y),
         (along * direction.y).hypot(minor_radius * direction.x),
     )
+}
+
+pub(crate) fn movable(sketch: &Sketch, entity: EntityId) -> bool {
+    !sketch.is_fixed(entity)
+        && (sketch.entity(entity).is_some()
+            || sketch.text(entity).is_some()
+            || sketch.gear(entity).is_some())
+}
+
+pub(crate) fn selects_projected(sketch: &Sketch, selected: &[EntityId]) -> bool {
+    selected.iter().any(|entity| sketch.is_projected(*entity))
 }
 
 pub(crate) fn subject(sketch: &Sketch, entities: &[EntityId]) -> String {
@@ -1707,6 +1732,47 @@ mod tests {
                 DragCommand::Finish { join: None },
             ]
         );
+    }
+
+    #[test]
+    fn projected_geometry_is_left_out_of_moves_and_refused_alone() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let projected = sketch.add_line(Point2::new(1.0, 2.0), Point2::new(5.0, 2.0));
+        let (projected_start, projected_end) = ends(&sketch, projected);
+        let free = sketch.add_line(Point2::new(0.0, 6.0), Point2::new(3.0, 6.0));
+        let (free_start, free_end) = ends(&sketch, free);
+        let feature = feature();
+
+        for id in [projected, projected_start, projected_end] {
+            sketch.set_projected(id, true).unwrap();
+        }
+
+        let both = [projected, free];
+        let moving = Moving::of(&sketch, feature, &both).unwrap();
+        let turned = Transforming::of(&sketch, feature, &both, Transform::Rotate).unwrap();
+
+        assert_eq!(
+            Moving::of(&sketch, feature, &[projected]),
+            Err(MoveError::Projected)
+        );
+
+        for transform in [Transform::Rotate, Transform::Scale] {
+            assert_eq!(
+                Transforming::of(&sketch, feature, &[projected], transform),
+                Err(TransformError::Projected { transform })
+            );
+        }
+
+        assert_eq!(moving.anchor, Point2::new(0.0, 6.0));
+        assert_eq!(
+            moving.points,
+            vec![
+                (free_start, Point2::new(0.0, 6.0)),
+                (free_end, Point2::new(3.0, 6.0))
+            ]
+        );
+        assert_eq!(turned.pivot, Point2::new(1.5, 6.0));
     }
 
     #[test]

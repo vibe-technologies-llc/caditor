@@ -186,7 +186,11 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   splines (files saved before centripetal spacing) into centripetal ones
   (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", solved like a
-  drag; button and command share availability (`Moving::offered`). Activating Move, Rotate or Scale
+  drag; button and command share availability (`Moving::offered`). Move, Rotate, Scale and their
+  handles take only geometry that can move (`sketch_drag::movable`: projected geometry, the origin
+  and axes are fixed for the solver); a selection holding nothing else is refused naming the remedy
+  (`MoveError::Projected`, `TransformError::Projected`: keep the selected projections as ordinary
+  curves), never previewed and then left where it was. Activating Move, Rotate or Scale
   also shows 2D transform handles on the canvas (`sketch_handles.rs`, `SketchHandles`, rendered in
   `Overlay::sketch_handles`): X and Y axis arrows and an XY plane square, plus a rotation ring and
   scale handle when the selection can rotate/scale about its pivot (`pivot_and_transformable`).
