@@ -59,8 +59,11 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   scratch, with at least `FEWEST_EDITS_APPLIED` applied edits of every `EditKind`.
 - `expression_tests.rs` runs the `expression` fuzz target's check over its committed seeds.
 - `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
-  `every_input_kept_in_the_regression_folder_still_holds` through the same checks. A crash libFuzzer
-  finds in `document` is copied there (`fuzz/artifacts` is not tracked), next to the fix.
+  `every_input_kept_in_the_regression_folder_still_holds` through the same checks, and
+  `regressions/sketch_edit/` by `every_sketch_edit_input_kept_in_the_regression_folder_still_holds`
+  through `edited_sketch` (a timeout's slow edit also gets a `tally` bound in the crate doing it,
+  as `offset/tests.rs` does). A crash libFuzzer finds in `document` or `sketch_edit` is copied
+  there (`fuzz/artifacts` is not tracked), next to the fix.
 - Evaluation is bounded by a poll count (`POLL_LIMIT`) rather than a clock, so a case never gives
   different answers on a loaded machine; a case that exhausts it is skipped.
 - A property that fails on inputs the model should handle is a finding: record it in `docs/BUGS.md`,

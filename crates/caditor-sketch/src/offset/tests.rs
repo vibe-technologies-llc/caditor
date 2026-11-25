@@ -2,8 +2,8 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    Caps, Constraint, ConstraintId, Entity, EntityId, OffsetError, Side, Sketch, Solved,
-    SplineKind, solve::tally,
+    Caps, Constraint, ConstraintId, Entity, EntityId, FitSpacing, OffsetError, Side, Sketch,
+    Solved, SplineKind, solve::tally,
 };
 
 const EXACT: f64 = 1e-7;
@@ -2340,6 +2340,51 @@ fn a_closed_spline_folded_back_along_a_line_is_refused_in_well_under_a_frame_of_
     for side in [Side::Left, Side::Right] {
         let (refused, work) =
             tally::measure(|| sketch.offset(&[folded], side, 1.0, mm(1.0)).unwrap_err());
+
+        assert_eq!(refused, OffsetError::CrossesItself);
+        assert!(work < FRAME_OF_WORK / 3, "{work} units to refuse");
+        assert_eq!(sketch, before);
+    }
+}
+
+#[test]
+fn a_spline_ending_on_one_point_four_times_is_refused_in_well_under_a_frame_of_work() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(-8.5, -3.5),
+            Point2::new(-7.500001, 11.49998),
+            Point2::new(-7.500001, 11.49998),
+            Point2::new(-7.500001, 11.49998),
+            Point2::new(-7.500001, 11.49998),
+        ],
+        SplineKind::Fit {
+            closed: false,
+            spacing: FitSpacing::Even,
+        },
+    );
+    let before = sketch.clone();
+
+    let (both, both_work) = tally::measure(|| {
+        sketch
+            .offset_both_sides(&[spline], 11.5, mm(11.5), Caps::Flat)
+            .unwrap_err()
+    });
+
+    assert_eq!(both, OffsetError::CrossesItself);
+    assert!(
+        both_work < FRAME_OF_WORK / 3,
+        "{both_work} units to refuse both sides"
+    );
+    assert_eq!(sketch, before);
+
+    for (side, distance) in [(Side::Left, 7.5), (Side::Right, 2.5)] {
+        let (refused, work) = tally::measure(|| {
+            sketch
+                .offset(&[spline], side, distance, mm(distance))
+                .unwrap_err()
+        });
 
         assert_eq!(refused, OffsetError::CrossesItself);
         assert!(work < FRAME_OF_WORK / 3, "{work} units to refuse");

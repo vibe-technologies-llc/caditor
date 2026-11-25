@@ -1,4 +1,8 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    fs,
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use arbitrary::Unstructured;
 use caditor_geometry::Plane;
@@ -337,4 +341,23 @@ fn every_sketch_edit_keeps_its_use_counts_or_refuses_without_a_change() {
             "only {applied} edits of kind {kind:?} were applied, so the generators no longer reach enough"
         );
     }
+}
+
+#[test]
+fn every_sketch_edit_input_kept_in_the_regression_folder_still_holds() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("regressions/sketch_edit");
+    let mut replayed = 0;
+
+    for entry in fs::read_dir(&folder).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = fs::read(&path).unwrap();
+
+        let edited = edited_sketch(&mut Unstructured::new(&bytes), Plane::XY);
+
+        assert!(edited.is_ok(), "{} ran out of input", path.display());
+
+        replayed += 1;
+    }
+
+    assert!(replayed > 0, "{} holds no input", folder.display());
 }
