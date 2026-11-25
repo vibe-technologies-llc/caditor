@@ -62,7 +62,8 @@ paths:
   `$MEASUREMENT` imperial, SVG in pixels, plain numbers, no size or no viewBox). The import dialog
   uses it to decide whether a remembered unit may start the options (`app-files.md`).
 - Dashed linetypes make a curve construction geometry (`Drawing::construction`), with a note.
-  Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared.
+  Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared. An INSERT naming a block the drawing lacks is listed by
+  name in one note, and one naming no block at all is counted in a note of its own.
 - SPLINE uses control points up to `MAX_SPLINE_DEGREE`, else fit points: with an end tangent the
   cubic AutoCAD draws (`FitPoints::cubic`), otherwise `DrawingCurve::FitSpline`, which
   `drawing_transaction` makes a centripetal fit-point spline (closed when flag 70 bit 1 is set and

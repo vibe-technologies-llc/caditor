@@ -205,13 +205,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
-## Drawing import
-
-- [low · easy] A damaged DXF whose insert names no block (the fuzz input kept as
-  `crates/caditor-file/regressions/dxf-bolt-array.dxf`) is reported as "Blocks that the drawing
-  uses but does not contain were left out: ." with an empty name: say that an insert named no block
-  rather than listing an empty name.
-
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view

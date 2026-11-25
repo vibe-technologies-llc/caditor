@@ -715,6 +715,7 @@ struct Interpreter<'a> {
     visited: usize,
     external: BTreeSet<String>,
     missing: BTreeSet<String>,
+    unnamed: usize,
     contents: BTreeMap<String, Rc<Vec<Prepared>>>,
     drawing: BTreeMap<String, Option<bool>>,
 }
@@ -734,6 +735,7 @@ impl<'a> Interpreter<'a> {
             visited: 0,
             external: BTreeSet::new(),
             missing: BTreeSet::new(),
+            unnamed: 0,
             contents: BTreeMap::new(),
             drawing: BTreeMap::new(),
         }
@@ -923,7 +925,11 @@ impl<'a> Interpreter<'a> {
         let name = &insertion.block;
 
         let (Some(block), Some(contents)) = (file.blocks.get(name), self.contents(name)) else {
-            self.missing.insert(insertion.written_name.clone());
+            if insertion.written_name.is_empty() {
+                self.unnamed += 1;
+            } else {
+                self.missing.insert(insertion.written_name.clone());
+            }
             return Ok(());
         };
 
@@ -1049,6 +1055,13 @@ impl<'a> Interpreter<'a> {
             drawing.notes.push(format!(
                 "Blocks that the drawing uses but does not contain were left out: {}.",
                 list(&names)
+            ));
+        }
+        if self.unnamed > 0 {
+            drawing.notes.push(format!(
+                "{} naming no block {} left out.",
+                capitalized(&counted(self.unnamed, "insert", "inserts")),
+                were(self.unnamed)
             ));
         }
         if tally.too_deep > 0 {

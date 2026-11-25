@@ -3039,6 +3039,18 @@ fn a_spline_no_fit_brings_within_tolerance_repeated_thousands_of_times_is_read_q
     let drawing = parse_dxf(BOLT_ARRAY).unwrap();
 
     assert_eq!(drawing.curves.len(), 53_971);
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note == "1 insert naming no block was left out.")
+    );
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .all(|note| !note.contains("does not contain"))
+    );
     assert!(drawing.notes.iter().any(|note| {
         note == "7710 splines were converted to sketch splines that stay within 0.033 mm of the \
                  original."
