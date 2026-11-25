@@ -3324,6 +3324,64 @@ fn a_holed_block_whose_side_cuts_a_torus_past_its_top_edge_combines() {
 }
 
 #[test]
+fn a_hollow_cuboid_cutting_a_cone_near_its_apex_combines() {
+    let cone = crate::fixtures::cone(3.0, 4.0);
+    let axis = Vector3::new(
+        0.0012668656993668481,
+        0.8490032216878569,
+        0.6134474261683072,
+    );
+    let offset = (1.547104844755074, 1.7607209396421721, 0.8109295505452652);
+
+    let placed = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            axis,
+            4.442174256268714,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "hollow cuboid across a cone's apex",
+        &cone,
+        &placed,
+        (12.0 * PI, exact_volume(&placed)),
+    );
+}
+
+#[test]
+fn a_holed_block_with_a_corner_beside_an_extruded_splines_corner_combines() {
+    let body = crate::fixtures::extruded_spline(5.0);
+    let axis = Vector3::new(
+        0.5789998216093049,
+        -0.40326445225316454,
+        -0.7103261132264698,
+    );
+    let offset = (
+        0.00047360707381228053,
+        0.0011881583315011268,
+        0.0007805382765238671,
+    );
+
+    let placed = moved(
+        rotated(
+            crate::fixtures::holed_block(10.0, 4.0, 2.5),
+            axis,
+            5.805423486280596,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "holed block at an extruded spline's corner",
+        &body,
+        &placed,
+        (exact_volume(&body), 400.0 - 25.0 * PI),
+    );
+}
+
+#[test]
 fn a_torus_and_its_copy_turned_a_quarter_radian_with_equators_nearly_tangent_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
@@ -3342,4 +3400,50 @@ fn a_torus_and_its_copy_turned_a_quarter_radian_with_equators_nearly_tangent_com
         &placed,
         (torus_volume, torus_volume),
     );
+}
+
+#[test]
+fn edges_of_both_solids_crossing_within_the_resolution_meet_at_one_vertex() {
+    let body = crate::fixtures::extruded_spline(5.0);
+    let axis = Vector3::new(
+        0.5789998216093049,
+        -0.40326445225316454,
+        -0.7103261132264698,
+    );
+    let offset = (
+        0.00047360707381228053,
+        0.0011881583315011268,
+        0.0007805382765238671,
+    );
+    let crossing = Point3::new(-0.0007016251064443231, 0.00421135197263233, 0.0);
+
+    let placed = moved(
+        rotated(
+            crate::fixtures::holed_block(10.0, 4.0, 2.5),
+            axis,
+            5.805423486280596,
+        ),
+        offset,
+    );
+    let input = Input::new(&body, &placed);
+    let arrangement = imprint::imprint(&input).unwrap();
+
+    let ends_near = |operand: Operand| -> BTreeSet<usize> {
+        (0..)
+            .map_while(|piece| arrangement.piece(piece).map(|data| (piece, *data)))
+            .filter(|(piece, _)| arrangement.edge_operand(*piece) == Some(operand))
+            .flat_map(|(_, data)| [data.start, data.end])
+            .filter(|vertex| {
+                arrangement
+                    .point(*vertex)
+                    .is_some_and(|point| point.distance(crossing) < 1e-3)
+            })
+            .collect()
+    };
+    let shared: Vec<usize> = ends_near(Operand::First)
+        .intersection(&ends_near(Operand::Second))
+        .copied()
+        .collect();
+
+    assert_eq!(shared.len(), 1, "{shared:?}");
 }

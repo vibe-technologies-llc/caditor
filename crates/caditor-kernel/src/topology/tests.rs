@@ -663,6 +663,49 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
 }
 
 #[test]
+fn a_pcurve_sweeping_round_near_a_cone_apex_within_one_step_follows_the_curve() {
+    let surface = Cone::new(Plane::XY, 3.0, (-3.0f64).atan2_libm(4.0))
+        .unwrap()
+        .into();
+    let frame = Plane::from_frame(
+        Point3::new(27.874486003284623, 27.863592893390226, -48.58668617239956),
+        Vector3::new(
+            -0.5656551932711757,
+            -0.5654341400764401,
+            -0.6002653043124896,
+        ),
+        Vector3::new(0.4245346113257749, 0.4243687068432815, -0.7998009530118318),
+    )
+    .unwrap();
+    let section: crate::curve::Curve =
+        crate::curve::Ellipse::new(frame, 65.70430498972794, 1.4655971764012716)
+            .unwrap()
+            .into();
+    let past_the_apex = Interval::new(3.051884503902668, 3.486439596675434).unwrap();
+    let start = caditor_geometry::Point2::new(TAU, 4.69046304857987);
+
+    let pcurve = fit_pcurve(
+        &surface,
+        &section,
+        past_the_apex,
+        crate::sense::Sense::Same,
+        Some(start),
+    )
+    .unwrap();
+    let turned = pcurve.end().x - pcurve.start().x;
+
+    assert!((pcurve.start() - start).length() < 1e-9, "{pcurve:?}");
+    assert!((turned + 5.285).abs() < 1e-3, "{turned}");
+    assert!(
+        pcurve
+            .samples()
+            .windows(2)
+            .all(|pair| pair[1].uv.x <= pair[0].uv.x),
+        "{pcurve:?}"
+    );
+}
+
+#[test]
 fn a_pcurve_keeps_an_arc_bowing_less_than_its_tolerance_apart_from_its_chord() {
     let surface = PlaneSurface::new(Plane::XY).unwrap().into();
     let arc: crate::curve::Curve = Circle::new(Plane::XY, 0.3).unwrap().into();

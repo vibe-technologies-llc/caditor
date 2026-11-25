@@ -369,7 +369,8 @@ fn follow(
         let divisible = depth < MAX_PCURVE_DEPTH && middle != last.parameter && middle != parameter;
 
         let turning = turns_too_far(surface, last.uv, uv)
-            || turns_too_far_through(surface, curve.point(middle), last.uv, uv);
+            || turns_too_far_through(surface, curve.point(middle), last.uv, uv)
+            || heads_back(surface, curve, last, PcurveSample { parameter, uv });
 
         if divisible && turning {
             pending.push((parameter, depth + 1));
@@ -389,6 +390,25 @@ fn turns_too_far_through(surface: &Surface, middle: Point3, from: Point2, to: Po
 
     let through = surface.project(middle, Some(from));
     turns_too_far(surface, from, through) || turns_too_far(surface, through, to)
+}
+
+fn heads_back(surface: &Surface, curve: &Curve, from: PcurveSample, to: PcurveSample) -> bool {
+    if surface.u_period().is_none() && surface.v_period().is_none() {
+        return false;
+    }
+
+    let chord = to.uv - from.uv;
+    let onward = (to.parameter - from.parameter).signum();
+
+    [from, to].into_iter().any(|end| {
+        if surface.pole_at(end.uv).is_some() {
+            return false;
+        }
+
+        let derivatives = surface.evaluate(end.uv.x, end.uv.y);
+        let stepped = derivatives.du * chord.x + derivatives.dv * chord.y;
+        stepped.dot(curve.evaluate(end.parameter).first * onward) < 0.0
+    })
 }
 
 fn turns_too_far(surface: &Surface, from: Point2, to: Point2) -> bool {

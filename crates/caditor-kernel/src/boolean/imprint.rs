@@ -484,6 +484,9 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
     for (operand, ids) in Operand::BOTH.into_iter().zip(&vertex_ids) {
         split_edges(input, operand, ids, &pool, &mut arrangement, &mut merged)?;
     }
+    for (first, second) in crossing_edges(&arrangement, &merged) {
+        merged.join(first, second);
+    }
     for overlap in &overlaps {
         add_overlap_cuts(input, overlap, &branches, &mut arrangement);
     }
@@ -910,6 +913,89 @@ fn pinched_pieces(arrangement: &Arrangement, merged: &Merged) -> Vec<Pinch> {
             }
         })
         .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ShortPiece {
+    ends: (usize, usize),
+    beyond: (usize, usize),
+}
+
+impl ShortPiece {
+    fn crosses(&self, other: &Self) -> bool {
+        self.ends == other.ends
+            && self.beyond.0 != other.beyond.0
+            && self.beyond.1 != other.beyond.1
+    }
+}
+
+fn crossing_edges(arrangement: &Arrangement, merged: &Merged) -> Vec<(usize, usize)> {
+    let [first, second] =
+        Operand::BOTH.map(|operand| short_edge_pieces(arrangement, merged, operand));
+
+    first
+        .iter()
+        .filter(|piece| second.iter().any(|other| piece.crosses(other)))
+        .map(|piece| piece.ends)
+        .collect()
+}
+
+fn short_edge_pieces(
+    arrangement: &Arrangement,
+    merged: &Merged,
+    operand: Operand,
+) -> Vec<ShortPiece> {
+    let mut short = Vec::new();
+
+    for ((owner, _), pieces) in &arrangement.edge_pieces {
+        if *owner != operand {
+            continue;
+        }
+        for piece in pieces {
+            let Some((curve, data)) = arrangement.curve(*piece) else {
+                continue;
+            };
+            let (start, end) = (merged.find(data.start), merged.find(data.end));
+
+            if start == end || curve.is_longer_than(data.interval, PINCHED_PIECE) {
+                continue;
+            }
+
+            let (low, high) = (start.min(end), start.max(end));
+            let beyond = |vertex: usize| far_end(arrangement, merged, pieces, *piece, vertex);
+
+            if let Some(beyond) = beyond(low).zip(beyond(high)) {
+                short.push(ShortPiece {
+                    ends: (low, high),
+                    beyond,
+                });
+            }
+        }
+    }
+    short
+}
+
+fn far_end(
+    arrangement: &Arrangement,
+    merged: &Merged,
+    pieces: &[usize],
+    piece: usize,
+    vertex: usize,
+) -> Option<usize> {
+    pieces
+        .iter()
+        .filter(|other| **other != piece)
+        .filter_map(|other| arrangement.piece(*other))
+        .find_map(|other| {
+            let (start, end) = (merged.find(other.start), merged.find(other.end));
+            if start == vertex {
+                Some(end)
+            } else if end == vertex {
+                Some(start)
+            } else {
+                None
+            }
+        })
 }
 
 fn split_edges(

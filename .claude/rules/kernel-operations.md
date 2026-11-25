@@ -406,13 +406,21 @@ paths:
   through other pieces too short to keep and which is itself no longer than `PINCHED_PIECE` (four
   resolutions) is dropped (`pinched_pieces`), the pieces of its curve on either side meeting at
   the parameter of the vertex kept: two split points 1.2e-6 apart, one a tangent root, became one
-  vertex and left a piece from it to itself that the trace walked into twice. A piece under the
-  resolution long joins the two stops at its ends though the points themselves may lie farther
-  apart, so once vertices are joined any piece ending farther than the resolution from its vertex
-  moves that end along its curve to the point nearest the vertex, and a vertex still too far from
-  some end moves to the middle of the ends meeting there (`bring_ends_to_vertices`): edges of two
-  blocks passing 1.04e-6 apart, each holding one vertex of the pair the other's faces make, left one
-  vertex that far from the second edge (`Invalid`).
+  vertex and left a piece from it to itself that the trace walked into twice. Edges of the two
+  operands crossing within the resolution meet the other solid's faces at points spread along the
+  crossing, which can pool into two vertices a little over the resolution apart with a piece of
+  each edge between them: when a piece of an edge of each operand, both no longer than
+  `PINCHED_PIECE`, runs between the same two vertices and the edges carry on to different
+  vertices at both ends (`crossing_edges`), the edges cross there, so the two vertices are joined
+  before branches are clipped and the pieces between them are pinched. Kept as one shared piece,
+  it was used by both faces of each edge: a holed block's edge leaving an extruded spline 1.8e-7
+  from its bottom edge, its vertices 1.4e-6 apart, made the difference `NonManifold`. A piece
+  under the resolution long joins the two stops at its ends though the points themselves may lie
+  farther apart, so once vertices are joined any piece ending farther than the resolution from its
+  vertex moves that end along its curve to the point nearest the vertex, and a vertex still too far
+  from some end moves to the middle of the ends meeting there (`bring_ends_to_vertices`): edges of
+  two blocks passing 1.04e-6 apart, each holding one vertex of the pair the other's faces make, left
+  one vertex that far from the second edge (`Invalid`).
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the

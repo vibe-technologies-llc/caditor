@@ -176,6 +176,11 @@ paths:
   Fitting halves a step whose ends, or whose middle against either end, lie more than a quarter
   period apart on a periodic surface: a cone's section passing near its apex winds most of a turn
   within one of an ellipse's π/4 seeds, and with the ends alone the pcurve went round the short way.
+  It also halves a step whose uv chord, carried onto the surface at either end, points against the
+  edge's direction there (`heads_back`, away from poles): a hollow cuboid's face 0.044 from a
+  cone's apex, nearly parallel to a ruling, cuts it in a section sweeping 5.3 radians round the
+  apex between the ends of one 0.43 long piece, whose middle and ends all lay within a quarter
+  period of each other the short way round, so the pcurve jumped a period at the apex (`Split`).
 - A spline edge that is a side of its face's spline surface (neither direction periodic; same
   degree and knots, control points within `SIDE_MATCH`, weights alike, either way round) is
   fitted as the straight pcurve along that side without sampling (`pcurve::along_side`), exact
