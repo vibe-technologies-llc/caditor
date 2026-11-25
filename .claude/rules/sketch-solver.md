@@ -231,7 +231,14 @@ paths:
   between a spline and a curve not sharing one of its end points, a distance from a spline to a
   line or circle (the tangency forms `Form::SplineOnLine` and `SplineOnCircle`, which carry a side
   from the start and the value, tangency being side 1 and value 0, with `SplineAlongLine` or
-  `SplineAcrossRadius` keeping it square to the gap).
+  `SplineAcrossRadius` keeping it square to the gap). Those two take the tangent's direction only
+  where rounding cannot turn it by more than `FINEST_HELD_TURN` (`SplineAt::heading`: longer than
+  the rounding of its control points, `tangent_rounding`, over that turn); a shorter one is held as
+  the tangent itself over that length, the derivative of the distance along the curve. At a tip
+  where a spline turns back (a closed fit spline retracing itself, `sketch.md`, or an open one whose
+  hidden controls bunch beside coincident fit points) the tangent vanishes and the tip is a
+  stationary point of the distance whichever way its arms point, while its direction is rounding
+  noise or the arms' and no solve could hold it.
 - Two curves sharing no point take a parameter on each (`pair::closest_pair` over `pair::Course`:
   nearest pair of samples refined by Newton on the squared distance; `System::pair_parameter_start`,
   in the constraint's order). Tangent: `Form::CurvesMeet` along x and y plus `Form::CurvesAlong`.

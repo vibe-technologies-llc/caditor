@@ -146,9 +146,8 @@ fn stays_put(input: &mut Unstructured) {
     let Ok(drawn) = sketch(input, Plane::XY) else {
         return;
     };
-    if !has_a_closed_spaced_spline_through_one_point_twice(&drawn) {
-        solved_stays_put(&drawn);
-    }
+
+    solved_stays_put(&drawn);
 }
 
 fn solved_stays_put(drawn: &Sketch) {
@@ -191,9 +190,8 @@ fn graded_stays_put(input: &mut Unstructured) {
     let Ok(graded) = regraded(input, &drawn) else {
         return;
     };
-    if !has_a_closed_spaced_spline_through_one_point_twice(&graded) {
-        solved_stays_put(&graded);
-    }
+
+    solved_stays_put(&graded);
 }
 
 #[test]
@@ -221,12 +219,46 @@ fn a_spline_resting_its_tip_on_another_keeps_that_crossing_when_solved_again() {
 #[test]
 fn a_crossing_of_a_spline_with_a_line_beyond_its_end_stays_put_when_solved_again() {
     replay_case(254339, |_, input| {
-        let drawn = sketch(input, Plane::XY).unwrap();
-
-        assert!(has_a_closed_spaced_spline_through_one_point_twice(&drawn));
-
-        solved_stays_put(&drawn);
+        closed_spline_through_one_point_twice_stays_put(input)
     });
+}
+
+fn closed_spline_through_one_point_twice_stays_put(input: &mut Unstructured) {
+    let drawn = sketch(input, Plane::XY).unwrap();
+
+    assert!(has_a_closed_spaced_spline_through_one_point_twice(&drawn));
+
+    solved_stays_put(&drawn);
+}
+
+#[test]
+fn a_distance_held_at_the_tip_a_closed_spline_turns_back_at_stays_put_when_solved_again() {
+    replay_case(269470, |_, input| {
+        closed_spline_through_one_point_twice_stays_put(input)
+    });
+}
+
+#[test]
+fn a_closed_spline_doubling_back_along_a_segment_keeps_its_contacts_when_solved_again() {
+    for seed in [173746, 257788] {
+        replay_case(seed, |_, input| {
+            closed_spline_through_one_point_twice_stays_put(input)
+        });
+    }
+}
+
+#[test]
+#[ignore = "still moves by 0.14 mm, a known failure in docs/BUGS.md"]
+fn a_closed_spline_tangent_to_a_line_at_a_fit_point_held_on_it_stays_put_when_solved_again() {
+    replay_case(306204, |_, input| {
+        closed_spline_through_one_point_twice_stays_put(input)
+    });
+}
+
+#[test]
+#[ignore = "still moves by 2.6 micrometres, a known failure in docs/BUGS.md"]
+fn a_point_held_on_an_open_centripetal_spline_through_three_points_stays_put_when_solved_again() {
+    replay_case(55494, |_, input| stays_put(input));
 }
 
 #[test]

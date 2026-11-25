@@ -122,18 +122,26 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] A sketch with a closed centripetal spline through one point twice moves when
-  solved again from its own result (seeds 269470, 306204 and 173746 of
-  `a_solved_sketch_does_not_move_when_solved_again`, by 0.34, 0.14 and 0.004 mm; seed 257788 of
-  `a_solved_sketch_solves_again_from_its_own_result` now solves again). In seed 269470 (a distance
-  from an axis to a spline through four fit points, one repeated, and nothing else) no spacing
-  round's solve with the fit points frozen holds, so all eight rounds and then the
-  `PARAMETER_ROUNDS` re-measurements run (16 in the first solve, 6 in the second): the loop through
-  the repeated point has two bulges near the dimension and each round holds one while the other
-  comes nearer, as in the alternating projection `sketch-solver.md` describes, and the solve
-  ends on whichever bulge the last round held, sliding the whole sketch up to 0.3 mm along the
-  directions the dimension leaves free. `a_solved_sketch_does_not_move_when_solved_again` skips
-  these splines.
+- [medium · hard] A sketch with a closed centripetal spline tangent to a line at one of its fit
+  points held on that line moves by 0.14 mm when solved again from its own result (seed 306204 of
+  `a_solved_sketch_does_not_move_when_solved_again`, kept as the ignored
+  `a_closed_spline_tangent_to_a_line_at_a_fit_point_held_on_it_stays_put_when_solved_again`). The
+  spline passes through a point coincident with the origin and is tangent to the vertical axis, so
+  the contact falls on that fit point and the tangency is a double root: at the solution the
+  contact's row is the sum of the point's interpolation row and its coincidence. Each spacing round
+  starts a few 1e-7 mm off, Gauss-Newton stops with a residual of 2e-7 shared among those three
+  rows, and the retry perturbed by 1e-3 lands 0.01 mm away. Holding the tangent at the fit point
+  itself, as a spline's end on a line already is (`Joints::spline_end_on`), would remove the double
+  root, but needs the origin counted as a point on the axes and a form at a fixed parameter. The
+  spline also passes one point twice; the cause found does not involve it.
+- [low · hard] A point held on an open centripetal fit spline through three points, whose tangent
+  nearly vanishes at its start, moves by 2.6e-3 mm when solved again from its own result (seed
+  55494 of `a_solved_sketch_does_not_move_when_solved_again`, beyond the cases the stress job runs,
+  kept as the ignored
+  `a_point_held_on_an_open_centripetal_spline_through_three_points_stays_put_when_solved_again`):
+  the first solve holds the point at parameter 0.6994 and the second starts it at the sample
+  0.6875, so the point slides along the curve and drags the fit points with it. The cause was not
+  worked out further.
 - [low · hard] A sketch with a closed degree-one spline (a polygon of its control points) and a
   `Distance` dimension from it to another curve moves by 0.4 mm when solved again from its own
   result (seed 1555 of `a_solved_sketch_of_splines_of_chosen_degrees_does_not_move_when_solved_again`

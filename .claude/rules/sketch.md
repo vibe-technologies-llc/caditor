@@ -927,7 +927,10 @@ relative to the extent.
 - Centripetal fit splines (`spacing.rs`, `FitLayout`) use parameters stepping by the square root of
   the distance (`centripetal_parameters`, each step at least `SHORTEST_GAP_SHARE` of the mean, so
   repeated points stay solvable): chord length bulges the long gap beside a tight cluster and even
-  steps loop and backtrack. Open: `interpolate_centripetal` (`averaged_knots`, banded collocation).
+  steps loop and backtrack. A closed one whose points read the same both ways round from some
+  place (X, Y, X, Z from Y; X, Y, Y from X) has a layout mirrored there and at the opposite place
+  (Z; between the two Ys), so the curve retraces itself and turns back at a cusp at each. Open:
+  `interpolate_centripetal` (`averaged_knots`, banded collocation).
   Closed: `interpolate_closed_centripetal`, a periodic cubic with knots at the parameters round the
   loop (`looped`) solved as a cyclic system (`periodic_through_knots`), clamped at the seam by
   `BSpline::periodic_on`.

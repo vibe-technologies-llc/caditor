@@ -13,6 +13,7 @@ use crate::{
 pub(crate) type Gradient = Vec<(usize, f64)>;
 
 const DEGENERATE_LENGTH: f64 = 1e-12;
+const FINEST_HELD_TURN: f64 = 1e-10;
 const COLLAPSED_LENGTH: f64 = 1e-9;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -409,6 +410,7 @@ struct SplineAt {
     point: Point2,
     tangent: Vector2,
     bend: Vector2,
+    tangent_rounding: f64,
     first: usize,
     weights: Vec<f64>,
     slopes: Vec<f64>,
@@ -418,6 +420,51 @@ impl SplineAt {
     fn tangent_line(&self, fallback: Vector2, context: &Context) -> Direction {
         let at_cusp = Direction::of(self.bend, fallback, context).unit;
         Direction::of(self.tangent, at_cusp, context)
+    }
+
+    fn heading(&self, fallback: Vector2, context: &Context) -> Heading {
+        let shortest_held = self.tangent_rounding / FINEST_HELD_TURN;
+        let length = self.tangent.length();
+        let collapsed =
+            length <= context.degenerate_length && self.bend.length() <= context.degenerate_length;
+
+        let resolved = length > shortest_held || !(shortest_held > 0.0 && length.is_finite());
+
+        if resolved || collapsed {
+            Heading::Unit(self.tangent_line(fallback, context))
+        } else {
+            Heading::Unresolved {
+                tangent: self.tangent,
+                shortest_held,
+            }
+        }
+    }
+}
+
+enum Heading {
+    Unit(Direction),
+    Unresolved {
+        tangent: Vector2,
+        shortest_held: f64,
+    },
+}
+
+impl Heading {
+    fn vector(&self) -> Vector2 {
+        match self {
+            Self::Unit(direction) => direction.unit,
+            Self::Unresolved {
+                tangent,
+                shortest_held,
+            } => *tangent / *shortest_held,
+        }
+    }
+
+    fn back(&self, partial: Vector2) -> Vector2 {
+        match self {
+            Self::Unit(direction) => direction.back_from_unit(partial),
+            Self::Unresolved { shortest_held, .. } => partial / *shortest_held,
+        }
     }
 }
 
@@ -433,10 +480,18 @@ impl SplineHandle {
                     sum + point.at(values) * *weight
                 })
         };
+
+        let tangent_rounding = slopes
+            .iter()
+            .zip(self.points.iter().skip(first))
+            .map(|(slope, point)| slope.abs() * point.at(values).length())
+            .sum::<f64>()
+            * f64::EPSILON;
         SplineAt {
             point: combine(&weights),
             tangent: combine(&slopes),
             bend: combine(&bends),
+            tangent_rounding,
             first,
             weights,
             slopes,
@@ -1444,16 +1499,19 @@ impl Form {
             } => {
                 let at = spline.at(values, parameter);
                 let first = line.direction(values, context);
-                let second = at.tangent_line(fallback, context);
+                let second = at.heading(fallback, context);
                 let scale = context.scale;
 
-                line.push_vector(gradient, first.back_from_unit(-second.unit.perp() * scale));
+                line.push_vector(
+                    gradient,
+                    first.back_from_unit(-second.vector().perp() * scale),
+                );
 
-                let turning = second.back_from_unit(first.unit.perp() * scale);
+                let turning = second.back(first.unit.perp() * scale);
 
                 spline.push_tangent(&at, gradient, turning);
                 gradient.push((parameter, turning.dot(at.bend)));
-                first.unit.perp_dot(second.unit) * scale
+                first.unit.perp_dot(second.vector()) * scale
             }
             Self::SplineOnCircle {
                 ref spline,
@@ -1486,17 +1544,17 @@ impl Form {
                     radial_fallback,
                     context,
                 );
-                let tangent = at.tangent_line(tangent_fallback, context);
+                let tangent = at.heading(tangent_fallback, context);
                 let scale = context.scale;
 
-                let across = radial.back_from_unit(tangent.unit * scale);
-                let turning = tangent.back_from_unit(radial.unit * scale);
+                let across = radial.back_from_unit(tangent.vector() * scale);
+                let turning = tangent.back(radial.unit * scale);
 
                 spline.push_point(&at, gradient, across);
                 circle.center.push(gradient, -across);
                 spline.push_tangent(&at, gradient, turning);
                 gradient.push((parameter, across.dot(at.tangent) + turning.dot(at.bend)));
-                radial.unit.dot(tangent.unit) * scale
+                radial.unit.dot(tangent.vector()) * scale
             }
             Self::OnBisector { point, chord, arc } => {
                 let turn = ArcChord::of(&chord, arc.center, values, context);

@@ -727,3 +727,27 @@ fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nea
     assert!((measured - 7.000001).abs() < 1e-5, "{measured}");
     assert!(passes_through(&solved.geometry, spline));
 }
+
+#[test]
+fn a_closed_fit_spline_through_one_point_twice_holds_a_distance_at_the_tip_it_turns_back_at() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let twice = sketch.add_point(Point2::new(-6.5, 8.0));
+    let tip = sketch.add_point(Point2::new(6.5, 2.0));
+    let far = sketch.add_point(Point2::new(12.000001, -11.4999));
+
+    let spline = sketch.insert(Entity::Spline {
+        points: vec![twice, tip, twice, far],
+        kind: SplineKind::fit(true),
+    });
+
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: EntityId::HORIZONTAL_AXIS,
+            to: spline,
+            value: millimetres(6.499999),
+        })
+        .unwrap();
+
+    solves_again_in_place(&sketch);
+}
