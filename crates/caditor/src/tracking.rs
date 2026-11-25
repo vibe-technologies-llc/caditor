@@ -1,8 +1,8 @@
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, PointTarget, Sketch};
 
 use crate::{
-    body_snap::BodySnaps,
+    body_snap::{BodySnaps, BodyTarget},
     inference::{Inference, Inferences},
     snap::{
         self, Accept, AxisEnd, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen,
@@ -67,6 +67,22 @@ impl Acquired {
                 self.centre_of(sketch, curve);
             }
         }
+    }
+
+    pub fn note_body(&mut self, bodies: &BodySnaps, target: BodyTarget, at: Point2) {
+        if let Some(centre) = bodies.centre_of(target).filter(|centre| *centre != target) {
+            self.anchor(Target::Body(centre), Point2::ZERO);
+        }
+        if target.part.is_point_like() {
+            self.anchor(Target::Body(target), at);
+        }
+    }
+
+    pub fn keep_bodies(&mut self, bodies: &BodySnaps) {
+        self.anchors.retain(|anchor| match anchor.target {
+            Target::Body(target) => bodies.position(target).is_some(),
+            _ => true,
+        });
     }
 
     fn centre_of(&mut self, sketch: &Sketch, curve: EntityId) {
@@ -195,7 +211,11 @@ impl Track {
 
     fn constraint(self, sketch: &Sketch, point: EntityId) -> Option<Constraint> {
         let through = self.anchor.point_target(sketch, self.from)?;
-        Some(match self.axis {
+        Some(self.holding(point, through))
+    }
+
+    pub fn holding(self, point: EntityId, through: PointTarget) -> Constraint {
+        match self.axis {
             Axis::Level => Constraint::HorizontalPoints(point, through),
             Axis::Upright => Constraint::VerticalPoints(point, through),
             Axis::Slanted { line, square, .. } => Constraint::OnDirection {
@@ -204,18 +224,21 @@ impl Track {
                 line,
                 square,
             },
-        })
+        }
     }
 
     fn is_held(self, sketch: &Sketch) -> bool {
-        self.anchor.point_target(sketch, self.from).is_some()
+        match self.anchor {
+            Target::Body(body) => body.part.is_point_like(),
+            anchor => anchor.point_target(sketch, self.from).is_some(),
+        }
     }
 
     fn shares_anchor(self, other: Self) -> bool {
         self.anchor == other.anchor && self.from == other.from
     }
 
-    fn words(self, sketch: &Sketch) -> String {
+    fn words(self, sketch: &Sketch, bodies: Option<&BodySnaps>) -> String {
         match (self.anchor, self.axis) {
             (
                 Target::Midpoint(middle),
@@ -228,6 +251,13 @@ impl Track {
                     sketch.entity_label(line)
                 )
             }
+            (Target::Body(body), axis) => format!(
+                "{} {}",
+                axis.words(sketch),
+                bodies
+                    .and_then(|bodies| bodies.anchor_words(body))
+                    .unwrap_or_else(|| A_BODY.to_owned())
+            ),
             (anchor, axis) => format!("{} {}", axis.words(sketch), anchor_words(sketch, anchor)),
         }
     }
@@ -296,14 +326,14 @@ impl Tracks {
         self.iter().map(move |track| [track.from, to])
     }
 
-    pub fn label(self, sketch: &Sketch) -> Option<String> {
+    pub fn label(self, sketch: &Sketch, bodies: Option<&BodySnaps>) -> Option<String> {
         let (held, loose): (Vec<Track>, Vec<Track>) =
             self.iter().partition(|track| track.is_held(sketch));
 
         let words: Vec<String> = held
             .iter()
             .chain(&loose)
-            .map(|track| track.words(sketch))
+            .map(|track| track.words(sketch, bodies))
             .collect();
         let kept = if loose.is_empty() { "" } else { NOT_KEPT_THERE };
         (!words.is_empty()).then(|| format!("{}{kept}", words.join(", ")))
@@ -330,7 +360,7 @@ pub struct Tracked {
 }
 
 pub fn nearby(
-    sketch: &Sketch,
+    (sketch, bodies): (&Sketch, Option<&BodySnaps>),
     screen: &impl Screen,
     pointer: Pointer,
     acquired: &Acquired,
@@ -344,7 +374,11 @@ pub fn nearby(
             continue;
         }
 
-        let Some(from) = snap::position_of(sketch, anchor.target, anchor.near, ignored) else {
+        let from = match anchor.target {
+            Target::Body(body) => bodies.and_then(|bodies| bodies.position(body)),
+            target => snap::position_of(sketch, target, anchor.near, ignored),
+        };
+        let Some(from) = from else {
             continue;
         };
         let Some(from_on_screen) = screen.to_screen(from) else {
@@ -568,6 +602,7 @@ fn outline_of(target: Target) -> Option<EntityId> {
 }
 
 const ON_LINE_TOLERANCE: f64 = 1e-9;
+const A_BODY: &str = "a body";
 const LEVEL_TOLERANCE: f64 = 1e-6;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -590,7 +625,7 @@ impl Landing {
 
     pub fn label(self, sketch: &Sketch) -> Option<String> {
         let target = self.target.map(|target| target.label(sketch));
-        match (target, self.tracks.label(sketch)) {
+        match (target, self.tracks.label(sketch, None)) {
             (None, None) if self.on_grid => Some(ON_THE_GRID.to_owned()),
             (target, None) => target,
             (Some(target), Some(tracked)) => Some(format!("{target}, {tracked}")),
@@ -680,14 +715,14 @@ fn land_freely(
     };
     let snapped = snap::resolve_inferring(sketch, screen, pointer, lookup);
     let tracks = if inferred.allows(Inference::Tracks) {
-        nearby(sketch, screen, pointer, acquired, ignored, &[])
+        nearby((sketch, None), screen, pointer, acquired, ignored, &[])
     } else {
         Tracks::default()
     };
     match snapped {
         Some(snapped) => Some(
             on_curve(
-                sketch,
+                (sketch, None),
                 snapped.target,
                 tracks,
                 screen,
@@ -770,7 +805,7 @@ pub fn on_ray(
 }
 
 pub fn on_curve(
-    sketch: &Sketch,
+    (sketch, bodies): (&Sketch, Option<&BodySnaps>),
     target: Target,
     tracks: Tracks,
     screen: &impl Screen,
@@ -786,13 +821,15 @@ pub fn on_curve(
                     .is_none_or(|curve| !runs_along(sketch, curve, *track))
             })
             .filter_map(|track| {
-                let position = snap::crossing_along(
-                    sketch,
-                    target,
-                    track.from,
-                    track.axis.along(),
-                    pointer.sketch,
-                )?;
+                let along = track.axis.along();
+                let position = match target {
+                    Target::Body(body) => {
+                        bodies?.crossing_along(body, track.from, along, pointer.sketch)?
+                    }
+                    target => {
+                        snap::crossing_along(sketch, target, track.from, along, pointer.sketch)?
+                    }
+                };
                 Some(Tracked {
                     position,
                     tracks: Tracks::one(track),
@@ -909,7 +946,7 @@ mod tests {
         let screen = Scaled(10.0);
 
         let level = nearby(
-            &sketch,
+            (&sketch, None),
             &screen,
             pointer(Point2::new(15.0, 20.3)),
             &acquired,
@@ -928,13 +965,13 @@ mod tests {
         assert_eq!(placed.position, Point2::new(15.0, 20.0));
 
         let corner = pointer(Point2::new(30.2, 19.6));
-        let both = nearby(&sketch, &screen, corner, &acquired, &[], &[]);
+        let both = nearby((&sketch, None), &screen, corner, &acquired, &[], &[]);
 
         let placed = alone(both, &screen, corner).unwrap();
 
         assert_eq!(placed.position, Point2::new(30.0, 20.0));
         assert_eq!(
-            both.label(&sketch),
+            both.label(&sketch, None),
             Some(format!(
                 "horizontal from Point {left}, vertical from Point {below}"
             ))
@@ -948,12 +985,12 @@ mod tests {
             ]
         );
 
-        let excluded = nearby(&sketch, &screen, corner, &acquired, &[left], &[]);
+        let excluded = nearby((&sketch, None), &screen, corner, &acquired, &[left], &[]);
 
         assert_eq!(excluded.level, None);
 
         let far = nearby(
-            &sketch,
+            (&sketch, None),
             &screen,
             pointer(Point2::new(15.0, 21.0)),
             &acquired,
@@ -991,7 +1028,7 @@ mod tests {
         assert_eq!(on_ray.position, Point2::new(40.0, 10.0));
 
         let crossing = on_curve(
-            &sketch,
+            (&sketch, None),
             Target::Curve(slanted),
             track,
             &screen,
@@ -1010,7 +1047,7 @@ mod tests {
 
         assert_eq!(
             on_curve(
-                &sketch,
+                (&sketch, None),
                 Target::Curve(level),
                 along,
                 &screen,
@@ -1038,22 +1075,22 @@ mod tests {
         let parallel = pointer(Point2::new(74.1, 31.9));
         let crossing = pointer(Point2::new(83.4, 0.1));
 
-        let squared = nearby(&sketch, &screen, square, &acquired, &[], &[]);
+        let squared = nearby((&sketch, None), &screen, square, &acquired, &[], &[]);
         let placed = alone(squared, &screen, square).unwrap();
-        let along = nearby(&sketch, &screen, parallel, &acquired, &[], &[]);
+        let along = nearby((&sketch, None), &screen, parallel, &acquired, &[], &[]);
         let on_extension = nearby(
-            &sketch,
+            (&sketch, None),
             &screen,
             pointer(Point2::new(45.0, 60.1)),
             &acquired,
             &[],
             &[],
         );
-        let both = nearby(&sketch, &screen, crossing, &acquired, &[], &[]);
+        let both = nearby((&sketch, None), &screen, crossing, &acquired, &[], &[]);
         let met = alone(both, &screen, crossing).unwrap();
 
         assert_eq!(
-            squared.label(&sketch),
+            squared.label(&sketch, None),
             Some(format!(
                 "perpendicular to {} from {}",
                 sketch.entity_label(line),
@@ -1107,7 +1144,14 @@ mod tests {
     }
 
     fn tracks_at(sketch: &Sketch, acquired: &Acquired, at: Point2) -> Tracks {
-        nearby(sketch, &Scaled(10.0), pointer(at), acquired, &[], &[])
+        nearby(
+            (sketch, None),
+            &Scaled(10.0),
+            pointer(at),
+            acquired,
+            &[],
+            &[],
+        )
     }
 
     fn placed_at(sketch: &Sketch, acquired: &Acquired, at: Point2) -> Option<Tracked> {
@@ -1132,7 +1176,7 @@ mod tests {
         assert_eq!(acquired.targets(), vec![Target::Midpoint(line)]);
         assert_eq!(level.position, Point2::new(45.0, 20.0));
         assert_eq!(
-            level.tracks.label(&sketch),
+            level.tracks.label(&sketch, None),
             Some(format!("horizontal from the midpoint of {label}"))
         );
         assert_eq!(
@@ -1153,7 +1197,7 @@ mod tests {
                 < 1e-9
         );
         assert_eq!(
-            bisecting.tracks.label(&sketch),
+            bisecting.tracks.label(&sketch, None),
             Some(format!("on the perpendicular bisector of {label}"))
         );
         assert_eq!(
@@ -1246,7 +1290,7 @@ mod tests {
         ));
         assert_eq!(level_with_crossing.position, Point2::new(-30.0, 10.0));
         assert_eq!(
-            level_with_crossing.tracks.label(&sketch),
+            level_with_crossing.tracks.label(&sketch, None),
             Some(format!(
                 "horizontal from the crossing of {} and {}",
                 sketch.entity_label(rising),
@@ -1343,7 +1387,7 @@ mod tests {
         );
         assert_eq!(level_with_top.level.map(|track| track.anchor), Some(top));
         assert_eq!(
-            level_with_top.label(&sketch),
+            level_with_top.label(&sketch, None),
             Some(format!(
                 "horizontal from the top of {}",
                 sketch.entity_label(circle)
@@ -1375,9 +1419,9 @@ mod tests {
         let above = pointer(Point2::new(30.2, 40.0));
         let screen = Scaled(10.0);
 
-        let moving = nearby(&sketch, &screen, above, &acquired, &[line], &[]);
+        let moving = nearby((&sketch, None), &screen, above, &acquired, &[line], &[]);
         let own = nearby(
-            &sketch,
+            (&sketch, None),
             &screen,
             above,
             &acquired,

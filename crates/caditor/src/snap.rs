@@ -1819,7 +1819,7 @@ fn crossings_with(
     }
 }
 
-fn line_crossings(
+pub fn line_crossings(
     through: Point2,
     along: Vector2,
     center: Point2,
@@ -1954,7 +1954,7 @@ pub fn crossing_along(
     })
 }
 
-fn straight_crossing(
+pub fn straight_crossing(
     through: Point2,
     along: Vector2,
     origin: Point2,

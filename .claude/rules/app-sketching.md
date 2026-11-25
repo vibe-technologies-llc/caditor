@@ -792,8 +792,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   So are the centre of a circle, arc or ellipse whose rim, middle, quadrant, axis end or centre was
   hovered and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`). Kept across tools within
   one sketch; `Acquired::retain` drops an anchor once an entity defining it is gone
-  (`Target::involved`) and moves a several-placed one to where it lies now. Body items are never
-  acquired.
+  (`Target::involved`) and moves a several-placed one to where it lies now. While drawing, a hovered
+  body corner, edge middle or round edge centre is acquired too (`Acquired::note_body`, as its
+  `Target::Body`), and so is the centre of a round body edge whose middle or any point was hovered
+  (`BodySnaps::centre_of`); grabs acquire none. A body anchor is found each frame from its source's
+  outline (`BodySnaps::position`, constant time, so the per-frame cost stays that of the at most
+  `MAX_ACQUIRED_POINTS` anchors) and is dropped when the cache is rebuilt (`Acquired::keep_bodies`
+  from `Drawing::use_bodies`), as its `BodyTarget` names an older generation.
 - Each frame an anchor is found again where it lies now (`snap::position_of`: the crossing or minor
   axis end nearest where it was; an odd outline's centroid by the outline search from its first
   piece). One moving in a drag (touching the ignored entities, or an odd outline with a moving
@@ -802,14 +807,24 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   through an anchor (at least `MIN_TRACK_LENGTH` away) lands on it (`Tracks`), both at once where
   they cross. A track joins a curve snap where it crosses the curve (never along a line it runs on)
   and a line's direction where they cross, within `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`);
-  point snaps never take one.
+  point snaps never take one. A body edge is crossed the same way, by a track or a direction where
+  the ray meets the edge's path (`BodySnaps::crossing_along`, `Path::crossings`: exact for lines
+  and arcs, on the sampled path for splines and ellipses as the edge snap itself is), so the point
+  lands there with the `Coincident` on the projected edge and the track's or direction's
+  constraint.
 - Every track holds the placed point at its anchor (`Track::constraint`): the anchor's
   `Target::point_target` (`sketch.md`, point targets: a point, a middle, a crossing, the two
   opposite corners of a `Centre` or the members of a `Centroid`, a quadrant, an ellipse's far
   major or nearer minor end) in `HorizontalPoints` or `VerticalPoints`, so the point follows the
   middle, crossing or centre when its geometry moves, with no construction point left in the
-  sketch. The label names held tracks first and ends `NOT_KEPT_THERE` when a track's anchor has no
-  target (none does today). Where two tracks of one kind coincide (a right quadrant level with its
+  sketch. A body anchor has no point target until the drawing's transaction projects it:
+  `Draft::tracked` projects the corner or edge (`Draft::body_through`, reusing the sketch's
+  existing projection or one the shape already made) and holds the point to the projected corner,
+  the projected circle's centre or the middle of the projected edge (`Track::holding`) in the
+  shape's own transaction, so one undo takes both. The label names held tracks first (a body
+  anchor as "a corner of", "the middle of an edge of" or "the centre of a round edge of" its body,
+  `BodySnaps::anchor_words`) and ends `NOT_KEPT_THERE` when a track's anchor has no target (none
+  does today). Where two tracks of one kind coincide (a right quadrant level with its
   centre), a held one wins, then one through a sketch point, the simpler constraint (`prefers`,
   within `TIED_OFFSET`). The canvas marks them H or V on the point (and on a target that is a
   sketch point); `OnDirection` is `GlyphKind::Through` (a slanted stroke through a ring) and
@@ -869,8 +884,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   more than it saves). Where two project to one place the one nearer the sketch plane wins
   (`BodySnaps` keeps candidates sorted by depth). Priority: point-like sketch targets, body corners,
   middles and centres, sketch curves, body edges. `Accept::Points` takes body corners and centres
-  only, `OnCircle` none, nor does a tangent arc's start; directions' and tracks' crossings and
-  acquired points take none, as a body item is not in the sketch until a point lands on it.
+  only, `OnCircle` none, nor does a tangent arc's start; body corners, edge middles and round edge
+  centres are acquired for tracks and body edges are crossed by directions and tracks (above).
 - A point landing on a body item projects that vertex or edge in the shape's own transaction
   (`Draft::projection` through `TransactionBuilder::add_projected`: the same fixed geometry and stable
   `ProjectionSource` Project makes, or the existing projection, once per shape) and joins it:

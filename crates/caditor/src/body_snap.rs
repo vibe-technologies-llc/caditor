@@ -267,6 +267,31 @@ impl Path {
         }
     }
 
+    fn crossings(&self, through: Point2, along: Vector2) -> Vec<Point2> {
+        match self {
+            Self::Segment(start, end) => segment_crossing(through, along, *start, *end)
+                .into_iter()
+                .collect(),
+            Self::Arc {
+                center,
+                radius,
+                start,
+                sweep,
+            } => snap::line_crossings(through, along, *center, *radius)
+                .into_iter()
+                .map(|(_, position)| position)
+                .filter(|position| on_sweep(*center, *start, *sweep, *position))
+                .collect(),
+            Self::Polyline(points) => points
+                .windows(2)
+                .filter_map(|pair| match pair {
+                    [start, end] => segment_crossing(through, along, *start, *end),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
     fn circle_tangent(&self, center: Point2, near: Point2) -> Option<Point2> {
         match self {
             Self::Segment(start, end) => {
@@ -294,15 +319,10 @@ impl Path {
                 }
 
                 let toward = offset / distance;
-                let on_sweep = |point: Point2| {
-                    let ray = point - *other;
-                    let angle = ray.y.atan2(ray.x);
-                    (angle - *start).rem_euclid(TAU) <= *sweep + SAME_POINT
-                };
                 [*other + toward * *radius, *other - toward * *radius]
                     .into_iter()
                     .filter(|at| center.distance(*at) > MIN_TANGENT_RADIUS)
-                    .filter(|at| *sweep >= TAU - SAME_POINT || on_sweep(*at))
+                    .filter(|at| on_sweep(*other, *start, *sweep, *at))
                     .min_by(|a, b| {
                         a.distance_squared(near)
                             .total_cmp(&b.distance_squared(near))
@@ -313,6 +333,18 @@ impl Path {
                 .filter(|foot| center.distance(*foot) > MIN_TANGENT_RADIUS),
         }
     }
+}
+
+fn on_sweep(center: Point2, start: f64, sweep: f64, point: Point2) -> bool {
+    let ray = point - center;
+    sweep >= TAU - SAME_POINT || (ray.y.atan2(ray.x) - start).rem_euclid(TAU) <= sweep + SAME_POINT
+}
+
+fn segment_crossing(through: Point2, along: Vector2, start: Point2, end: Point2) -> Option<Point2> {
+    let (fraction, position) = snap::straight_crossing(through, along, start, end - start)?;
+    (-SAME_POINT..=1.0 + SAME_POINT)
+        .contains(&fraction)
+        .then_some(position)
 }
 
 fn closest_on_segment(start: Point2, end: Point2, point: Point2) -> Point2 {
@@ -826,11 +858,44 @@ impl BodySnaps {
     }
 
     pub fn position(&self, target: BodyTarget) -> Option<Point2> {
+        let source = self.source(target)?;
+        match (target.part, &source.outline) {
+            (BodyPart::Corner, Outline::Point(position)) => Some(*position),
+            (BodyPart::Middle, outline) if matches!(source.key, Key::Edge(_)) => middle_of(outline),
+            (BodyPart::Centre, outline) if matches!(source.key, Key::Edge(_)) => centre_of(outline),
+            (BodyPart::Corner | BodyPart::Middle | BodyPart::Centre | BodyPart::Edge, _) => None,
+        }
+    }
+
+    pub fn centre_of(&self, target: BodyTarget) -> Option<BodyTarget> {
+        let centre = BodyTarget {
+            part: BodyPart::Centre,
+            ..target
+        };
+        self.position(centre).map(|_| centre)
+    }
+
+    pub fn crossing_along(
+        &self,
+        target: BodyTarget,
+        through: Point2,
+        along: Vector2,
+        near: Point2,
+    ) -> Option<Point2> {
         self.source(target)?;
-        self.points
+        if target.part != BodyPart::Edge {
+            return None;
+        }
+        self.edges
             .iter()
-            .find(|point| point.source == target.source && point.part == target.part)
-            .map(|point| point.position)
+            .find(|edge| edge.source == target.source)?
+            .path
+            .crossings(through, along)
+            .into_iter()
+            .min_by(|a, b| {
+                a.distance_squared(near)
+                    .total_cmp(&b.distance_squared(near))
+            })
     }
 
     pub fn path(&self, target: BodyTarget) -> Option<Vec<Point2>> {
@@ -849,6 +914,16 @@ impl BodySnaps {
             BodyPart::Centre => format!("Centre of a round edge of {body}"),
             BodyPart::Edge => format!("On an edge of {body}"),
         })
+    }
+
+    pub fn anchor_words(&self, target: BodyTarget) -> Option<String> {
+        let body = &self.source(target)?.body;
+        match target.part {
+            BodyPart::Corner => Some(format!("a corner of {body}")),
+            BodyPart::Middle => Some(format!("the middle of an edge of {body}")),
+            BodyPart::Centre => Some(format!("the centre of a round edge of {body}")),
+            BodyPart::Edge => None,
+        }
     }
 
     pub fn tangent_label(&self, target: BodyTarget) -> Option<String> {
@@ -1109,6 +1184,37 @@ mod tests {
             screen: Scaled(10.0).to_screen(sketch).unwrap(),
             sketch,
         }
+    }
+
+    #[test]
+    fn a_ray_crosses_a_path_only_between_its_ends_and_within_its_sweep() {
+        let segment = Path::Segment(Point2::new(0.0, -1.0), Point2::new(0.0, 1.0));
+        let right_half = Path::Arc {
+            center: Point2::ZERO,
+            radius: 2.0,
+            start: -FRAC_PI_2,
+            sweep: 2.0 * FRAC_PI_2,
+        };
+        let roof = Path::Polyline(vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(2.0, 2.0),
+            Point2::new(4.0, 0.0),
+        ]);
+
+        let across = segment.crossings(Point2::new(-5.0, 0.5), Vector2::X);
+        let above = segment.crossings(Point2::new(-5.0, 2.0), Vector2::X);
+        let along = segment.crossings(Point2::new(0.0, 5.0), Vector2::Y);
+        let through_the_arc = right_half.crossings(Point2::new(-5.0, 0.0), Vector2::X);
+        let under_the_roof = roof.crossings(Point2::new(-5.0, 1.0), Vector2::X);
+
+        assert_eq!(across, vec![Point2::new(0.0, 0.5)]);
+        assert!(above.is_empty());
+        assert!(along.is_empty());
+        assert_eq!(through_the_arc.len(), 1);
+        assert!(through_the_arc[0].distance(Point2::new(2.0, 0.0)) < 1e-9);
+        assert_eq!(under_the_roof.len(), 2);
+        assert!(under_the_roof[0].distance(Point2::new(1.0, 1.0)) < 1e-9);
+        assert!(under_the_roof[1].distance(Point2::new(3.0, 1.0)) < 1e-9);
     }
 
     #[test]

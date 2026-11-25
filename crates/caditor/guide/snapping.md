@@ -34,15 +34,20 @@ to" and names the line, which lights up. Where several nearby lines are about as
 nearest the pointer wins. A point snapped to geometry or a guide, or a length you type, is never
 changed for it. What you hover is remembered for a while: points, the middle of a line or arc,
 where two curves cross, the centre of an outline, the right, top, left and bottom of a circle and
-the ends of an ellipse's axes. Moving level with one, or straight above or below it, shows a dashed
-guide and lines the new point up with it; from the middle of a line a guide also runs square to the
-line, along its perpendicular bisector. Where two guides cross, the point lands on the crossing.
+the ends of an ellipse's axes, and while drawing the corners, edge middles and round edge centres of
+bodies. Moving level with one, or straight above or below it, shows a dashed guide and lines the new
+point up with it; from the middle of a line a guide also runs square to the line, along its
+perpendicular bisector. Where two guides cross, the point lands on the crossing, and where a guide
+or a line's direction crosses a body's edge, the point lands there and stays on the edge.
 
 A lined-up point keeps that as a constraint, whatever it was lined up with: level with a point or a
 line's middle, straight above a crossing, on the perpendicular bisector, along or square to a line
 through the top of a circle. When the line, crossing, outline, circle or ellipse moves, the point
-moves with it. Its mark beside the point is H or V for level or upright, a slanted stroke through a
-ring for along or square to a line, and a triangle round a dot for the centre of an outline.
+moves with it. A point lined up with a body's corner, edge middle or round edge centre is held to
+that item [projected](project-and-intersect) into the sketch in the same change, so one undo takes
+both away; the label names the body, such as "Horizontal from a corner of Base". Its mark beside
+the point is H or V for level or upright, a slanted stroke through a ring for along or square to a
+line, and a triangle round a dot for the centre of an outline.
 
 ## Controlling it
 

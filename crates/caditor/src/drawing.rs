@@ -10,7 +10,7 @@ use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, BSpline, CUBIC_DEGREE, Constraint, EllipseGeometry, Entity, EntityId, Faceting,
-    MAX_DEGREE, MIN_DEGREE, Sketch, SplineKind,
+    MAX_DEGREE, MIN_DEGREE, PointTarget, Sketch, SplineKind,
 };
 
 use crate::{
@@ -1355,6 +1355,7 @@ impl Drawing {
     pub fn use_bodies(&mut self, bodies: &Arc<BodySnaps>) {
         if !Arc::ptr_eq(&self.bodies, bodies) {
             self.bodies = Arc::clone(bodies);
+            self.acquired.keep_bodies(bodies);
         }
     }
 
@@ -1497,10 +1498,13 @@ impl Drawing {
             Target::Extension(line) => snap::extension_guide(sketch, line, hover.position),
             _ => None,
         });
-        if let Some(hover) = self.hover
-            && let Some(target) = hover.snap.target()
+        match self
+            .hover
+            .and_then(|hover| Some((hover.snap.target()?, hover.position)))
         {
-            self.acquired.note(sketch, target, hover.position);
+            Some((Target::Body(body), at)) => self.acquired.note_body(&self.bodies, body, at),
+            Some((target, at)) => self.acquired.note(sketch, target, at),
+            None => {}
         }
         self.outlines.keep(
             sketch,
@@ -3114,7 +3118,7 @@ impl Drawing {
                 sketch,
             )),
         };
-        match (label, hover.tracks.label(sketch)) {
+        match (label, hover.tracks.label(sketch, Some(&self.bodies))) {
             (label, None) => label,
             (Some(label), Some(tracked)) => Some(format!("{label}, {tracked}")),
             (None, Some(tracked)) => Some(capitalized(&tracked)),
@@ -3421,13 +3425,20 @@ impl Drawing {
                     .filter_map(|placement| placement.snap.target())
                     .filter(|target| target.is_point_like())
                     .collect();
-                tracking::nearby(sketch, screen, pointer, &self.acquired, &[], &own)
+                tracking::nearby(
+                    (sketch, Some(&self.bodies)),
+                    screen,
+                    pointer,
+                    &self.acquired,
+                    &[],
+                    &own,
+                )
             }
             Accept::Anything | Accept::Points | Accept::OnCircle { .. } => Tracks::default(),
         };
         let tracked_on = |snapped: Snapped| {
             tracking::on_curve(
-                sketch,
+                (sketch, Some(&self.bodies)),
                 snapped.target,
                 tracks,
                 screen,
@@ -3446,11 +3457,16 @@ impl Drawing {
             let level = level_and_upright(self.inferred);
 
             return match snapped {
-                Some(snapped) => {
-                    aligned_on(sketch, screen, pointer, from.position, snapped, &level)
-                        .or_else(|| tracked_on(snapped))
-                        .unwrap_or(Placement::snapped(snapped))
-                }
+                Some(snapped) => aligned_on(
+                    (sketch, &self.bodies),
+                    screen,
+                    pointer,
+                    from.position,
+                    snapped,
+                    &level,
+                )
+                .or_else(|| tracked_on(snapped))
+                .unwrap_or(Placement::snapped(snapped)),
                 None => align(from.position, screen, pointer, &level).unwrap_or_else(tracked_alone),
             };
         }
@@ -3480,9 +3496,16 @@ impl Drawing {
         );
         let guides = guides(&nearby, start.position, rounded, self.inferred);
         let placement = match snapped {
-            Some(snapped) => aligned_on(sketch, screen, pointer, start.position, snapped, &guides)
-                .or_else(|| tracked_on(snapped))
-                .unwrap_or(Placement::snapped(snapped)),
+            Some(snapped) => aligned_on(
+                (sketch, &self.bodies),
+                screen,
+                pointer,
+                start.position,
+                snapped,
+                &guides,
+            )
+            .or_else(|| tracked_on(snapped))
+            .unwrap_or(Placement::snapped(snapped)),
             None => match align(start.position, screen, pointer, &guides) {
                 Some(aligned) => aligned
                     .snap
@@ -3814,7 +3837,7 @@ fn align(
 }
 
 fn aligned_on(
-    sketch: &Sketch,
+    (sketch, bodies): (&Sketch, &BodySnaps),
     screen: &impl Screen,
     pointer: Pointer,
     start: Point2,
@@ -3826,7 +3849,16 @@ fn aligned_on(
     };
     match snapped.target {
         Target::Pending(_) => None,
-        Target::Body(body) if !body.part.is_point_like() => None,
+        Target::Body(body) if !body.part.is_point_like() => {
+            alignments(start, screen, pointer, guides)
+                .into_iter()
+                .find_map(|aligned| {
+                    let crossing =
+                        bodies.crossing_along(body, start, aligned.guide.along, pointer.sketch)?;
+                    crossed(screen, pointer, start, crossing)
+                        .then(|| on(crossing, aligned.guide.direction))
+                })
+        }
         Target::Body(_)
         | Target::Point(_)
         | Target::Midpoint(_)
@@ -3848,12 +3880,17 @@ fn aligned_on(
                     aligned.guide.along,
                     pointer.sketch,
                 )?;
-                let offset = screen.to_screen(crossing)?.distance(pointer.screen);
-                let away = crossing.distance(start) >= DEGENERATE_LENGTH;
-                (away && offset <= tracking::ALIGNED_CROSSING_TOLERANCE)
+                crossed(screen, pointer, start, crossing)
                     .then(|| on(crossing, aligned.guide.direction))
             }),
     }
+}
+
+fn crossed(screen: &impl Screen, pointer: Pointer, start: Point2, crossing: Point2) -> bool {
+    let away = crossing.distance(start) >= DEGENERATE_LENGTH;
+    screen.to_screen(crossing).is_some_and(|at| {
+        away && at.distance(pointer.screen) <= tracking::ALIGNED_CROSSING_TOLERANCE
+    })
 }
 
 fn held(start: Point2, end: Point2, guides: &[Guide]) -> Option<Direction> {
@@ -4291,6 +4328,27 @@ impl<'a> Draft<'a> {
         }
     }
 
+    fn body_through(&mut self, target: BodyTarget) -> Option<PointTarget> {
+        match target.part {
+            BodyPart::Corner | BodyPart::Centre => self.body_point(target).map(PointTarget::Point),
+            BodyPart::Middle => self.projection(target).map(PointTarget::Middle),
+            BodyPart::Edge => None,
+        }
+    }
+
+    fn tracked(&mut self, tracks: Tracks, point: EntityId) -> Vec<Constraint> {
+        tracks
+            .iter()
+            .filter_map(|track| {
+                let through = match track.anchor {
+                    Target::Body(body) => self.body_through(body)?,
+                    anchor => anchor.point_target(&self.shadow, track.from)?,
+                };
+                Some(track.holding(point, through))
+            })
+            .collect()
+    }
+
     fn point_of(&mut self, snap: Snap) -> Option<EntityId> {
         match snap.target()? {
             Target::Body(body) => self.body_point(body),
@@ -4305,7 +4363,7 @@ impl<'a> Draft<'a> {
             Some(target) => target.joins(&self.shadow, point),
             None => Vec::new(),
         };
-        let tracked: Vec<Constraint> = placement.tracks.constraints(&self.shadow, point).collect();
+        let tracked = self.tracked(placement.tracks, point);
 
         for constraint in joins.into_iter().chain(tracked) {
             self.constrain(constraint);
