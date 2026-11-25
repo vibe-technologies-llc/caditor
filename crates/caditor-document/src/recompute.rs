@@ -1308,6 +1308,11 @@ impl Recompute {
     }
 
     #[cfg(test)]
+    pub(crate) fn cache_storage_shared_with(&self, other: &Self) -> crate::history::SharedStorage {
+        self.cache.storage_shared_with(&other.cache)
+    }
+
+    #[cfg(test)]
     pub(crate) fn threads_shared_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.threads, &other.threads)
     }
@@ -1318,6 +1323,16 @@ impl Recompute {
             self.cache.earlier_bytes(),
             self.cache.measured_earlier_bytes(),
         )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_results_kept(&self) -> usize {
+        self.cache.earlier_kept()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_buffers_held(&self) -> usize {
+        self.cache.earlier_buffers()
     }
 
     #[cfg(test)]
@@ -1352,11 +1367,10 @@ impl Recompute {
     }
 
     pub fn retry_failures(&mut self) {
-        for entry in self.cache.entries_mut() {
-            if matches!(entry.state, FeatureState::Failed(_)) {
-                Arc::make_mut(entry).retry = true;
-            }
-        }
+        self.cache.change_entries(
+            |entry| matches!(entry.state, FeatureState::Failed(_)),
+            |entry| entry.retry = true,
+        );
     }
 
     pub(crate) fn clear_cache(&mut self) {

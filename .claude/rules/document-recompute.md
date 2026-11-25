@@ -89,6 +89,16 @@ paths:
   leaves the total when its last earlier holder goes, so an address never stands for two buffers.
   A running total means an insert looks at earlier entries only when over budget; least recently
   used go first, and a feature's latest entry is never dropped for size.
+- The history's storage is shared copy on write, so a copy (`draft_copy`) costs three reference
+  counts and a draft or task pays only for what it writes (`Arc::make_mut`): the map of features,
+  each feature's entries behind an `Arc` of their own, the `Holdings` and the stamps of when each
+  latest entry was last used. Reusing a latest entry writes only its stamp (`latest_used`, a flat
+  map of numbers), and the stamp moves into the entry as it becomes earlier (`Kept::demoted`), so
+  an unchanged draft copies no entries while least recently used still counts every reuse.
+  Inserting a feature's first entry touches no `Holdings`, so previewing a new feature copies the
+  map of features alone. Nothing else in the history takes `&mut` to shared storage
+  (`retry_failures` copies only the features with a failed entry), so a draft's writes never
+  reach the cache it was copied from. `draft_copy_costs` (ignored) times copies and draft runs.
 - A measurement of a whole body also keys on that body's appearance (`Key::appearances`, the
   `BodyAppearance` of each `Measurement::appearance_bodies`) and its density's parameters join the
   parameter fingerprint, since the density and the body's name lie outside the features and
@@ -227,8 +237,9 @@ paths:
   second reports `Outcome::Failed` with the last good evaluation, so the worker lives on.
 - A draft (`Recomputer::submit_draft`: a document with an uncommitted change, under a serial of the
   app's) runs on the same worker against a copy of the cache (`Recompute::draft_copy`, sharing the
-  pool and every entry as `Arc`s; `retry_failures` copies the one it marks), so upstream results are
-  reused while the cache, the last reported evaluation and the model's reports are never touched.
+  pool and the history copy on write; `retry_failures` copies the entries it marks), so upstream
+  results are reused while the cache, the last reported evaluation and the model's reports are
+  never touched.
   Only a finished, complete draft is kept (`Recomputer::take_draft`). A draft never pre-empts the
   model: submitted while a model submission is unanswered it waits for that report, and any model
   submission drops a waiting draft and stops a running one.

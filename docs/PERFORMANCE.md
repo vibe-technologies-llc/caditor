@@ -63,13 +63,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
 
-## Document
-
-- [low · medium] Unmeasured: every draft and cache task copies the cache's whole `ResultHistory`
-  (`recompute.rs`, `draft_copy`; `history.rs`'s `Holdings` holds an entry per shared kernel buffer
-  of every earlier result), and drafts are sent while a value is typed or dragged, so on the VZ330
-  each copies a large map. An `Arc` copied on write would avoid it.
-
 ## STEP import
 
 - [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406

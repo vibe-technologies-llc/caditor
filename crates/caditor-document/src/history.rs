@@ -21,6 +21,15 @@ struct Kept {
     used: u64,
 }
 
+impl Kept {
+    fn demoted(&mut self, last_used: Option<&u64>) -> &mut Self {
+        if let Some(used) = last_used {
+            self.used = *used;
+        }
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Holding {
     holders: usize,
@@ -31,6 +40,14 @@ struct Holding {
 struct Holdings {
     buffers: AHashMap<usize, Holding>,
     bytes: usize,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SharedStorage {
+    pub(crate) results: bool,
+    pub(crate) recency: bool,
+    pub(crate) holdings: bool,
 }
 
 impl Holdings {
@@ -76,10 +93,11 @@ impl Holdings {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ResultHistory {
-    features: BTreeMap<FeatureId, Vec<Kept>>,
+    features: Arc<BTreeMap<FeatureId, Arc<Vec<Kept>>>>,
+    latest_used: Arc<AHashMap<FeatureId, u64>>,
     clock: u64,
     budget: Option<usize>,
-    earlier: Holdings,
+    earlier: Arc<Holdings>,
 }
 
 impl ResultHistory {
@@ -117,33 +135,39 @@ impl ResultHistory {
     ) -> Option<&CacheEntry> {
         self.clock += 1;
 
-        let clock = self.clock;
-        let kept = self.features.get_mut(&feature)?;
-        let at = kept.iter().position(|kept| matches(kept.entry.as_ref()))?;
+        let at = self
+            .features
+            .get(&feature)?
+            .iter()
+            .position(|kept| matches(kept.entry.as_ref()))?;
 
         if at > 0 {
+            let kept = Arc::make_mut(Arc::make_mut(&mut self.features).get_mut(&feature)?);
+            let earlier = Arc::make_mut(&mut self.earlier);
+
             if let Some(found) = kept.get_mut(at) {
-                self.earlier.release(found);
+                earlier.release(found);
             }
             if let Some(latest) = kept.first_mut() {
-                self.earlier.hold(latest);
+                earlier.hold(latest.demoted(self.latest_used.get(&feature)));
             }
+            kept.get_mut(..=at)?.rotate_right(1);
         }
-        kept.get_mut(..=at)?.rotate_right(1);
-
-        let found = kept.first_mut()?;
-
-        found.used = clock;
-        Some(found.entry.as_ref())
+        Arc::make_mut(&mut self.latest_used).insert(feature, self.clock);
+        self.latest(feature)
     }
 
     pub(crate) fn insert(&mut self, feature: FeatureId, entry: CacheEntry) {
         self.clock += 1;
 
-        let kept = self.features.entry(feature).or_default();
+        let kept = Arc::make_mut(
+            Arc::make_mut(&mut self.features)
+                .entry(feature)
+                .or_default(),
+        );
 
         if let Some(latest) = kept.first_mut() {
-            self.earlier.hold(latest);
+            Arc::make_mut(&mut self.earlier).hold(latest.demoted(self.latest_used.get(&feature)));
         }
         kept.insert(
             0,
@@ -154,8 +178,9 @@ impl ResultHistory {
             },
         );
         for mut dropped in kept.drain(RESULTS_KEPT_PER_FEATURE.min(kept.len())..) {
-            self.earlier.release(&mut dropped);
+            Arc::make_mut(&mut self.earlier).release(&mut dropped);
         }
+        Arc::make_mut(&mut self.latest_used).insert(feature, self.clock);
         self.trim();
     }
 
@@ -166,19 +191,21 @@ impl ResultHistory {
             return;
         }
 
-        let mut earlier: Vec<(u64, FeatureId)> = self
+        let mut candidates: Vec<(u64, FeatureId)> = self
             .features
             .iter()
             .flat_map(|(feature, kept)| kept.iter().skip(1).map(move |kept| (kept.used, *feature)))
             .collect();
+        let features = Arc::make_mut(&mut self.features);
+        let earlier = Arc::make_mut(&mut self.earlier);
 
-        earlier.sort_unstable();
-        for (used, feature) in earlier {
-            if self.earlier.bytes <= budget {
+        candidates.sort_unstable();
+        for (used, feature) in candidates {
+            if earlier.bytes <= budget {
                 break;
             }
 
-            let Some(kept) = self.features.get_mut(&feature) else {
+            let Some(kept) = features.get_mut(&feature).map(Arc::make_mut) else {
                 continue;
             };
             let Some(at) = kept.iter().skip(1).position(|kept| kept.used == used) else {
@@ -187,44 +214,91 @@ impl ResultHistory {
 
             let mut dropped = kept.remove(at + 1);
 
-            self.earlier.release(&mut dropped);
+            earlier.release(&mut dropped);
         }
     }
 
-    pub(crate) fn entries_mut(&mut self) -> impl Iterator<Item = &mut Arc<CacheEntry>> {
-        self.features
-            .values_mut()
-            .flat_map(|kept| kept.iter_mut().map(|kept| &mut kept.entry))
+    pub(crate) fn change_entries(
+        &mut self,
+        wanted: impl Fn(&CacheEntry) -> bool,
+        change: impl Fn(&mut CacheEntry),
+    ) {
+        let touched: Vec<FeatureId> = self
+            .features
+            .iter()
+            .filter(|(_, kept)| kept.iter().any(|kept| wanted(&kept.entry)))
+            .map(|(feature, _)| *feature)
+            .collect();
+
+        if touched.is_empty() {
+            return;
+        }
+
+        let features = Arc::make_mut(&mut self.features);
+
+        for feature in touched {
+            let Some(kept) = features.get_mut(&feature).map(Arc::make_mut) else {
+                continue;
+            };
+
+            for kept in kept.iter_mut().filter(|kept| wanted(&kept.entry)) {
+                change(Arc::make_mut(&mut kept.entry));
+            }
+        }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.features.clear();
-        self.earlier = Holdings::default();
+        self.features = Arc::default();
+        self.latest_used = Arc::default();
+        self.earlier = Arc::default();
     }
 
     pub(crate) fn retain(&mut self, alive: impl Fn(&FeatureId) -> bool) {
-        let earlier = &mut self.earlier;
+        let gone: Vec<FeatureId> = self
+            .features
+            .keys()
+            .filter(|feature| !alive(feature))
+            .copied()
+            .collect();
 
-        self.features.retain(|feature, kept| {
-            let keep = alive(feature);
+        if gone.is_empty() {
+            return;
+        }
 
-            if !keep {
-                for dropped in kept.iter_mut().skip(1) {
-                    earlier.release(dropped);
-                }
+        let features = Arc::make_mut(&mut self.features);
+        let latest_used = Arc::make_mut(&mut self.latest_used);
+        let earlier = Arc::make_mut(&mut self.earlier);
+
+        for feature in gone {
+            latest_used.remove(&feature);
+
+            let Some(mut kept) = features.remove(&feature) else {
+                continue;
+            };
+
+            for dropped in Arc::make_mut(&mut kept).iter_mut().skip(1) {
+                earlier.release(dropped);
             }
-            keep
-        });
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn kept(&self, feature: FeatureId) -> usize {
-        self.features.get(&feature).map_or(0, Vec::len)
+        self.features.get(&feature).map_or(0, |kept| kept.len())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn storage_shared_with(&self, other: &Self) -> SharedStorage {
+        SharedStorage {
+            results: Arc::ptr_eq(&self.features, &other.features),
+            recency: Arc::ptr_eq(&self.latest_used, &other.latest_used),
+            holdings: Arc::ptr_eq(&self.earlier, &other.earlier),
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn shared_with(&self, other: &Self) -> (usize, usize) {
-        let total = self.features.values().map(Vec::len).sum();
+        let total = self.features.values().map(|kept| kept.len()).sum();
         let shared = self
             .features
             .iter()
@@ -238,6 +312,19 @@ impl ResultHistory {
             })
             .count();
         (shared, total)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_kept(&self) -> usize {
+        self.features
+            .values()
+            .map(|kept| kept.len().saturating_sub(1))
+            .sum()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_buffers(&self) -> usize {
+        self.earlier.buffers.len()
     }
 
     #[cfg(test)]
