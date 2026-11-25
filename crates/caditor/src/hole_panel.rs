@@ -1068,7 +1068,7 @@ impl Panel<'_> {
         let words =
             hole_placement::source_words(self.model, self.hole.sketch, &distance.held.source);
         let hover = format!(
-            "Stop measuring hole {number} from this {}",
+            "Stop measuring hole {number} from this {}: {words}",
             distance.held.noun()
         );
 

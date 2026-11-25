@@ -642,7 +642,9 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
             < 1e-6
     );
 
-    harness.click_button("Stop measuring hole 1 from this edge");
+    harness.click_button(
+        "Stop measuring hole 1 from this edge: The edge between Extrude 1 side from Line 2 and Extrude 1 end face",
+    );
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Free Hole 1 from an edge"));
@@ -899,9 +901,9 @@ fn a_hole_is_placed_by_axes_a_datum_point_the_origin_and_another_sketch_s_circle
         std::f64::consts::PI * 9.0 * 10.0
     ));
 
-    harness.click_button("Stop measuring hole 1 from this axis");
+    harness.click_button("Stop measuring hole 1 from this axis: The Y axis");
     harness.settle();
-    harness.click_button("Stop measuring hole 1 from this axis");
+    harness.click_button("Stop measuring hole 1 from this axis: Rail");
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Free Hole 1 from an axis"));

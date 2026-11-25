@@ -4113,8 +4113,13 @@ fn constraint_row(
         ui,
         |ui| widgets::link_label(ui, text),
         |ui| {
-            let deleted =
-                widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked();
+            let deleted = widgets::icon_button_for(
+                ui,
+                icons::DELETE,
+                "Delete this constraint",
+                &format!("Delete constraint {description}"),
+            )
+            .clicked();
             let toggled = widgets::icon_button(
                 ui,
                 icons::command(Command::ToggleConstraintActive),

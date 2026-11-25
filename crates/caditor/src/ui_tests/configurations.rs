@@ -111,7 +111,7 @@ fn escape_in_a_configuration_s_rename_cell_keeps_the_name_and_the_dialog() {
 
     harness.perform(Action::Apply(configure));
     harness.frame();
-    harness.click_button("Rename it");
+    harness.click_button("Rename configuration Configuration 1");
     harness.frame();
     harness.type_text("Changed");
 
@@ -127,7 +127,7 @@ fn escape_in_a_configuration_s_rename_cell_keeps_the_name_and_the_dialog() {
         "Configuration 1"
     );
     assert!(!harness.has_button("Keep the name (Esc)"));
-    assert!(harness.has_button("Rename it"));
+    assert!(harness.has_button("Rename configuration Configuration 1"));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();

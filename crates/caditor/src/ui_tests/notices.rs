@@ -202,7 +202,7 @@ fn a_deleted_feature_is_named_in_a_notice_whose_undo_brings_it_back_while_it_is_
     let told = harness.model.notice().map(|notice| notice.text.clone());
     let after = harness.document().features().count();
 
-    harness.click_button(status_bar::UNDO_SWITCH);
+    harness.click_lowest_button(status_bar::UNDO_SWITCH);
     harness.settle();
 
     let restored = harness.document().features().count();

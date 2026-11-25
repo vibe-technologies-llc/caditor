@@ -17,12 +17,15 @@ paths:
   back like a slow GPU. It answers sharing the built scene's `PickTable`, never cloning the scene.
 - AccessKit keeps each frame's nodes, so tests check names, captions and that no visible node shows
   a private-use glyph. Icon-only buttons are clicked and hovered by accessible name
-  (`click_button`, `hover_button`), labelled ones by their painted label. Of several buttons with
-  one name `click_button` takes the first in AccessKit's node order, which follows egui's `Id`
-  hashes and so changes with an `ahash` update, so a test clicking a name more than one button
-  carries says which by place: `click_topmost_button` (a Bodies group row above the feature of the
-  same name, the first of a list's rows), `click_lowest_button` (a status bar notice's action
-  rather than the toolbar's). A test reading
+  (`click_button`, `hover_button`), labelled ones by their painted label. A name two enabled buttons
+  carry makes `click_button` (and `button_rect`) panic, listing their rects, since AccessKit's node
+  order follows egui's `Id` hashes and so changes with an `ahash` update. Buttons acting on
+  different things are named apart (a row's "Rename view Front", `widgets::icon_button_for`, a
+  constraint's "Delete constraint Horizontal Line 2"); a test clicking a name the same action
+  carries twice says which by place: `click_topmost_button` (a Bodies group row above the feature
+  of the same name, the first of a list's rows), `click_lowest_button` (a status bar notice's
+  action rather than the toolbar's), `click_nth_button` (the button sweep, which clicks every
+  button of a name by its place in reading order). A test reading
   accessibility at only a few screens leaves AccessKit off and calls `Harness::read_screen` before
   each check (one frame with it on).
 - Modifier keys reach egui only through `Event::ModifiersChanged` (`click_with`); tree drags hold

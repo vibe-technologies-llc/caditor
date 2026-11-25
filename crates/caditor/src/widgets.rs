@@ -319,6 +319,10 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     .on_hover_text(hover)
 }
 
+pub fn icon_button_for(ui: &mut Ui, glyph: &str, hover: &str, name: &str) -> Response {
+    spoken_as(icon_button(ui, glyph, hover), name)
+}
+
 pub fn framed_icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     let tokens = appearance::tokens(ui);
     let button = Button::new(icon(glyph).color(tokens.text))

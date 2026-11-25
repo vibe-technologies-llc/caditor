@@ -139,7 +139,7 @@ fn escape_in_a_selection_set_s_rename_row_keeps_the_name_and_the_dialog() {
     harness.type_into_field(name_field_id(), "Mating faces");
     harness.click(SAVE_LABEL);
     harness.frame();
-    harness.click_button("Rename it");
+    harness.click_button("Rename set Mating faces");
     harness.frame();
     harness.type_text("Changed");
 
@@ -155,7 +155,7 @@ fn escape_in_a_selection_set_s_rename_row_keeps_the_name_and_the_dialog() {
         "Mating faces"
     );
     assert!(!harness.has_button("Keep the name (Esc)"));
-    assert!(harness.has_button("Rename it"));
+    assert!(harness.has_button("Rename set Mating faces"));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
@@ -189,7 +189,7 @@ fn the_selection_sets_dialog_saves_renames_replaces_selects_and_deletes_sets() {
 
     let refused = harness.shows_containing("There is already a selection set named");
 
-    harness.click_button("Rename it");
+    harness.click_button("Rename set Mating faces");
     harness.frame();
     harness.type_into_field(rename_field_id(), "Top");
     harness.frame();
@@ -198,19 +198,19 @@ fn the_selection_sets_dialog_saves_renames_replaces_selects_and_deletes_sets() {
 
     harness.workspace.viewport.selection_mut().clear();
     harness.workspace.viewport.selection_mut().toggle(edge);
-    harness.click_button("Replace it with the current selection");
+    harness.click_button("Replace set Top with the current selection");
     harness.frame();
 
     let replaced = harness.document().selection_sets().sets[0].members.clone();
 
     harness.workspace.viewport.selection_mut().clear();
-    harness.click_button("Select what this set holds");
+    harness.click_button("Select what set Top holds");
     harness.frame();
     harness.frame();
 
     let selected: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
 
-    harness.click_button("Delete it");
+    harness.click_button("Delete set Top");
     harness.frame();
 
     let left = harness.document().selection_sets().sets.len();

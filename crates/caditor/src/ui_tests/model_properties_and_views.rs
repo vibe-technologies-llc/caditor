@@ -146,7 +146,7 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
 
     let two = harness.document().saved_views().named.len();
 
-    harness.click_button("Rename it");
+    harness.click_button("Rename view As drawn");
     harness.frame();
     harness.type_into_field(rename_field_id(), "Bore");
     harness.frame();
@@ -159,7 +159,7 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
         .map(|named| named.name.clone())
         .collect();
 
-    harness.click_button("Delete it");
+    harness.click_button("Delete view Hidden bore");
     harness.frame();
 
     let left = harness.document().saved_views().named.len();
@@ -188,7 +188,7 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
     harness.replace_text("As drawn");
     harness.click(SAVE_LABEL);
     harness.frame();
-    harness.click_button("Rename it");
+    harness.click_button("Rename view As drawn");
     harness.frame();
     harness.type_text("Changed");
 
@@ -201,7 +201,7 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
     assert!(harness.workspace.saved_views.is_some());
     assert_eq!(harness.document().saved_views().named[0].name, "As drawn");
     assert!(!harness.has_button("Keep the name (Esc)"));
-    assert!(harness.has_button("Rename it"));
+    assert!(harness.has_button("Rename view As drawn"));
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();

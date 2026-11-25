@@ -295,14 +295,32 @@ fn row(
                 .clicked()
         },
         |ui| {
-            delete = widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked();
-            rename = widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked();
-            update =
-                widgets::icon_button(ui, icons::command(Command::SaveView), UPDATE_HOVER).clicked();
-            widgets::icon_button(
+            delete = widgets::icon_button_for(
+                ui,
+                icons::DELETE,
+                DELETE_HOVER,
+                &format!("Delete view {}", named.name),
+            )
+            .clicked();
+            rename = widgets::icon_button_for(
+                ui,
+                icons::RENAME,
+                RENAME_HOVER,
+                &format!("Rename view {}", named.name),
+            )
+            .clicked();
+            update = widgets::icon_button_for(
+                ui,
+                icons::command(Command::SaveView),
+                UPDATE_HOVER,
+                &format!("Replace view {} with the current view", named.name),
+            )
+            .clicked();
+            widgets::icon_button_for(
                 ui,
                 icons::command(Command::View(StandardView::Isometric)),
                 SHOW_HOVER,
+                &format!("Show view {}", named.name),
             )
             .clicked()
         },

@@ -598,12 +598,34 @@ fn row(
             clicked
         },
         |ui| {
-            delete = widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked();
-            rename = widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked();
-            update =
-                widgets::icon_button(ui, icons::command(Command::SaveSelectionSet), UPDATE_HOVER)
-                    .clicked();
-            widgets::icon_button(ui, icons::command(Command::SelectionSets), SELECT_HOVER).clicked()
+            delete = widgets::icon_button_for(
+                ui,
+                icons::DELETE,
+                DELETE_HOVER,
+                &format!("Delete set {}", set.name),
+            )
+            .clicked();
+            rename = widgets::icon_button_for(
+                ui,
+                icons::RENAME,
+                RENAME_HOVER,
+                &format!("Rename set {}", set.name),
+            )
+            .clicked();
+            update = widgets::icon_button_for(
+                ui,
+                icons::command(Command::SaveSelectionSet),
+                UPDATE_HOVER,
+                &format!("Replace set {} with the current selection", set.name),
+            )
+            .clicked();
+            widgets::icon_button_for(
+                ui,
+                icons::command(Command::SelectionSets),
+                SELECT_HOVER,
+                &format!("Select what set {} holds", set.name),
+            )
+            .clicked()
         },
     );
 

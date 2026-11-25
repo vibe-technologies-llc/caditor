@@ -322,11 +322,11 @@ fn the_freedom_pill_selects_what_is_still_free_and_the_open_ends_pill_selects_an
     assert!(harness.accessible_named(Role::Button, &free));
     assert!(harness.accessible_named(Role::Button, &open));
 
-    harness.click_button(&free);
+    harness.click_topmost_button(&free);
 
     assert_eq!(selected(&harness), entity_pickables(feature, &[line]));
 
-    harness.click_button(&open);
+    harness.click_topmost_button(&open);
 
     let ends = harness
         .sketch(feature)
@@ -354,7 +354,7 @@ fn the_redundant_pill_selects_the_constraint_that_repeats_another_ready_to_delet
         sketch_status::SELECT_REDUNDANT.to_lowercase()
     );
 
-    harness.click_button(&name);
+    harness.click_topmost_button(&name);
 
     let chosen = selected(&harness);
 

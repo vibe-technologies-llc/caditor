@@ -1024,13 +1024,39 @@ impl Harness {
             self.frame();
         }
 
-        let bounds = self
+        let matches = self
             .accessible
             .iter()
             .filter(|(_, node)| {
                 matches!(node.role(), Role::Button | Role::Slider) && node.label() == Some(name)
             })
-            .find_map(|(_, node)| node.bounds())?;
+            .filter_map(|(_, node)| Some((node.bounds()?, !node.is_disabled())))
+            .collect::<Vec<_>>();
+        let enabled = matches
+            .iter()
+            .filter(|(_, enabled)| *enabled)
+            .map(|(bounds, _)| bounds)
+            .collect::<Vec<_>>();
+
+        assert!(
+            enabled.len() < 2,
+            "{} enabled buttons are named '{name}', at {}: name them apart or click by place with \
+             click_topmost_button or click_lowest_button",
+            enabled.len(),
+            enabled
+                .iter()
+                .map(|bounds| format!(
+                    "({:.0}, {:.0})-({:.0}, {:.0})",
+                    bounds.x0, bounds.y0, bounds.x1, bounds.y1
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let bounds = enabled
+            .first()
+            .copied()
+            .or_else(|| matches.first().map(|(bounds, _)| bounds))?;
         Some(Rect::from_min_max(
             Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
             Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
@@ -1056,6 +1082,43 @@ impl Harness {
         self.click_steadily(first, |harness| {
             harness.find_button_rect(name).map(|rect| rect.center())
         });
+        self.show_new_windows();
+    }
+
+    fn enabled_button_rects(&self, name: &str) -> Vec<Rect> {
+        let mut rects: Vec<Rect> = self
+            .accessible
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+            .filter(|(_, node)| !node.is_disabled())
+            .filter_map(|(_, node)| node.bounds())
+            .map(|bounds| {
+                Rect::from_min_max(
+                    Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
+                    Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
+                )
+            })
+            .collect();
+
+        rects.sort_by(|a, b| {
+            a.min
+                .y
+                .total_cmp(&b.min.y)
+                .then(a.min.x.total_cmp(&b.min.x))
+        });
+        rects
+    }
+
+    fn click_nth_button(&mut self, name: &str, index: usize) {
+        self.read_screen();
+
+        let centre = self
+            .enabled_button_rects(name)
+            .get(index)
+            .unwrap_or_else(|| panic!("no button number {index} named '{name}'"))
+            .center();
+
+        self.click_screen(centre);
         self.show_new_windows();
     }
 

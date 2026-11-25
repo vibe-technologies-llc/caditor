@@ -61,6 +61,19 @@ fn take(harness: &mut Harness, feature: FeatureId, constraint: ConstraintId, rem
     harness.settle();
 }
 
+fn take_lowest(
+    harness: &mut Harness,
+    feature: FeatureId,
+    constraint: ConstraintId,
+    remedy: Remedy,
+) {
+    let name = harness.sketch(feature).describe_constraint(constraint);
+
+    harness.click_button(RESOLVE);
+    harness.click_lowest_button(&remedy.label(&name));
+    harness.settle();
+}
+
 #[test]
 fn a_refused_constraint_offers_to_select_or_delete_each_constraint_it_conflicts_with() {
     let mut harness = Harness::new();
@@ -204,7 +217,7 @@ fn a_redundant_constraint_offers_to_delete_the_one_it_repeats() {
     let repeated = ids_of_kind(harness.sketch(feature), "Horizontal");
     let first = *repeated.first().unwrap();
 
-    take(&mut harness, feature, first, Remedy::Delete);
+    take_lowest(&mut harness, feature, first, Remedy::Delete);
 
     assert!(harness.sketch(feature).constraint(first).is_none());
     assert_eq!(

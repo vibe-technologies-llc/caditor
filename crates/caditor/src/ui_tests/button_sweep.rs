@@ -1,6 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use egui::{Pos2, Rect, accesskit::Role};
+use egui::accesskit::Role;
 
 use super::{Harness, feature_named};
 
@@ -29,47 +29,49 @@ fn prepared(state: State) -> Harness {
     harness
 }
 
-fn enabled_buttons(harness: &Harness) -> Vec<String> {
+fn enabled_buttons(harness: &Harness) -> Vec<(String, usize)> {
     let screen = harness.context.content_rect();
     let mut labels: Vec<String> = harness
         .accessible
         .iter()
         .filter(|(_, node)| node.role() == Role::Button && !node.is_disabled())
-        .filter_map(|(_, node)| {
-            let bounds = node.bounds()?;
-            let rect = Rect::from_min_max(
-                Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
-                Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
-            );
-            (rect.is_positive() && screen.contains_rect(rect))
-                .then(|| node.label().map(str::to_owned))
-                .flatten()
-        })
+        .filter_map(|(_, node)| node.label().map(str::to_owned))
         .filter(|label| !label.trim().is_empty())
         .collect();
 
     labels.sort();
     labels.dedup();
     labels
+        .into_iter()
+        .flat_map(|label| {
+            harness
+                .enabled_button_rects(&label)
+                .into_iter()
+                .enumerate()
+                .filter(|(_, rect)| rect.is_positive() && screen.contains_rect(*rect))
+                .map(|(index, _)| (label.clone(), index))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn click_share(state: State, share: usize) -> usize {
-    let labels = enabled_buttons(&prepared(state));
+    let buttons = enabled_buttons(&prepared(state));
     let mut failed = Vec::new();
     let mut clicked = 0;
 
-    for label in labels.iter().skip(share).step_by(SHARES) {
+    for (label, index) in buttons.iter().skip(share).step_by(SHARES) {
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
             let mut harness = prepared(state);
 
-            harness.click_button(label);
+            harness.click_nth_button(label, *index);
             harness.frame();
             harness.settle();
         }));
 
         clicked += 1;
         if outcome.is_err() {
-            failed.push(label.clone());
+            failed.push(format!("{label} (number {index})"));
         }
     }
 

@@ -418,21 +418,44 @@ fn table_row(
         }
     }
     ui.horizontal(|ui| {
-        if widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked() {
+        let rename = widgets::icon_button_for(
+            ui,
+            icons::RENAME,
+            RENAME_HOVER,
+            &format!("Rename configuration {}", row.name),
+        );
+
+        if rename.clicked() {
             draft.renaming = Some(Renaming {
                 id: row.id,
                 to: row.name.clone(),
                 focus_pending: true,
             });
         }
-        if widgets::icon_button(ui, icons::COPY, DUPLICATE_HOVER).clicked() {
+
+        let duplicate = widgets::icon_button_for(
+            ui,
+            icons::COPY,
+            DUPLICATE_HOVER,
+            &format!("Add a copy of configuration {}", row.name),
+        );
+
+        if duplicate.clicked() {
             let built = document
                 .duplicating_configuration(row.id)
                 .map(|(transaction, _)| transaction);
 
             outcome = applying(draft, checked(document, built));
         }
-        if widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked() {
+
+        let delete = widgets::icon_button_for(
+            ui,
+            icons::DELETE,
+            DELETE_HOVER,
+            &format!("Delete configuration {}", row.name),
+        );
+
+        if delete.clicked() {
             let built = document.deleting_configuration(row.id);
 
             outcome = applying(draft, checked(document, built));

@@ -118,7 +118,10 @@ fn constraint_rows_far_out_of_view_are_not_laid_out() {
         .accessible
         .iter()
         .filter(|(_, node)| {
-            node.role() == Role::Button && node.label() == Some("Delete this constraint")
+            node.role() == Role::Button
+                && node
+                    .label()
+                    .is_some_and(|label| label.starts_with("Delete constraint "))
         })
         .count();
 
@@ -161,7 +164,10 @@ fn redundant_constraint_rows_far_out_of_view_are_not_laid_out_once_measured() {
         .accessible
         .iter()
         .filter(|(_, node)| {
-            node.role() == Role::Button && node.label() == Some("Delete this constraint")
+            node.role() == Role::Button
+                && node
+                    .label()
+                    .is_some_and(|label| label.starts_with("Delete constraint "))
         })
         .count();
 
