@@ -55,16 +55,22 @@ struct PictureVaryings {
 
 struct MeshPlacement {
     offset: vec4<f32>,
-    faces_columns: vec4<u32>,
+    faces_base_closed: vec4<u32>,
     turn_x: vec4<f32>,
     turn_y: vec4<f32>,
     turn_z: vec4<f32>,
 }
 
+const WINDOW_SLOTS: u32 = 192u;
+
+struct MeshPlacements {
+    slots: array<MeshPlacement, WINDOW_SLOTS>,
+}
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(1) @binding(0) var<uniform> grid: Grid;
 @group(1) @binding(1) var face_styles: texture_2d<u32>;
-@group(1) @binding(2) var<uniform> mesh: MeshPlacement;
+@group(1) @binding(2) var<uniform> mesh_placements: MeshPlacements;
 @group(1) @binding(4) var styles: texture_2d<u32>;
 @group(1) @binding(5) var picture_texture: texture_2d<f32>;
 @group(1) @binding(6) var picture_sampler: sampler;
@@ -620,16 +626,25 @@ fn unpack_color(packed: u32) -> vec4<f32> {
     return vec4<f32>(channels) / 255.0;
 }
 
-fn turned(vector: vec3<f32>) -> vec3<f32> {
+fn placed_mesh(slot: u32) -> MeshPlacement {
+    return mesh_placements.slots[min(slot, WINDOW_SLOTS - 1u)];
+}
+
+fn turned(mesh: MeshPlacement, vector: vec3<f32>) -> vec3<f32> {
     return mesh.turn_x.xyz * vector.x + mesh.turn_y.xyz * vector.y + mesh.turn_z.xyz * vector.z;
 }
 
+fn face_style(mesh: MeshPlacement, face: u32) -> vec4<u32> {
+    let texel = mesh.faces_base_closed.y + min(face, max(mesh.faces_base_closed.x, 1u) - 1u);
+    let columns = max(textureDimensions(face_styles).x, 1u);
+    return textureLoad(face_styles, vec2<u32>(texel % columns, texel / columns), 0);
+}
+
 @vertex
-fn vs_mesh(vertex: MeshVertex) -> Varyings {
-    let relative = turned(vertex.position) + from_anchor(mesh.offset.xyz);
-    let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
-    let columns = max(mesh.faces_columns.y, 1u);
-    let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
+fn vs_mesh(vertex: MeshVertex, @builtin(instance_index) slot: u32) -> Varyings {
+    let mesh = placed_mesh(slot);
+    let relative = turned(mesh, vertex.position) + from_anchor(mesh.offset.xyz);
+    let style = face_style(mesh, vertex.face);
 
     var out = empty_varyings();
     out.position = finish(to_clip(relative), 1.0, BEHIND);
@@ -637,17 +652,16 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.pick = style.y;
     out.depth = view_depth(relative);
     out.relative = relative;
-    out.normal = turned(unfolded(vertex.normal));
-    out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_columns.z != 0u) | (style.z << FINISH_SHIFT);
+    out.normal = turned(mesh, unfolded(vertex.normal));
+    out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_base_closed.z != 0u) | (style.z << FINISH_SHIFT);
     return out;
 }
 
 @vertex
-fn vs_shadow(vertex: MeshVertex) -> Varyings {
-    let relative = turned(vertex.position) + from_anchor(mesh.offset.xyz);
-    let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
-    let columns = max(mesh.faces_columns.y, 1u);
-    let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
+fn vs_shadow(vertex: MeshVertex, @builtin(instance_index) slot: u32) -> Varyings {
+    let mesh = placed_mesh(slot);
+    let relative = turned(mesh, vertex.position) + from_anchor(mesh.offset.xyz);
+    let style = face_style(mesh, vertex.face);
 
     var out = empty_varyings();
     out.position = view.shadow_matrix * vec4<f32>(relative, 1.0);
@@ -656,7 +670,7 @@ fn vs_shadow(vertex: MeshVertex) -> Varyings {
         out.position = CULLED;
     }
     out.relative = relative;
-    out.normal = turned(unfolded(vertex.normal));
+    out.normal = turned(mesh, unfolded(vertex.normal));
     out.sectioned = SECTIONED | (style.z << FINISH_SHIFT);
     return out;
 }
@@ -719,7 +733,13 @@ struct SilhouetteStyle {
     turn_z: vec4<f32>,
 }
 
-@group(1) @binding(3) var<uniform> silhouette: SilhouetteStyle;
+struct SilhouetteStyles {
+    slots: array<SilhouetteStyle, WINDOW_SLOTS>,
+}
+
+@group(1) @binding(3) var<uniform> silhouette_styles: SilhouetteStyles;
+
+const QUAD_TRIANGLE_VERTICES: u32 = 6u;
 
 struct SilhouetteTriangle {
     @location(0) first: vec3<f32>,
@@ -730,16 +750,25 @@ struct SilhouetteTriangle {
     @location(5) third_normal: vec2<f32>,
 }
 
-fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
+fn silhouette_turned(silhouette: SilhouetteStyle, vector: vec3<f32>) -> vec3<f32> {
     return silhouette.turn_x.xyz * vector.x + silhouette.turn_y_dashed.xyz * vector.y + silhouette.turn_z.xyz * vector.z;
 }
 
-fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
-    return silhouette_turned(position) + from_anchor(silhouette.offset_width.xyz);
+fn silhouette_placed(silhouette: SilhouetteStyle, position: vec3<f32>) -> vec3<f32> {
+    return silhouette_turned(silhouette, position) + from_anchor(silhouette.offset_width.xyz);
 }
 
-fn facing(position: vec3<f32>, normal: vec2<f32>) -> f32 {
-    return dot(silhouette_turned(unfolded(normal)), toward_eye(position));
+fn facing(silhouette: SilhouetteStyle, position: vec3<f32>, normal: vec2<f32>) -> f32 {
+    return dot(silhouette_turned(silhouette, unfolded(normal)), toward_eye(position));
+}
+
+fn silhouette_of(vertex: u32) -> SilhouetteStyle {
+    return silhouette_styles.slots[min(vertex / QUAD_TRIANGLE_VERTICES, WINDOW_SLOTS - 1u)];
+}
+
+fn quad_triangle_corner(vertex: u32) -> u32 {
+    var corners = array<u32, 6>(0u, 1u, 2u, 0u, 2u, 3u);
+    return corners[vertex % QUAD_TRIANGLE_VERTICES];
 }
 
 fn crossing(head: vec3<f32>, tail: vec3<f32>, head_facing: f32, tail_facing: f32) -> vec3<f32> {
@@ -756,21 +785,22 @@ fn screen_dash_points(segment: Segment, vertex: u32) -> f32 {
 
 @vertex
 fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
-    return silhouette_stroke(vertex, triangle, silhouette.turn_y_dashed.w > 0.5);
+    let silhouette = silhouette_of(vertex);
+    return silhouette_stroke(quad_triangle_corner(vertex), triangle, silhouette, silhouette.turn_y_dashed.w > 0.5);
 }
 
 @vertex
 fn vs_hidden_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
-    return silhouette_stroke(vertex, triangle, true);
+    return silhouette_stroke(quad_triangle_corner(vertex), triangle, silhouette_of(vertex), true);
 }
 
-fn silhouette_stroke(vertex: u32, triangle: SilhouetteTriangle, dashed: bool) -> Varyings {
-    let first = silhouette_placed(triangle.first);
-    let second = silhouette_placed(triangle.second);
-    let third = silhouette_placed(triangle.third);
-    let first_facing = facing(first, triangle.first_normal);
-    let second_facing = facing(second, triangle.second_normal);
-    let third_facing = facing(third, triangle.third_normal);
+fn silhouette_stroke(vertex: u32, triangle: SilhouetteTriangle, silhouette: SilhouetteStyle, dashed: bool) -> Varyings {
+    let first = silhouette_placed(silhouette, triangle.first);
+    let second = silhouette_placed(silhouette, triangle.second);
+    let third = silhouette_placed(silhouette, triangle.third);
+    let first_facing = facing(silhouette, first, triangle.first_normal);
+    let second_facing = facing(silhouette, second, triangle.second_normal);
+    let third_facing = facing(silhouette, third, triangle.third_normal);
     let front = vec3<bool>(first_facing >= 0.0, second_facing >= 0.0, third_facing >= 0.0);
     if all(front) || !any(front) {
         return empty_varyings();

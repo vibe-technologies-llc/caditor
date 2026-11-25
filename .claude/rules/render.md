@@ -109,10 +109,10 @@ paths:
   `REANCHOR_DISTANCES` view distances and the distance at which f32 rounding of an offset stays
   under `ANCHOR_ERROR_PIXELS` of a pixel at the current zoom; beyond that the next frame re-anchors
   and uploads every batch again.
-- A `ShadedMesh` stores positions relative to its own centre; its placement uniform (and a
-  silhouette's) holds the placed centre relative to the same anchor, worked out in f64, and the
-  shader adds the view uniform's anchor offset, so a camera move writes no mesh or silhouette
-  uniform until the anchor moves.
+- A `ShadedMesh` stores positions relative to its own centre; its placement (and a silhouette's,
+  each a slot of its cache's table, below) holds the placed centre relative to the same anchor,
+  worked out in f64, and the shader adds the view uniform's anchor offset, so a camera move writes
+  no placement until the anchor moves.
 
 ## Meshes
 
@@ -120,8 +120,8 @@ paths:
   finish per face), so instances kept between scenes are handed over without copying styles.
   Buffers upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the
   `Arc`'s address) and drop when no list of the scene holds the mesh; each cache keeps only its
-  styles, placement and bind group per mesh, so moving a mesh between lists (zebra, X-ray, hidden
-  lines) or drawing it in two uploads nothing. The pool keeps a refused mesh refused while any list
+  styles and placement per mesh, so moving a mesh between lists (zebra, X-ray, hidden lines) or
+  drawing it in two uploads nothing. The pool keeps a refused mesh refused while any list
   holds it. A mesh past `max_buffer_size` is split into parts that each fit. An `Arc` appears at
   most once in each list of a scene.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
@@ -147,9 +147,37 @@ paths:
   batch-replace, new-mesh and zebra/see-through cases; `CADITOR_BENCH_CASE` runs only cases whose
   name contains it.
 - A `MeshInstance` may carry a `placement` (`RigidTransform`) drawing the mesh moved and turned
-  without a new upload: the placement uniform, rewritten only when placement or anchor moved, holds
+  without a new upload: its placement slot, rewritten only when placement or anchor moved, holds
   the turned axes and the placed centre relative to the anchor (f64), and `vs_mesh` applies them to
   positions and normals.
+- A large assembly is thousands of small bodies, so a body costs as few draw commands as it can
+  (wgpu validates and tracks every command on the UI thread, and the GPU pays for each state
+  change): a mesh is one `draw_indexed`, a silhouette one `draw`, a batch's lines one
+  `draw_indexed`, each binding only what differs from the previous one drawn.
+  - Slabs (`spans.rs`, `Slabs`): small meshes (vertices and indices each within a quarter of a
+    slab, `PACKED_SHARE`), silhouettes and batches' lines are packed into shared buffers, a mesh's
+    indices written already offset by its first vertex (no `base_vertex`, which GLES 3.0 lacks).
+    Slabs start small and double up to `MESH_SLAB_BYTES` (32 MiB), `SILHOUETTE_SLAB_BYTES` and
+    `LINE_SLAB_BYTES` (16 MiB, within `max_buffer_size`); a span is first-fit, goes back when its
+    last holder drops (`Held`, `SlabSpan`), and an unused slab is released at the end of the
+    frame or right after a refusal so a refused slab is never reused. Anything larger keeps its
+    own buffers (split as before past `max_buffer_size`).
+  - Tables (`mesh_table.rs`, `SilhouetteTable`): each mesh cache has one placement table and one
+    face-style texture, and the silhouette cache one style table. A placement is 80 bytes (`PLACEMENT_BYTES`) in a
+    uniform buffer read through windows of `WINDOW_SLOTS` (192, 15,360 bytes, under the 16 KiB
+    every device binds) at dynamic offsets: a mesh reads its slot in the window as
+    `@builtin(instance_index)` (the draw's first instance, which wgpu emulates on GL), a
+    silhouette from its first vertex (six vertices a quad, drawn from six times its slot in the
+    window), so the bind group changes only when the window does. A mesh's placement carries its face count and the
+    first texel of its run in the style texture, whose width `vs_mesh` reads from the texture.
+    Slots and texels are held per mesh and given back on drop; a full table grows (twice, at least
+    to what is wanted, within the device) into new resources made inside `gpu::scoped`, installed
+    only when not refused, and every mesh or silhouette then writes its slot again
+    (`rewrite_all`), which redraws the kept view. A mesh or silhouette that cannot get room is
+    refused alone.
+  - A batch packed into a line slab writes its styles into the slab's style table and its points'
+    style indices offset by its first style; all four line slots are bound once per slab at one
+    point apart and each batch draws its instances from its first point.
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), against the
   window in the main pass, the pick window in the pick pass and each tile in image export. A batch
@@ -169,12 +197,13 @@ paths:
   colouring, since styles are per face); the classifier may fail, which ends the division with
   its error, so the app's analysis thread stops at its interrupt. `ShadedMesh::origin` and `face_triangles` let the app's
   reach analysis and `through.rs` work on triangles without a copy.
-- Per-face styles live in an `Rgba32Uint` texture (`StyleLayout`: colour, pick id, packed finish, a
-  spare word) read by face index in the vertex shader, so hover and selection cost nothing in
-  geometry. A restyle writes only the texture rows whose styles changed, each as one span from its
-  first to its last changed face (`changed_spans`), and keeps the slice it wrote, so handing the
-  same slice again costs a pointer comparison; past `MAX_STYLE_SPANS` rows, or when the face count
-  changes, the whole texture is written.
+- Per-face styles live in the cache's `Rgba32Uint` texture (colour, pick id, packed finish, a spare
+  word), each mesh a run of texels, read by face index in the vertex shader, so hover and selection
+  cost nothing in geometry. A restyle writes only the texture rows whose styles changed, each as one
+  span from its first to its last changed face (`changed_spans`), and keeps the slice it wrote, so
+  handing the same slice again costs a pointer comparison; past `MAX_STYLE_SPANS` rows, or when the
+  face count changes, the mesh's whole run is written (`texel_rows`: a part row, whole rows, a part
+  row).
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. The opaque mesh pass
@@ -374,7 +403,8 @@ paths:
   colour resolves into the kept view and is copied onto the surface). The UI is drawn on the
   surface after the copy.
 - Each batch has a `GpuBatch` of `GrowableBuffer`s, made only for what the batch holds (lines,
-  markers, fills, style tables), found again each frame by its `Arc`'s address rather than position
+  markers, fills, style tables; lines and their styles in a shared slab when small, above), found
+  again each frame by its `Arc`'s address rather than position
   (`upload_batches`), so a batch kept while others come, go or change places uploads nothing and an
   app may hand over thousands (one per body and per sketch, `app.md`). A batch uploads only when
   new or when the anchor moved, so an idle frame or a camera move writes no vertices; a new one
@@ -570,7 +600,9 @@ paths:
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
 - Lines, markers, silhouettes and the grid are quads, one instance each, drawn indexed through one
-  static index buffer (`gpu::QuadIndices`, bound once after the meshes in each pass).
+  static index buffer (`gpu::QuadIndices`, bound once after the meshes in each pass), except
+  silhouettes, drawn as six vertices (`quad_triangle_corner`, the same two triangles) so the
+  first vertex can carry the silhouette's slot.
 - Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
   `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
   distance from the segment (carried in screen space) into coverage, so lines are smooth at every

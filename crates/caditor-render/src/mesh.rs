@@ -8,26 +8,23 @@ use crate::{
     by_mesh::{ByMesh, DrawnOrder, OfMesh, mesh_key},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes, Pack},
+    mesh_table::{self, Capacity, Holding, MeshTable, window_offset, window_slot},
     scene::{Color, PickId},
+    spans::{SlabSizes, SlabSpan, Slabs},
     viewport::relative_to_eye,
 };
 
 const MESH_VERTEX_BYTES: usize = 20;
 pub const MESH_VERTEX_STRIDE: u64 = MESH_VERTEX_BYTES as u64;
 const INDEX_BYTES: u64 = 4;
-const STYLE_BINDING: u32 = 1;
-const PLACEMENT_BINDING: u32 = 2;
-const PLACEMENT_BYTES: u64 = 80;
-const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Uint;
-const STYLE_TEXEL_BYTES: u32 = 16;
 const FINISH_PRESENT: u32 = 1 << 16;
 const FINISH_LEVELS: f32 = 255.0;
 const FLAT_NORMALS: f32 = 1e-6;
-const UNSTYLED_FACE: FaceStyle = FaceStyle {
-    color: Color::from_rgb8(160, 164, 172),
-    pick: None,
-    finish: None,
-};
+const MESH_SLAB_BYTES: u64 = 32 << 20;
+const FIRST_MESH_SLAB_BYTES: u64 = 1 << 20;
+const PACKED_SHARE: u64 = 4;
+const VERTICES: usize = 0;
+const INDICES: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeshPoint {
@@ -561,10 +558,76 @@ fn split_into_parts(mesh: &ShadedMesh, limit: u64) -> Option<Vec<MeshPart>> {
     Some(parts)
 }
 
-struct GpuPart {
+pub(crate) struct MeshBuffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
+}
+
+impl MeshBuffers {
+    fn new(device: &wgpu::Device, [vertices, indices]: [u64; 2]) -> Self {
+        let buffer = |label, size: u64, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        Self {
+            vertices: buffer(
+                "mesh vertices",
+                vertices * MESH_VERTEX_STRIDE,
+                wgpu::BufferUsages::VERTEX,
+            ),
+            indices: buffer(
+                "mesh indices",
+                indices * INDEX_BYTES,
+                wgpu::BufferUsages::INDEX,
+            ),
+        }
+    }
+}
+
+type MeshSlabs = Slabs<MeshBuffers, 2>;
+
+fn mesh_slab_sizes(device: &wgpu::Device) -> SlabSizes<2> {
+    let most = gpu::buffer_limit(device).min(MESH_SLAB_BYTES);
+    let first = most.min(FIRST_MESH_SLAB_BYTES);
+    SlabSizes {
+        first: [first / MESH_VERTEX_STRIDE, first / INDEX_BYTES],
+        most: [most / MESH_VERTEX_STRIDE, most / INDEX_BYTES],
+    }
+}
+
+enum PartPlace {
+    Own(MeshBuffers),
+    Packed(SlabSpan<MeshBuffers, 2>),
+}
+
+struct GpuPart {
+    place: PartPlace,
     index_count: u32,
+}
+
+impl GpuPart {
+    fn buffers(&self) -> &MeshBuffers {
+        match &self.place {
+            PartPlace::Own(buffers) => buffers,
+            PartPlace::Packed(span) => span.contents(),
+        }
+    }
+
+    fn first(&self, kind: usize) -> u64 {
+        match &self.place {
+            PartPlace::Own(_) => 0,
+            PartPlace::Packed(span) => span.start(kind),
+        }
+    }
+
+    fn indices(&self) -> Range<u32> {
+        let first = u32::try_from(self.first(INDICES)).unwrap_or(u32::MAX);
+        first..first.saturating_add(self.index_count)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -653,35 +716,31 @@ struct PartUpload {
 }
 
 impl PartUpload {
-    fn new(device: &wgpu::Device, mesh: &ShadedMesh, source: PartSource) -> Self {
-        let buffer = |label, length: usize, stride: u64, usage| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: length as u64 * stride,
-                usage: usage | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
+    fn new(
+        device: &wgpu::Device,
+        mesh: &ShadedMesh,
+        source: PartSource,
+        slabs: &mut MeshSlabs,
+    ) -> Self {
         let index_count = source.indices(mesh).len();
+        let lengths = [source.vertex_count(mesh) as u64, index_count as u64];
 
-        let gpu = GpuPart {
-            vertices: buffer(
-                "mesh vertices",
-                source.vertex_count(mesh),
-                MESH_VERTEX_STRIDE,
-                wgpu::BufferUsages::VERTEX,
-            ),
-            indices: buffer(
-                "mesh indices",
-                index_count,
-                INDEX_BYTES,
-                wgpu::BufferUsages::INDEX,
-            ),
-            index_count: u32::try_from(index_count).unwrap_or(u32::MAX),
+        let packed = match source {
+            PartSource::Whole if slabs.sizes().packs(lengths, PACKED_SHARE) => {
+                slabs.place(lengths, |capacities| MeshBuffers::new(device, capacities))
+            }
+            PartSource::Whole | PartSource::Split(_) => None,
+        };
+        let place = match packed {
+            Some(span) => PartPlace::Packed(span),
+            None => PartPlace::Own(MeshBuffers::new(device, lengths)),
         };
         Self {
             source,
-            gpu,
+            gpu: GpuPart {
+                place,
+                index_count: u32::try_from(index_count).unwrap_or(u32::MAX),
+            },
             vertices_written: 0,
             indices_written: 0,
         }
@@ -694,6 +753,9 @@ impl PartUpload {
         budget: &mut UploadBudget,
     ) -> bool {
         let vertex_count = self.source.vertex_count(mesh);
+        let first_vertex = self.gpu.first(VERTICES);
+        let first_index = self.gpu.first(INDICES);
+        let buffers = self.gpu.buffers();
 
         while self.vertices_written < vertex_count {
             let granted = budget.grant(vertex_count - self.vertices_written, MESH_VERTEX_STRIDE);
@@ -703,14 +765,15 @@ impl PartUpload {
             }
 
             let range = self.vertices_written..self.vertices_written + granted;
-            let offset = self.vertices_written as u64 * MESH_VERTEX_STRIDE;
+            let offset = (first_vertex + self.vertices_written as u64) * MESH_VERTEX_STRIDE;
             let records = self.source.vertex_records(mesh, range);
 
-            gpu::write_records(queue, &self.gpu.vertices, offset, granted, records);
+            gpu::write_records(queue, &buffers.vertices, offset, granted, records);
             self.vertices_written += granted;
         }
 
         let indices = self.source.indices(mesh);
+        let shift = u32::try_from(first_vertex).unwrap_or(u32::MAX);
 
         while self.indices_written < indices.len() {
             let granted = budget.grant(indices.len() - self.indices_written, INDEX_BYTES);
@@ -720,14 +783,14 @@ impl PartUpload {
             }
 
             let range = self.indices_written..self.indices_written + granted;
-            let offset = self.indices_written as u64 * INDEX_BYTES;
+            let offset = (first_index + self.indices_written as u64) * INDEX_BYTES;
             let records = indices
                 .get(range)
                 .unwrap_or_default()
                 .iter()
-                .map(|index| index.to_le_bytes());
+                .map(|index| index.saturating_add(shift).to_le_bytes());
 
-            gpu::write_records(queue, &self.gpu.indices, offset, granted, records);
+            gpu::write_records(queue, &buffers.indices, offset, granted, records);
             self.indices_written += granted;
         }
         true
@@ -740,7 +803,7 @@ struct MeshUpload {
 }
 
 impl MeshUpload {
-    fn start(device: &wgpu::Device, mesh: Arc<ShadedMesh>) -> Self {
+    fn start(device: &wgpu::Device, mesh: Arc<ShadedMesh>, slabs: &mut MeshSlabs) -> Self {
         let buffer_limit = gpu::buffer_limit(device);
         let sources = match split_into_parts(&mesh, buffer_limit) {
             None => vec![PartSource::Whole],
@@ -755,7 +818,7 @@ impl MeshUpload {
         };
         let parts = sources
             .into_iter()
-            .map(|source| PartUpload::new(device, &mesh, source))
+            .map(|source| PartUpload::new(device, &mesh, source, slabs))
             .collect();
         Self { mesh, parts }
     }
@@ -794,6 +857,7 @@ enum Parts {
 
 pub struct MeshPool {
     entries: AHashMap<usize, PoolEntry>,
+    slabs: MeshSlabs,
     frame: u64,
     asked: usize,
     uploading: bool,
@@ -801,10 +865,15 @@ pub struct MeshPool {
     left_out: usize,
 }
 
-impl Default for MeshPool {
-    fn default() -> Self {
+impl MeshPool {
+    pub fn new(device: &wgpu::Device) -> Self {
+        Self::with_slabs(Slabs::new(mesh_slab_sizes(device)))
+    }
+
+    fn with_slabs(slabs: MeshSlabs) -> Self {
         Self {
             entries: AHashMap::new(),
+            slabs,
             frame: 1,
             asked: 0,
             uploading: false,
@@ -812,9 +881,7 @@ impl Default for MeshPool {
             left_out: 0,
         }
     }
-}
 
-impl MeshPool {
     pub fn sibling(&self) -> Self {
         let entries = self
             .entries
@@ -835,7 +902,7 @@ impl MeshPool {
             .collect();
         Self {
             entries,
-            ..Self::default()
+            ..Self::with_slabs(Slabs::new(self.slabs.sizes()))
         }
     }
 
@@ -892,10 +959,12 @@ impl MeshPool {
         }
 
         let started = std::mem::replace(&mut entry.state, Pooled::Refused);
+        let slabs = &mut self.slabs;
+
         let (state, error) = gpu::scoped(device, || {
             let mut upload = match started {
                 Pooled::Uploading(upload) => upload,
-                _ => MeshUpload::start(device, Arc::clone(&entry.mesh)),
+                _ => MeshUpload::start(device, Arc::clone(&entry.mesh), slabs),
             };
             if upload.advance(queue, budget) {
                 Pooled::Ready(upload.into_parts())
@@ -909,6 +978,8 @@ impl MeshPool {
                 "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
                 mesh.vertex_count()
             );
+            drop(state);
+            slabs.release_unused();
             return Parts::NewlyRefused;
         }
 
@@ -930,6 +1001,7 @@ impl MeshPool {
         if self.asked < self.entries.len() {
             self.entries.retain(|_, entry| entry.asked == frame);
         }
+        self.slabs.release_unused();
         self.left_out = match stopped {
             true => self
                 .entries
@@ -945,18 +1017,20 @@ impl MeshPool {
         self.asked = 0;
         self.uploading = std::mem::take(&mut self.uploading_now);
     }
+
+    #[cfg(test)]
+    pub fn slab_count(&self) -> usize {
+        self.slabs.count()
+    }
 }
 
 struct GpuMesh {
     mesh: Arc<ShadedMesh>,
     parts: Arc<[GpuPart]>,
-    layout: StyleLayout,
-    placement: wgpu::Buffer,
-    styles: wgpu::Texture,
+    holding: Holding,
     written: Option<Arc<[FaceStyle]>>,
     placed: Option<PlacedAt>,
     corners: Option<[Point3; 8]>,
-    bind_group: wgpu::BindGroup,
 }
 
 pub(crate) struct Placed {
@@ -1022,65 +1096,22 @@ pub(crate) fn pack_color(color: Color) -> u32 {
 }
 
 impl GpuMesh {
-    fn sharing(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Self {
-        Self::with_parts(
-            device,
-            layout,
+    fn sharing(&self, table: &MeshTable) -> Option<Self> {
+        Some(Self::with_parts(
             Arc::clone(&self.mesh),
             Arc::clone(&self.parts),
-        )
+            table.hold(self.holding.texels.len())?,
+        ))
     }
 
-    fn with_parts(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        mesh: Arc<ShadedMesh>,
-        parts: Arc<[GpuPart]>,
-    ) -> Self {
-        let style_layout =
-            StyleLayout::new(mesh.face_count, device.limits().max_texture_dimension_2d);
-        let placement = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("mesh placement"),
-            size: PLACEMENT_BYTES,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let styles = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("mesh face styles"),
-            size: style_layout.extent(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: STYLE_FORMAT,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let styles_view = styles.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mesh face styles"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: STYLE_BINDING,
-                    resource: wgpu::BindingResource::TextureView(&styles_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: PLACEMENT_BINDING,
-                    resource: placement.as_entire_binding(),
-                },
-            ],
-        });
+    fn with_parts(mesh: Arc<ShadedMesh>, parts: Arc<[GpuPart]>, holding: Holding) -> Self {
         Self {
             mesh,
             parts,
-            layout: style_layout,
-            placement,
-            styles,
+            holding,
             written: None,
             placed: None,
             corners: None,
-            bind_group,
         }
     }
 
@@ -1108,21 +1139,21 @@ impl GpuMesh {
 
     fn write_styles(
         &mut self,
-        queue: &wgpu::Queue,
+        writing: Writing<'_>,
         bytes: &mut Bytes,
         instance: &MeshInstance,
         anchor: Point3,
     ) {
-        self.write_placement(queue, bytes, instance.placement, anchor);
+        self.write_placement(writing, bytes, instance.placement, anchor);
         if !self.has_written(&instance.faces) {
-            self.write_face_styles(queue, bytes, &instance.faces);
+            self.write_face_styles(writing, bytes, &instance.faces);
         }
     }
 
-    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, anchor: Point3) {
+    fn keep_showing_unpicked(&mut self, writing: Writing<'_>, bytes: &mut Bytes, anchor: Point3) {
         let placement = self.placed.and_then(|placed| placed.placement);
 
-        self.write_placement(queue, bytes, placement, anchor);
+        self.write_placement(writing, bytes, placement, anchor);
 
         let unpicked: Option<Arc<[FaceStyle]>> = self
             .written
@@ -1138,13 +1169,13 @@ impl GpuMesh {
                     .collect()
             });
         if let Some(unpicked) = unpicked {
-            self.write_face_styles(queue, bytes, &unpicked);
+            self.write_face_styles(writing, bytes, &unpicked);
         }
     }
 
     fn write_placement(
         &mut self,
-        queue: &wgpu::Queue,
+        writing: Writing<'_>,
         bytes: &mut Bytes,
         placement: Option<RigidTransform>,
         anchor: Point3,
@@ -1159,158 +1190,65 @@ impl GpuMesh {
             .mesh
             .bounds
             .map(|bounds| placed_corners(bounds, placement));
+        self.put_placement(writing, bytes);
+    }
 
-        let placed = Placed::of(self.mesh.origin, placement, anchor);
+    fn put_placement(&self, Writing { queue, table }: Writing<'_>, bytes: &mut Bytes) {
+        let Some(at) = self.placed else {
+            return;
+        };
+        let placed = Placed::of(self.mesh.origin, at.placement, at.anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
+        let word = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
 
         bytes.clear();
         bytes
             .vec4(placed.offset, 0.0)
-            .u32(self.layout.faces)
-            .u32(self.layout.columns)
+            .u32(word(self.holding.texels.len()))
+            .u32(word(self.holding.texels.start()))
             .u32(u32::from(self.mesh.closed))
             .u32(0)
             .vec4(turn_x, 0.0)
             .vec4(turn_y, 0.0)
             .vec4(turn_z, 0.0);
-        queue.write_buffer(&self.placement, 0, bytes.as_slice());
+        table.write_placement(queue, &self.holding.slot, bytes);
     }
 
     fn write_face_styles(
         &mut self,
-        queue: &wgpu::Queue,
+        Writing { queue, table }: Writing<'_>,
         bytes: &mut Bytes,
         faces: &Arc<[FaceStyle]>,
     ) {
-        let spans = match self.written.as_ref() {
-            Some(written) if written.len() == faces.len() => {
-                changed_spans(written, faces, self.layout)
-            }
-            _ => None,
-        };
-        let target = StyleTarget {
-            texture: &self.styles,
-            layout: self.layout,
+        table.write_styles(
+            queue,
+            bytes,
+            &self.holding.texels,
             faces,
-        };
-
-        match spans {
-            Some(spans) => {
-                for span in spans {
-                    target.write(queue, bytes, span);
-                }
-            }
-            None => target.write_whole(queue, bytes),
-        }
+            self.written.as_deref(),
+        );
         self.written = Some(Arc::clone(faces));
     }
-}
 
-const MAX_STYLE_SPANS: usize = 16;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct StyleSpan {
-    row: u32,
-    columns: Range<u32>,
-}
-
-fn changed_spans(
-    written: &[FaceStyle],
-    faces: &[FaceStyle],
-    layout: StyleLayout,
-) -> Option<Vec<StyleSpan>> {
-    let columns = layout.columns.max(1) as usize;
-    let mut spans: Vec<StyleSpan> = Vec::new();
-
-    for (index, (old, new)) in written.iter().zip(faces).enumerate().take(layout.texels()) {
-        if old == new {
-            continue;
-        }
-
-        let row = u32::try_from(index / columns).unwrap_or(u32::MAX);
-        let column = u32::try_from(index % columns).unwrap_or(u32::MAX);
-        match spans.last_mut() {
-            Some(span) if span.row == row => span.columns.end = column + 1,
-            _ => spans.push(StyleSpan {
-                row,
-                columns: column..column + 1,
-            }),
+    fn rewrite(&self, writing: Writing<'_>, bytes: &mut Bytes) {
+        self.put_placement(writing, bytes);
+        if let Some(written) = &self.written {
+            writing
+                .table
+                .write_styles(writing.queue, bytes, &self.holding.texels, written, None);
         }
     }
-    (spans.len() <= MAX_STYLE_SPANS).then_some(spans)
 }
 
-struct StyleTarget<'a> {
-    texture: &'a wgpu::Texture,
-    layout: StyleLayout,
-    faces: &'a [FaceStyle],
-}
-
-impl StyleTarget<'_> {
-    fn pack(&self, bytes: &mut Bytes, faces: Range<usize>) {
-        bytes.clear();
-        for face in faces {
-            let style = self.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
-
-            bytes
-                .u32(pack_color(style.color))
-                .u32(PickId::raw(style.pick))
-                .u32(SurfaceFinish::packed(style.finish))
-                .u32(0);
-        }
-    }
-
-    fn write_whole(&self, queue: &wgpu::Queue, bytes: &mut Bytes) {
-        self.pack(bytes, 0..self.layout.texels());
-        queue.write_texture(
-            self.texture.as_image_copy(),
-            bytes.as_slice(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.layout.columns.saturating_mul(STYLE_TEXEL_BYTES)),
-                rows_per_image: Some(self.layout.rows),
-            },
-            self.layout.extent(),
-        );
-    }
-
-    fn write(&self, queue: &wgpu::Queue, bytes: &mut Bytes, span: StyleSpan) {
-        let first = span.row as usize * self.layout.columns as usize;
-        let width = span.columns.end.saturating_sub(span.columns.start);
-
-        self.pack(
-            bytes,
-            first + span.columns.start as usize..first + span.columns.end as usize,
-        );
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: span.columns.start,
-                    y: span.row,
-                    z: 0,
-                },
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytes.as_slice(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width.saturating_mul(STYLE_TEXEL_BYTES)),
-                rows_per_image: Some(1),
-            },
-            wgpu::Extent3d {
-                width,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
+#[derive(Clone, Copy)]
+struct Writing<'a> {
+    queue: &'a wgpu::Queue,
+    table: &'a MeshTable,
 }
 
 enum Source {
     Reused(Box<GpuMesh>),
-    Uploaded(Arc<[GpuPart]>),
+    Uploaded(Arc<[GpuPart]>, Holding),
 }
 
 impl OfMesh for GpuMesh {
@@ -1321,6 +1259,8 @@ impl OfMesh for GpuMesh {
 
 pub struct MeshCache {
     layout: wgpu::BindGroupLayout,
+    table: MeshTable,
+    regrown: bool,
     meshes: Vec<GpuMesh>,
     rejected: Vec<Arc<ShadedMesh>>,
     previous: ByMesh<GpuMesh>,
@@ -1332,33 +1272,16 @@ pub struct MeshCache {
 
 impl MeshCache {
     pub fn new(device: &wgpu::Device) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("mesh face styles"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: STYLE_BINDING,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: PLACEMENT_BINDING,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let layout = mesh_table::layout(device);
+        let table = MeshTable::new(device, &layout, Capacity::FIRST);
+        Self::with_table(layout, table)
+    }
+
+    fn with_table(layout: wgpu::BindGroupLayout, table: MeshTable) -> Self {
         Self {
             layout,
+            table,
+            regrown: false,
             meshes: Vec::new(),
             rejected: Vec::new(),
             previous: ByMesh::default(),
@@ -1374,19 +1297,22 @@ impl MeshCache {
     }
 
     pub fn sibling(&self, device: &wgpu::Device) -> Self {
+        let texels = self
+            .meshes
+            .iter()
+            .map(|mesh| mesh.holding.texels.len())
+            .sum();
+        let capacity = Capacity::holding(self.meshes.len() as u64, texels);
+        let table = MeshTable::new(device, &self.layout, capacity);
+        let meshes = self
+            .meshes
+            .iter()
+            .filter_map(|mesh| mesh.sharing(&table))
+            .collect();
         Self {
-            layout: self.layout.clone(),
-            meshes: self
-                .meshes
-                .iter()
-                .map(|mesh| mesh.sharing(device, &self.layout))
-                .collect(),
+            meshes,
             rejected: self.rejected.clone(),
-            previous: ByMesh::default(),
-            refused: ByMesh::default(),
-            staging: Bytes::default(),
-            uploading: false,
-            order: DrawnOrder::default(),
+            ..Self::with_table(self.layout.clone(), table)
         }
     }
 
@@ -1431,7 +1357,14 @@ impl MeshCache {
                 }
                 Some(ready) => Source::Reused(Box::new(ready)),
                 None => match pool.parts(device, queue, &instance.mesh, budget) {
-                    Parts::Ready(parts) => Source::Uploaded(parts),
+                    Parts::Ready(parts) => match self.hold(device, &instance.mesh) {
+                        Some(holding) => Source::Uploaded(parts, holding),
+                        None => {
+                            self.rejected.push(Arc::clone(&instance.mesh));
+                            newly_rejected += 1;
+                            continue;
+                        }
+                    },
                     Parts::Uploading | Parts::Stopped => {
                         self.uploading = true;
                         continue;
@@ -1443,18 +1376,21 @@ impl MeshCache {
                     }
                 },
             };
+            let writing = Writing {
+                queue,
+                table: &self.table,
+            };
             let staging = &mut self.staging;
-            let layout = &self.layout;
 
             let (ready, error) = gpu::scoped(device, || {
                 let mut ready = match source {
                     Source::Reused(ready) => *ready,
-                    Source::Uploaded(parts) => {
-                        GpuMesh::with_parts(device, layout, Arc::clone(&instance.mesh), parts)
+                    Source::Uploaded(parts, holding) => {
+                        GpuMesh::with_parts(Arc::clone(&instance.mesh), parts, holding)
                     }
                 };
 
-                ready.write_styles(queue, staging, instance, anchor);
+                ready.write_styles(writing, staging, instance, anchor);
                 ready
             });
 
@@ -1476,8 +1412,66 @@ impl MeshCache {
             rewritten |= self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();
+        if std::mem::take(&mut self.regrown) {
+            rewritten |= self.rewrite_all(device, queue);
+        }
         self.order.note(&self.meshes, rewritten);
         newly_rejected
+    }
+
+    fn hold(&mut self, device: &wgpu::Device, mesh: &ShadedMesh) -> Option<Holding> {
+        let faces = mesh.face_count().max(1) as u64;
+
+        if let Some(holding) = self.table.hold(faces) {
+            return Some(holding);
+        }
+
+        let wanted = self.table.wanting(faces);
+        let (grown, error) = gpu::scoped(device, || {
+            self.table.grown_resources(device, &self.layout, wanted)
+        });
+
+        match (grown, error) {
+            (Some(grown), None) => {
+                self.table.install(grown);
+                self.regrown = true;
+                self.table.hold(faces)
+            }
+            (_, Some(error)) => {
+                log::warn!(
+                    "the graphics device refused room for the styles of a mesh of {faces} faces, so it is not drawn: {error}"
+                );
+                None
+            }
+            (None, None) => {
+                log::warn!(
+                    "the styles of a mesh of {faces} faces do not fit what the graphics device holds, so it is not drawn"
+                );
+                None
+            }
+        }
+    }
+
+    fn rewrite_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        let writing = Writing {
+            queue,
+            table: &self.table,
+        };
+        let staging = &mut self.staging;
+
+        let ((), error) = gpu::scoped(device, || {
+            for mesh in &self.meshes {
+                mesh.rewrite(writing, staging);
+            }
+        });
+
+        if let Some(error) = error {
+            log::warn!(
+                "the graphics device refused to rewrite the styles of {} meshes after making room for more: {error}",
+                self.meshes.len()
+            );
+        }
+        true
     }
 
     fn keep_previous(
@@ -1493,10 +1487,15 @@ impl MeshCache {
             return false;
         }
 
+        let writing = Writing {
+            queue,
+            table: &self.table,
+        };
         let staging = &mut self.staging;
+
         let ((), error) = gpu::scoped(device, || {
             for mesh in &mut previous {
-                mesh.keep_showing_unpicked(queue, staging, anchor);
+                mesh.keep_showing_unpicked(writing, staging, anchor);
             }
         });
 
@@ -1519,18 +1518,7 @@ impl MeshCache {
         pass: &mut wgpu::RenderPass<'_>,
         pipeline: &wgpu::RenderPipeline,
     ) {
-        if self.meshes.is_empty() {
-            return;
-        }
-        pass.set_pipeline(pipeline);
-        for mesh in &self.meshes {
-            pass.set_bind_group(1, &mesh.bind_group, &[]);
-            for part in mesh.parts.iter() {
-                pass.set_vertex_buffer(0, part.vertices.slice(..));
-                pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..part.index_count, 0, 0..1);
-            }
-        }
+        self.draw_meshes(pass, pipeline, self.meshes.iter());
     }
 
     pub fn draw(
@@ -1539,22 +1527,48 @@ impl MeshCache {
         pipeline: &wgpu::RenderPipeline,
         window: &ClipWindow,
     ) {
-        let mut seen = self
+        let seen = self
             .meshes
             .iter()
-            .filter(|mesh| mesh.corners.is_none_or(|corners| window.sees(&corners)))
-            .peekable();
+            .filter(|mesh| mesh.corners.is_none_or(|corners| window.sees(&corners)));
 
-        if seen.peek().is_none() {
+        self.draw_meshes(pass, pipeline, seen);
+    }
+
+    fn draw_meshes<'m>(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        meshes: impl Iterator<Item = &'m GpuMesh>,
+    ) {
+        let mut meshes = meshes.peekable();
+
+        if meshes.peek().is_none() {
             return;
         }
         pass.set_pipeline(pipeline);
-        for mesh in seen {
-            pass.set_bind_group(1, &mesh.bind_group, &[]);
+
+        let mut window = None;
+        let mut bound: Option<&MeshBuffers> = None;
+
+        for mesh in meshes {
+            let slot = mesh.holding.slot.start();
+            let offset = window_offset(slot);
+            let instance = window_slot(slot);
+
+            if window != Some(offset) {
+                pass.set_bind_group(1, &self.table.bind_group, &[offset]);
+                window = Some(offset);
+            }
             for part in mesh.parts.iter() {
-                pass.set_vertex_buffer(0, part.vertices.slice(..));
-                pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..part.index_count, 0, 0..1);
+                let buffers = part.buffers();
+
+                if !bound.is_some_and(|bound| std::ptr::eq(bound, buffers)) {
+                    pass.set_vertex_buffer(0, buffers.vertices.slice(..));
+                    pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    bound = Some(buffers);
+                }
+                pass.draw_indexed(part.indices(), 0, instance..instance + 1);
             }
         }
     }
@@ -1729,49 +1743,6 @@ mod tests {
         assert_eq!(wrapped.texels(), 3072);
         assert_eq!(beyond.faces, 64 * 64);
         assert_eq!(StyleLayout::new(0, 0).faces, 1);
-    }
-
-    #[test]
-    fn only_rows_whose_styles_changed_are_written_and_many_scattered_changes_write_everything() {
-        let style = |red: u8| FaceStyle {
-            color: Color::from_rgb8(red, 0, 0),
-            pick: None,
-            finish: None,
-        };
-        let layout = StyleLayout::new(40, 10);
-        let before: Vec<FaceStyle> = (0..40).map(|_| style(0)).collect();
-        let mut after = before.clone();
-
-        for face in [3, 5, 6, 25] {
-            after[face] = style(9);
-        }
-
-        let scattered: Vec<FaceStyle> = (0..40).map(|face| style(face as u8)).collect();
-        let tall = StyleLayout {
-            columns: 1,
-            rows: 40,
-            faces: 40,
-        };
-
-        let spans = changed_spans(&before, &after, layout);
-        let unchanged = changed_spans(&after, &after, layout);
-        let everywhere = changed_spans(&before, &scattered, tall);
-
-        assert_eq!(
-            spans,
-            Some(vec![
-                StyleSpan {
-                    row: 0,
-                    columns: 3..7,
-                },
-                StyleSpan {
-                    row: 2,
-                    columns: 5..6,
-                },
-            ])
-        );
-        assert_eq!(unchanged, Some(Vec::new()));
-        assert_eq!(everywhere, None);
     }
 
     #[test]

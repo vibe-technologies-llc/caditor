@@ -5,9 +5,9 @@ use caditor_geometry::Point3;
 
 use crate::{
     gpu::{self, Pack},
-    mesh::{StyleLayout, pack_color},
+    mesh::pack_color,
     scene::{Line, PickId, StrokeKind},
-    styles::{StyleTexel, style_texel_bytes},
+    styles::StyleTexel,
     viewport::relative_to_eye,
 };
 
@@ -178,13 +178,14 @@ impl<'a> LineStrips<'a> {
     pub(crate) fn points(
         &self,
         anchor: Point3,
+        style_base: u32,
     ) -> impl Iterator<Item = [u8; LINE_POINT_BYTES]> + '_ {
         let padding = || [0; LINE_POINT_BYTES];
         iter::once_with(padding)
             .chain(
                 self.strips
                     .iter()
-                    .flat_map(move |strip| self.strip_points(strip, anchor)),
+                    .flat_map(move |strip| self.strip_points(strip, anchor, style_base)),
             )
             .chain(iter::once_with(padding))
     }
@@ -193,6 +194,7 @@ impl<'a> LineStrips<'a> {
         &self,
         strip: &Strip,
         anchor: Point3,
+        style_base: u32,
     ) -> impl Iterator<Item = [u8; LINE_POINT_BYTES]> + '_ {
         let at = |index: usize| {
             self.lines
@@ -203,7 +205,12 @@ impl<'a> LineStrips<'a> {
         let first = at(strip.lines.start);
         let last = strip.lines.end.checked_sub(1).and_then(at);
         let point = move |(line, style): (&Line, u32), position: Point3, bits: u32| {
-            point_record(line, position, anchor, style | bits)
+            point_record(
+                line,
+                position,
+                anchor,
+                style.saturating_add(style_base) | bits,
+            )
         };
         let leading = last
             .filter(|_| strip.closed)
@@ -268,12 +275,8 @@ impl<'a> LineStrips<'a> {
         simplified
     }
 
-    pub(crate) fn style_layout(&self, largest_side: u32) -> StyleLayout {
-        StyleLayout::new(self.styles.len(), largest_side)
-    }
-
-    pub(crate) fn style_texels(&self, layout: StyleLayout) -> Vec<u8> {
-        style_texel_bytes(self.styles.iter().map(|style| style.texel()), layout)
+    pub(crate) fn texels(&self) -> impl ExactSizeIterator<Item = StyleTexel> + '_ {
+        self.styles.iter().map(|style| style.texel())
     }
 }
 
@@ -424,10 +427,7 @@ fn strips(lines: &[&Line], style_of: &[u32], shown_lines: usize) -> Vec<Strip> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        scene::{Color, Layer, Stroke},
-        styles::STYLE_TEXEL_BYTES,
-    };
+    use crate::scene::{Color, Layer, Stroke};
 
     fn line(start: [f64; 2], end: [f64; 2], alpha: u8, stroke: Stroke) -> Line {
         Line {
@@ -447,7 +447,7 @@ mod tests {
 
     fn words(strips: &LineStrips<'_>) -> Vec<(f32, f32, u32)> {
         strips
-            .points(Point3::ZERO)
+            .points(Point3::ZERO, 0)
             .map(|record| {
                 let float = |at: usize| f32::from_le_bytes(record[at..at + 4].try_into().unwrap());
                 let word = u32::from_le_bytes(record[20..24].try_into().unwrap());
@@ -666,10 +666,6 @@ mod tests {
 
         assert_eq!(strips.styles.len(), 4);
         assert_eq!(strips.segments(), (4, 4));
-        assert_eq!(strips.style_layout(2), StyleLayout::new(4, 2));
-        assert_eq!(
-            strips.style_texels(strips.style_layout(2)).len(),
-            4 * STYLE_TEXEL_BYTES as usize
-        );
+        assert_eq!(strips.texels().len(), 4);
     }
 }

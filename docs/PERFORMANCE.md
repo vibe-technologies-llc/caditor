@@ -81,15 +81,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   drag solution refacets the dragged sketch whole. Hovered and selected
   entities drawn as a small batch over the kept one would limit a hover to what it lights, once
   lines of equal depth drawn twice are settled.
-- [medium · hard] A still frame of a large assembly is bound by its draws: on the VZ330 (3,894
-  bodies, 15.6 million triangles, 4.8 million edge segments, fitted at 1920×1080, 4x, RX 9070 XT)
-  a frame turning a little takes about 22 ms on the GPU (9 without edges, 4 with faces alone,
-  coarser edge levels included) and 12 to 16 ms on the UI thread, most of it encoding three to six
-  commands for each mesh, silhouette and body batch (`frame_costs_on_a_large_assembly`). Edges of
-  bodies large on screen still draw every segment, and meshes and silhouettes have no coarser
-  level for bodies a few pixels across. Body batches packed into shared buffers with one style
-  table (a body one draw, neighbours one draw), placements at dynamic offsets of one uniform
-  buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
+- [medium · hard] A still frame of a large assembly is bound by its edges on the GPU: on the VZ330
+  (3,977 bodies, 17.8 million triangles, 5.8 million edge segments, fitted at 1920×1080, 4x, RX
+  9070 XT) a frame turning a little takes 21 to 25 ms on the GPU (8 to 10 without edges, 3 to 4
+  with faces alone, coarser edge levels included) and 3.5 to 6 ms on the UI thread
+  (`frame_costs_on_a_large_assembly`), against 29 to 30 and 16.5 to 18 ms before a mesh, a
+  silhouette and a batch's lines each became one draw from shared slabs (`render.md`). Each batch
+  is still a draw of its own, since its coarser levels lie after its full one and apart from its
+  neighbours', edges of bodies large on screen still draw every segment, and meshes and
+  silhouettes have no coarser level for bodies a few pixels across, where 1.9 million of the shown
+  segments lie in 3,006 batches under 8 pixels. Levels laid out so that neighbouring batches draw
+  as one, and a coarser mesh without a silhouette for bodies small on screen, would cut the rest.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line once more to find the nearest

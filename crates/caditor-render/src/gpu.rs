@@ -566,14 +566,12 @@ impl GrowableBuffer {
         self.buffer.size()
     }
 
-    pub fn slice(&self, length: u64) -> wgpu::BufferSlice<'_> {
-        self.buffer.slice(..length.min(self.buffer.size()))
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
     }
 
-    pub fn slice_between(&self, start: u64, end: u64) -> wgpu::BufferSlice<'_> {
-        let size = self.buffer.size();
-        let end = end.min(size);
-        self.buffer.slice(start.min(end)..end)
+    pub fn slice(&self, length: u64) -> wgpu::BufferSlice<'_> {
+        self.buffer.slice(..length.min(self.buffer.size()))
     }
 }
 

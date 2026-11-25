@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod batch_lines;
 mod batch_reach;
 mod by_mesh;
 mod camera;
@@ -14,6 +15,7 @@ mod lighting;
 mod lines;
 mod machine;
 mod mesh;
+mod mesh_table;
 mod occlusion;
 mod offscreen;
 #[cfg(test)]
@@ -24,6 +26,7 @@ mod runs;
 mod scene;
 mod settings;
 mod silhouette;
+mod spans;
 mod styles;
 mod through;
 mod viewport;

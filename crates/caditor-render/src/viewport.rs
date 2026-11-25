@@ -6,6 +6,7 @@ use glam::{DVec2, Vec3};
 
 use crate::{
     SurfaceSize,
+    batch_lines::{LineBinding, LineGpu, LinePoints, LineSlabs, line_slabs, upload_lines},
     camera::{Projection, View},
     culling::ClipWindow,
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records, Wake},
@@ -571,8 +572,7 @@ struct FillDraw {
 struct GpuBatch {
     shown: Option<Arc<Batch>>,
     anchor: Point3,
-    lines: Option<GrowableBuffer>,
-    line_styles: Option<StyleTable>,
+    lines: Option<LinePoints>,
     fill_styles: Option<StyleTable>,
     markers: Option<GrowableBuffer>,
     fills: Option<GrowableBuffer>,
@@ -596,7 +596,6 @@ impl GpuBatch {
             shown: None,
             anchor: Point3::ZERO,
             lines: None,
-            line_styles: None,
             fill_styles: None,
             markers: None,
             fills: None,
@@ -637,6 +636,8 @@ impl GpuBatch {
             anchor,
             slot,
             styles,
+            slabs,
+            staging,
         } = uploaded;
         let largest_side = device.limits().max_texture_dimension_2d;
         let lines = batch_lines(batch);
@@ -656,24 +657,33 @@ impl GpuBatch {
             strips.point_count()
         };
 
-        let uploaded_points = upload_into(
-            &mut self.lines,
-            (device, queue),
-            "line points",
-            Records {
-                count: full_points
-                    + coarser_strips
-                        .iter()
-                        .map(|(_, coarse)| coarse.point_count())
-                        .sum::<u64>(),
-                per_primitive: 1,
-                records: strips.points(anchor).chain(
+        let style_texels: Vec<StyleTexel> = strips.texels().collect();
+        let point_count = full_points
+            + coarser_strips
+                .iter()
+                .map(|(_, coarse)| coarse.point_count())
+                .sum::<u64>();
+
+        let (lines, uploaded_points) = upload_lines(
+            self.lines.take(),
+            LineGpu {
+                device,
+                queue,
+                slabs,
+                styles_layout: styles,
+                staging,
+            },
+            (point_count, &style_texels),
+            |style_base| {
+                strips.points(anchor, style_base).chain(
                     coarser_strips
                         .iter()
-                        .flat_map(|(_, coarse)| coarse.points(anchor)),
-                ),
+                        .flat_map(move |(_, coarse)| coarse.points(anchor, style_base)),
+                )
             },
         );
+
+        self.lines = lines;
 
         self.line_count = line_instances(uploaded_points.min(full_points));
         #[cfg(test)]
@@ -696,20 +706,6 @@ impl GpuBatch {
             first = end;
         }
         self.level = 0;
-
-        let line_layout = strips.style_layout(largest_side);
-        let kept_line_styles = self.line_styles.take();
-
-        self.line_styles = (self.line_count > 0).then(|| {
-            StyleTable::written(
-                kept_line_styles,
-                (device, queue),
-                styles,
-                "line styles",
-                line_layout,
-                &strips.style_texels(line_layout),
-            )
-        });
 
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
 
@@ -783,9 +779,9 @@ impl GpuBatch {
         self.anchor = anchor;
     }
 
-    fn draw_all_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
-        if self.bind_lines(pass, pipeline, (0, self.line_count)) {
-            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..self.line_count);
+    fn draw_all_lines<'a>(&'a self, pass: &mut wgpu::RenderPass<'_>, lines: &mut LineBinding<'a>) {
+        if let Some(points) = &self.lines {
+            lines.draw(pass, points, 0..self.line_count);
         }
     }
 
@@ -793,49 +789,29 @@ impl GpuBatch {
         self.levels.get(self.level).or_else(|| self.levels.first())
     }
 
-    fn draw_shown_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
-        let Some(level) = self.drawn_level() else {
-            return;
-        };
-        if self.bind_lines(pass, pipeline, (level.first, level.shown)) {
-            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..level.shown);
-        }
-    }
-
-    fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &mut Once<'_>) {
-        let Some(level) = self.drawn_level() else {
-            return;
-        };
-        let end = level.hidden_runs.last().map_or(0, |run| run.end);
-        if self.bind_lines(pass, pipeline, (level.first, end)) {
-            for run in &level.hidden_runs {
-                pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, run.clone());
-            }
-        }
-    }
-
-    fn bind_lines(
-        &self,
+    fn draw_shown_lines<'a>(
+        &'a self,
         pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &mut Once<'_>,
-        (first, instances): (u32, u32),
-    ) -> bool {
-        let (Some(styles), Some(lines)) = (self.line_styles.as_ref(), self.lines.as_ref()) else {
-            return false;
+        lines: &mut LineBinding<'a>,
+    ) {
+        let (Some(level), Some(points)) = (self.drawn_level(), &self.lines) else {
+            return;
         };
 
-        if instances == 0 {
-            return false;
-        }
-        pipeline.set(pass);
-        pass.set_bind_group(1, &styles.bind_group, &[]);
-        for slot in 0..LINE_POINT_SLOTS {
-            let start = u64::from(first + slot) * LINE_POINT_STRIDE;
-            let end = u64::from(first + slot + instances) * LINE_POINT_STRIDE;
+        lines.draw(pass, points, level.first..level.first + level.shown);
+    }
 
-            pass.set_vertex_buffer(slot, lines.slice_between(start, end));
+    fn draw_hidden_lines<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'_>,
+        lines: &mut LineBinding<'a>,
+    ) {
+        let (Some(level), Some(points)) = (self.drawn_level(), &self.lines) else {
+            return;
+        };
+        for run in &level.hidden_runs {
+            lines.draw(pass, points, level.first + run.start..level.first + run.end);
         }
-        true
     }
 
     fn choose_level(&mut self, view: &View) {
@@ -1166,6 +1142,8 @@ struct Uploaded<'a> {
     anchor: Point3,
     slot: usize,
     styles: &'a wgpu::BindGroupLayout,
+    slabs: &'a mut LineSlabs,
+    staging: &'a mut Bytes,
 }
 
 pub struct ViewportRenderer {
@@ -1193,6 +1171,7 @@ pub struct ViewportRenderer {
     work: Work,
     copy: ViewCopy,
     mesh_pool: MeshPool,
+    line_slabs: LineSlabs,
     meshes: MeshCache,
     translucent: MeshCache,
     overlay: MeshCache,
@@ -1288,7 +1267,8 @@ impl ViewportRenderer {
             #[cfg(test)]
             work: Work::default(),
             copy: ViewCopy::new(device, format),
-            mesh_pool: MeshPool::default(),
+            mesh_pool: MeshPool::new(device),
+            line_slabs: line_slabs(device),
             meshes,
             translucent: MeshCache::new(device),
             overlay: MeshCache::new(device),
@@ -1630,6 +1610,7 @@ impl ViewportRenderer {
             work: Work::default(),
             copy: self.copy.clone(),
             mesh_pool: self.mesh_pool.sibling(),
+            line_slabs: line_slabs(device),
             meshes: self.meshes.sibling(device),
             translucent: self.translucent.sibling(device),
             overlay: self.overlay.sibling(device),
@@ -1986,13 +1967,13 @@ impl ViewportRenderer {
             .iter()
             .filter(|batch| batch.seen_in(window))
             .collect();
-        let mut lines = Once::of(&self.pipelines.lines);
+        let mut lines = LineBinding::of(&self.pipelines.lines);
 
         for batch in &seen {
             batch.draw_shown_lines(pass, &mut lines);
         }
 
-        let mut hidden_lines = Once::of(&self.pipelines.hidden_lines);
+        let mut hidden_lines = LineBinding::of(&self.pipelines.hidden_lines);
 
         for batch in &seen {
             batch.draw_hidden_lines(pass, &mut hidden_lines);
@@ -2092,7 +2073,7 @@ impl ViewportRenderer {
         }
         self.quad_indices.bind(&mut pass);
 
-        let mut lines = Once::of(&self.pipelines.pick.lines);
+        let mut lines = LineBinding::of(&self.pipelines.pick.lines);
 
         for batch in &seen {
             batch.draw_all_lines(&mut pass, &mut lines);
@@ -2484,6 +2465,8 @@ impl ViewportRenderer {
                         anchor,
                         slot,
                         styles: &self.styles_layout,
+                        slabs: &mut self.line_slabs,
+                        staging: &mut self.staging,
                     },
                 );
             });
@@ -2496,6 +2479,7 @@ impl ViewportRenderer {
                     batch.fills.len()
                 );
                 gpu = GpuBatch::refused(batch, anchor);
+                self.line_slabs.release_unused();
                 refused += 1;
             }
             self.batches.push(gpu);
@@ -2504,6 +2488,9 @@ impl ViewportRenderer {
                 self.work.uploads += 1;
             }
         }
+
+        drop(spare);
+        self.line_slabs.release_unused();
 
         let changed = match before {
             Some(before) => uploaded_any || before != self.shown_keys(),
@@ -2565,6 +2552,19 @@ impl ViewportRenderer {
                     ),
                 ]
             })
+    }
+
+    #[cfg(test)]
+    pub fn mesh_slabs(&self) -> usize {
+        self.mesh_pool.slab_count()
+    }
+
+    #[cfg(test)]
+    pub fn packed_batches(&self) -> usize {
+        self.batches
+            .iter()
+            .filter(|batch| batch.lines.as_ref().is_some_and(LinePoints::is_packed))
+            .count()
     }
 
     #[cfg(test)]

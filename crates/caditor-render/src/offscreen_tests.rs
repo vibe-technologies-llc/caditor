@@ -2178,6 +2178,72 @@ fn a_cylinder_seen_side_on_shows_its_silhouette_wherever_the_view_turns() {
     assert_eq!(shaded.pick.hits[0].id, PickId::from_index(0).unwrap());
 }
 
+const RINGS_ACROSS: usize = 15;
+const RING_SPACING: f64 = 4.0;
+
+fn ring_centre(index: usize) -> Point3 {
+    let along = |place: usize| (place as f64 - (RINGS_ACROSS as f64 - 1.0) * 0.5) * RING_SPACING;
+    Point3::new(
+        along(index % RINGS_ACROSS),
+        along(index / RINGS_ACROSS),
+        0.0,
+    )
+}
+
+fn dominant_channel([red, green, blue, _]: [u8; 4]) -> Option<usize> {
+    let channels = [red, green, blue].map(i32::from);
+    (0..3).find(|channel| {
+        (0..3)
+            .filter(|other| other != channel)
+            .all(|other| channels[*channel] - channels[other] > 100)
+    })
+}
+
+#[test]
+fn silhouettes_past_one_window_of_styles_each_draw_in_their_own_colour_where_placed() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(120.0, f64::from(SIZE), f64::from(SIZE));
+    let count = RINGS_ACROSS * RINGS_ACROSS;
+    let colour_of = |index: usize| match index < 192 {
+        true => (0, Color::from_rgb8(250, 20, 20)),
+        false => (1, Color::from_rgb8(20, 250, 20)),
+    };
+
+    let scene = Scene {
+        silhouettes: (0..count)
+            .map(|index| Silhouette {
+                mesh: Arc::new(cylinder(1.2, 3.0, 24)),
+                color: colour_of(index).1,
+                width: 2.0,
+                dashed: false,
+                dashed_where_hidden: false,
+                placement: RigidTransform::translation(ring_centre(index) - Point3::ZERO),
+            })
+            .collect(),
+        ..Scene::default()
+    };
+    let centre = view.project(Point3::ZERO).unwrap();
+
+    let rendered = render(&device, &queue, &view, &scene, centre);
+
+    for index in [0, 1, 191, 192, 193, count - 1] {
+        let at = view.project(ring_centre(index)).unwrap();
+        let channels: Vec<usize> = column(at.x.floor(), at.y, 6.0)
+            .filter_map(|pixel_at| dominant_channel(pixel(&rendered, pixel_at)))
+            .collect();
+
+        assert!(channels.len() >= 2, "ring {index}: {channels:?}");
+        assert!(
+            channels
+                .iter()
+                .all(|channel| *channel == colour_of(index).0),
+            "ring {index}: {channels:?}"
+        );
+    }
+}
+
 fn red_run_count(rendered: &Rendered, pixels: impl Iterator<Item = DVec2>) -> usize {
     let mut previous = false;
     let mut runs = 0;
@@ -4620,6 +4686,68 @@ fn batches_are_kept_by_identity_so_one_coming_or_going_uploads_only_itself() {
     );
 }
 
+fn line_batch(y: f64, color: Color, pick: usize, segments: usize) -> Arc<Batch> {
+    let step = 40.0 / segments as f64;
+    Arc::new(Batch {
+        lines: (0..segments)
+            .map(|segment| Line {
+                start: Point3::new(-20.0 + step * segment as f64, y, 0.0),
+                end: Point3::new(-20.0 + step * (segment + 1) as f64, y, 0.0),
+                color,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(pick),
+                stroke: Stroke::Solid,
+            })
+            .collect(),
+        ..Batch::default()
+    })
+}
+
+#[test]
+fn small_batches_share_one_buffer_of_lines_and_a_large_one_keeps_its_own_drawn_between_them() {
+    let Some((device, queue)) = gpu_with(wgpu::Limits {
+        max_buffer_size: 256 * 1024,
+        ..wgpu::Limits::default()
+    }) else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let rows = [
+        (-15.0, Color::from_rgb8(250, 20, 20), 1),
+        (0.0, Color::from_rgb8(20, 250, 20), 4000),
+        (15.0, Color::from_rgb8(20, 20, 250), 1),
+    ];
+    let scene = Scene {
+        batches: rows
+            .iter()
+            .enumerate()
+            .map(|(pick, (y, color, segments))| line_batch(*y, *color, pick, *segments))
+            .collect(),
+        ..Scene::default()
+    };
+    let mut renderer = viewport_renderer(&device, 4);
+
+    for (pick, (y, _, _)) in rows.iter().enumerate() {
+        let at = view.project(Point3::new(5.0, *y, 0.0)).unwrap();
+
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, &scene, at),
+        );
+
+        assert_eq!(dominant_channel(pixel(&rendered, at)), Some(pick), "{pick}");
+        assert_eq!(
+            rendered.pick.hits.first().map(|hit| hit.id),
+            PickId::from_index(pick)
+        );
+    }
+
+    assert_eq!(renderer.packed_batches(), 2);
+}
+
 #[test]
 fn new_batches_past_the_upload_budget_wait_for_the_next_frames() {
     let Some((device, queue)) = gpu() else {
@@ -4985,6 +5113,114 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
             .iter()
             .any(|hit| Some(hit.id) == PickId::from_index(0) && hit.offset_points < 1.0)
     );
+}
+
+const TILES_ACROSS: usize = 20;
+const TILE_COUNT: usize = TILES_ACROSS * TILES_ACROSS;
+const TILE_SPACING: f64 = 5.0;
+const TILE_SIDE: f64 = 3.5;
+
+fn tile_centre(index: usize) -> Point3 {
+    let along = |place: usize| (place as f64 - (TILES_ACROSS as f64 - 1.0) * 0.5) * TILE_SPACING;
+    Point3::new(
+        along(index % TILES_ACROSS),
+        along(index / TILES_ACROSS),
+        0.0,
+    )
+}
+
+fn tile_colour(index: usize, face: usize) -> Color {
+    Color::from_rgb8(
+        30 + (index % 200) as u8,
+        50 + (index / 200) as u8 * 100 + face as u8 * 20,
+        77,
+    )
+}
+
+fn tile_face_middle(index: usize, faces: usize, face: usize) -> Point3 {
+    let width = TILE_SIDE / faces as f64;
+    tile_centre(index) + Vector3::new(-TILE_SIDE * 0.5 + width * (face as f64 + 0.5), 0.0, 0.0)
+}
+
+fn tiles(faces: usize) -> Vec<MeshInstance> {
+    let width = TILE_SIDE / faces as f64;
+    (0..TILE_COUNT)
+        .map(|index| {
+            let mesh = ShadedMesh::new((0..faces).map(|face| {
+                let x = -TILE_SIDE * 0.5 + width * face as f64;
+                let corner = |dx: f64, y: f64| MeshPoint {
+                    position: Point3::new(x + dx, y, 0.0),
+                    normal: Vector3::Z,
+                };
+                MeshFace {
+                    points: vec![
+                        corner(0.0, -TILE_SIDE * 0.5),
+                        corner(width, -TILE_SIDE * 0.5),
+                        corner(width, TILE_SIDE * 0.5),
+                        corner(0.0, TILE_SIDE * 0.5),
+                    ],
+                    triangles: vec![[0, 1, 2], [0, 2, 3]],
+                }
+            }));
+            MeshInstance {
+                mesh: Arc::new(mesh),
+                faces: (0..faces)
+                    .map(|face| FaceStyle {
+                        color: tile_colour(index, face),
+                        pick: PickId::from_index(index * faces + face),
+                        finish: None,
+                    })
+                    .collect(),
+                placement: RigidTransform::translation(tile_centre(index) - Point3::ZERO),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn many_small_meshes_share_buffers_and_each_draws_and_picks_with_its_own_placement_and_styles() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let mut renderer = viewport_renderer(&device, 4);
+    let checked = [0, 1, 191, 192, 193, 383, 384, TILE_COUNT - 1];
+
+    for faces in [1, 2] {
+        let scene = Scene {
+            flat_meshes: tiles(faces),
+            ..Scene::default()
+        };
+
+        for index in checked {
+            for face in 0..faces {
+                let at = view.project(tile_face_middle(index, faces, face)).unwrap();
+
+                let rendered = render_with(
+                    &mut renderer,
+                    &device,
+                    &queue,
+                    &full_frame(&view, &scene, at),
+                );
+                let colour = tile_colour(index, face)
+                    .to_array()
+                    .map(|channel| (channel * 255.0).round() as u8);
+
+                assert_eq!(
+                    pixel(&rendered, at)[..3],
+                    colour[..3],
+                    "tile {index} face {face}"
+                );
+                assert_eq!(
+                    rendered.pick.hits.first().map(|hit| hit.id),
+                    PickId::from_index(index * faces + face),
+                    "tile {index} face {face}"
+                );
+            }
+        }
+
+        assert_eq!(renderer.mesh_slabs(), 1);
+    }
 }
 
 #[test]
