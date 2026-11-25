@@ -3029,6 +3029,12 @@ impl ViewportState {
         let ray = cursor.and_then(|cursor| self.view()?.ray_through(cursor));
         let free = self.placing_freely;
         let hold = self.hold();
+
+        let grid = if hold.is_none() && self.grid_snapping && grab_snapping.is_some() {
+            self.snap_grid_spacing()
+        } else {
+            None
+        };
         let snap = match &self.primary {
             Some(PrimaryDrag::Manipulate(manipulating)) if !free => {
                 self.snap_handle(model, manipulating.feature, manipulating.guide())
@@ -3106,7 +3112,8 @@ impl ViewportState {
                 let snapping = grab_snapping
                     .as_ref()
                     .map(|(sketch, screen)| (&**sketch, screen));
-                if let Some(command) = sketch_cursor.and_then(|at| grab.follow(at, snapping, hold))
+                if let Some(command) =
+                    sketch_cursor.and_then(|at| grab.follow(at, snapping, hold, grid))
                 {
                     actions.push(Action::Drag(command));
                 }

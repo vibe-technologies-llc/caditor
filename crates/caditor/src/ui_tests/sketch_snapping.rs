@@ -36,6 +36,38 @@ fn snapping_to_the_grid_places_free_points_on_its_crossings() {
 }
 
 #[test]
+fn grid_snapping_applies_when_dragging_a_free_point_in_select() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let from = Point2::new(15.0, 20.0);
+
+    let point = sketch.add_point(from);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    run_from_palette(&mut harness, "snap to the grid");
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        from,
+        Pickable::SketchEntity {
+            feature,
+            entity: point,
+        },
+    );
+
+    drag_in_sketch(&mut harness, grabbed, Point2::new(40.35, 30.3));
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(point) != Some(from)
+    });
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+
+    assert_eq!(sketch.point(point), Some(Point2::new(40.0, 30.0)));
+    assert_eq!(sketch.constraints().count(), 0);
+}
+
+#[test]
 fn grid_snapping_ignores_the_sub_grid_until_it_becomes_the_current_level() {
     let mut harness = Harness::new();
 

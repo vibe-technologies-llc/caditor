@@ -12,7 +12,7 @@ use caditor_sketch::{
 
 use crate::{
     body_snap::{BodySnaps, BodyTarget},
-    inference::Inferences,
+    inference::{Inference, Inferences},
 };
 
 pub const POINT_TOLERANCE: f64 = 8.0;
@@ -87,14 +87,6 @@ impl Side {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AxisEnd {
-    FarMajor,
-    MinorUpright,
-    MinorLevel,
-    MinorSlanted,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Pending(usize),
     Point(EntityId),
@@ -110,7 +102,7 @@ pub enum Target {
         curve: EntityId,
         centre: EntityId,
         major: EntityId,
-        end: AxisEnd,
+        end: EllipseEnd,
     },
     Tangent(EntityId),
     Intersection(EntityId, EntityId),
@@ -142,8 +134,9 @@ impl Target {
             Self::AxisEnd { curve, end, .. } => {
                 let label = sketch.entity_label(curve);
                 match end {
-                    AxisEnd::FarMajor => format!("Far end of the major axis of {label}"),
-                    AxisEnd::MinorUpright | AxisEnd::MinorLevel | AxisEnd::MinorSlanted => {
+                    EllipseEnd::Major => format!("End of the major axis of {label}"),
+                    EllipseEnd::FarMajor => format!("Far end of the major axis of {label}"),
+                    EllipseEnd::Minor | EllipseEnd::FarMinor => {
                         format!("End of the minor axis of {label}")
                     }
                 }
@@ -170,7 +163,7 @@ impl Target {
         }
     }
 
-    pub fn point_target(self, sketch: &Sketch, at: Point2) -> Option<PointTarget> {
+    pub fn point_target(self, sketch: &Sketch) -> Option<PointTarget> {
         match self {
             Self::Point(point) => Some(PointTarget::Point(point)),
             Self::Midpoint(curve) => Some(PointTarget::Middle(curve)),
@@ -178,26 +171,10 @@ impl Target {
                 curve,
                 side: side.quadrant(),
             }),
-            Self::AxisEnd {
-                curve,
-                end: AxisEnd::FarMajor,
-                ..
-            } => Some(PointTarget::EllipseEnd {
+            Self::AxisEnd { curve, end, .. } => Some(PointTarget::EllipseEnd {
                 ellipse: curve,
-                end: EllipseEnd::FarMajor,
+                end,
             }),
-            Self::AxisEnd { curve, .. } => {
-                let end = [EllipseEnd::Minor, EllipseEnd::FarMinor]
-                    .into_iter()
-                    .min_by(|a, b| {
-                        minor_end_offset(sketch, curve, *a, at)
-                            .total_cmp(&minor_end_offset(sketch, curve, *b, at))
-                    })?;
-                Some(PointTarget::EllipseEnd {
-                    ellipse: curve,
-                    end,
-                })
-            }
             Self::Intersection(first, second) => Some(PointTarget::Crossing(first, second)),
             Self::Centre {
                 corners: (first, second),
@@ -238,20 +215,13 @@ impl Target {
                 major,
                 end,
             } => match end {
-                AxisEnd::FarMajor => vec![Constraint::Symmetric {
+                EllipseEnd::Major => vec![Constraint::Coincident(point, major)],
+                EllipseEnd::FarMajor => vec![Constraint::Symmetric {
                     first: major,
                     second: point,
                     about: centre,
                 }],
-                AxisEnd::MinorUpright => vec![
-                    Constraint::Coincident(point, curve),
-                    Constraint::VerticalPoints(point, centre.into()),
-                ],
-                AxisEnd::MinorLevel => vec![
-                    Constraint::Coincident(point, curve),
-                    Constraint::HorizontalPoints(point, centre.into()),
-                ],
-                AxisEnd::MinorSlanted => vec![
+                EllipseEnd::Minor | EllipseEnd::FarMinor => vec![
                     Constraint::Coincident(point, curve),
                     Constraint::OnMinorAxis {
                         point,
@@ -308,27 +278,7 @@ impl Target {
     }
 
     pub fn has_several_places(self) -> bool {
-        match self {
-            Self::Intersection(..)
-            | Self::AxisEnd {
-                end: AxisEnd::MinorUpright | AxisEnd::MinorLevel | AxisEnd::MinorSlanted,
-                ..
-            } => true,
-            Self::Pending(_)
-            | Self::Point(_)
-            | Self::Curve(_)
-            | Self::Extension(_)
-            | Self::Midpoint(_)
-            | Self::Quadrant { .. }
-            | Self::AxisEnd {
-                end: AxisEnd::FarMajor,
-                ..
-            }
-            | Self::Tangent(_)
-            | Self::Centre { .. }
-            | Self::Centroid(_)
-            | Self::Body(_) => false,
-        }
+        matches!(self, Self::Intersection(..))
     }
 
     pub fn is_point_like(self) -> bool {
@@ -402,6 +352,15 @@ pub enum Accept {
     OnCircle { center: Point2, radius: f64 },
 }
 
+impl Accept {
+    fn at(self, position: Point2) -> bool {
+        match self {
+            Self::Anything | Self::Points => true,
+            Self::OnCircle { center, radius } => on_circle(center, radius, position),
+        }
+    }
+}
+
 #[cfg(test)]
 pub fn resolve(
     sketch: &Sketch,
@@ -443,6 +402,13 @@ pub fn resolve_inferring(
             .map(|(_, candidate)| candidate)
     };
     let near_curves = LazyCell::new(|| curves(sketch, pointer.sketch));
+    let crossings_near = LazyCell::new(|| {
+        if inferred.allows(Inference::Intersection) {
+            intersections(sketch, near_curves.as_slice(), screen, pointer, ignored)
+        } else {
+            Vec::new()
+        }
+    });
     nearest(pending_snaps(pending), POINT_TOLERANCE)
         .or_else(|| nearest(accepted_points(sketch, accept), POINT_TOLERANCE))
         .or_else(|| match accept {
@@ -453,12 +419,7 @@ pub fn resolve_inferring(
                         POINT_TOLERANCE,
                     )
                 })
-                .or_else(|| {
-                    nearest(
-                        intersections(sketch, near_curves.as_slice(), screen, pointer),
-                        POINT_TOLERANCE,
-                    )
-                })
+                .or_else(|| nearest(crossings_near.to_vec(), POINT_TOLERANCE))
                 .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE))
                 .or_else(|| nearest(axis_ends(sketch), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
@@ -481,17 +442,7 @@ pub fn resolve_inferring(
                         POINT_PULL_ALONG_CURVE,
                     )
                     .or_else(|| nearest(along(midpoints(sketch)), POINT_PULL_ALONG_CURVE))
-                    .or_else(|| {
-                        nearest(
-                            along(intersections(
-                                sketch,
-                                near_curves.as_slice(),
-                                screen,
-                                pointer,
-                            )),
-                            POINT_PULL_ALONG_CURVE,
-                        )
-                    })
+                    .or_else(|| nearest(along(crossings_near.to_vec()), POINT_PULL_ALONG_CURVE))
                     .or_else(|| nearest(along(quadrants(sketch)), POINT_PULL_ALONG_CURVE))
                     .unwrap_or(on_curve)
                 })
@@ -560,7 +511,15 @@ pub fn held(
 
             let mut curve_like = curves(sketch, pointer.sketch);
 
-            point_like.extend(intersections(sketch, &curve_like, screen, pointer));
+            if lookup.inferred.allows(Inference::Intersection) {
+                point_like.extend(intersections(
+                    sketch,
+                    &curve_like,
+                    screen,
+                    pointer,
+                    lookup.ignored,
+                ));
+            }
             point_like.extend(quadrants(sketch));
             point_like.extend(axis_ends(sketch));
             curve_like.extend(extensions(sketch, lookup.extended, pointer.sketch));
@@ -570,8 +529,17 @@ pub fn held(
         Accept::OnCircle { center, radius } => crossings(sketch, center, radius),
     };
     let on_grid = |snapped: Snapped| {
-        grid.and_then(|spacing| grid_crossing_on(sketch, lookup.bodies, snapped, spacing))
-            .unwrap_or(snapped)
+        let combined = grid
+            .and_then(|spacing| grid_crossing_on(sketch, lookup.bodies, snapped, spacing))
+            .filter(|candidate| lookup.accept.at(candidate.position))
+            .filter(|candidate| {
+                crossing.is_some_and(|(offset, _)| {
+                    screen
+                        .to_screen(candidate.position)
+                        .is_some_and(|at| at.distance(pointer.screen) <= offset)
+                })
+            });
+        combined.unwrap_or(snapped)
     };
 
     let on_curve = || nearest(curve_like, pull(HELD_CURVE_PULL)).map(on_grid);
@@ -655,6 +623,15 @@ pub fn grid_crossing(
     Some((offset, crossing))
 }
 
+pub fn nearby_grid_crossing(
+    spacing: f64,
+    screen: &impl Screen,
+    pointer: Pointer,
+) -> Option<Point2> {
+    let (offset, crossing) = grid_crossing(spacing, screen, pointer)?;
+    (offset <= POINT_TOLERANCE).then_some(crossing)
+}
+
 fn pending_snaps(pending: &[(usize, Point2)]) -> Vec<Snapped> {
     pending
         .iter()
@@ -666,13 +643,27 @@ fn pending_snaps(pending: &[(usize, Point2)]) -> Vec<Snapped> {
 }
 
 fn accepted_points(sketch: &Sketch, accept: Accept) -> Vec<Snapped> {
-    match accept {
-        Accept::Anything | Accept::Points => points(sketch),
-        Accept::OnCircle { center, radius } => points(sketch)
-            .into_iter()
-            .filter(|candidate| on_circle(center, radius, candidate.position))
-            .collect(),
-    }
+    points_where(sketch, &|position| accept.at(position))
+}
+
+pub fn point_within(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    ignored: &[EntityId],
+    inferred: Inferences,
+    tolerance: f64,
+    wanted: &impl Fn(Point2) -> bool,
+) -> Option<Snapped> {
+    nearest_within(
+        points_where(sketch, wanted),
+        screen,
+        pointer,
+        ignored,
+        inferred,
+        tolerance,
+    )
+    .map(|(_, candidate)| candidate)
 }
 
 fn nearest_within(
@@ -822,6 +813,7 @@ fn intersections(
     curves: &[Snapped],
     screen: &impl Screen,
     pointer: Pointer,
+    ignored: &[EntityId],
 ) -> Vec<Snapped> {
     let mut near: Vec<(f64, EntityId, Option<Geometry>)> = curves
         .iter()
@@ -829,6 +821,11 @@ fn intersections(
             let Target::Curve(id) = candidate.target else {
                 return None;
             };
+
+            if ignored.contains(&id) {
+                return None;
+            }
+
             let distance = screen
                 .to_screen(candidate.position)?
                 .distance(pointer.screen);
@@ -962,24 +959,15 @@ fn quadrants_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Sna
         .collect()
 }
 
-fn axis_end_points(sketch: &Sketch, curve: EntityId) -> Vec<(AxisEnd, Point2)> {
+fn axis_end_points(sketch: &Sketch, curve: EntityId) -> Vec<(EllipseEnd, Point2)> {
     let Some(ellipse) = sketch.ellipse(curve) else {
         return Vec::new();
     };
     let across = ellipse.axis().perp() * ellipse.minor_radius;
-    let slack = AXIS_TOLERANCE * ellipse.major_radius();
-
-    let minor = if ellipse.major.y.abs() <= slack {
-        AxisEnd::MinorUpright
-    } else if ellipse.major.x.abs() <= slack {
-        AxisEnd::MinorLevel
-    } else {
-        AxisEnd::MinorSlanted
-    };
     [
-        (AxisEnd::FarMajor, ellipse.center - ellipse.major),
-        (minor, ellipse.center + across),
-        (minor, ellipse.center - across),
+        (EllipseEnd::FarMajor, ellipse.center - ellipse.major),
+        (EllipseEnd::Minor, ellipse.center + across),
+        (EllipseEnd::FarMinor, ellipse.center - across),
     ]
     .into_iter()
     .filter(|(_, at)| ellipse.within_sweep(ellipse.parameter_of(*at)).is_some())
@@ -1039,16 +1027,10 @@ pub fn position_of(
             .into_iter()
             .find(|(at, _)| *at == side)
             .map(|(_, position)| position),
-        Target::AxisEnd { curve, end, .. } => {
-            let far = end == AxisEnd::FarMajor;
-            nearest(
-                axis_end_points(sketch, curve)
-                    .into_iter()
-                    .filter(|(at, _)| (*at == AxisEnd::FarMajor) == far)
-                    .map(|(_, position)| position)
-                    .collect(),
-            )
-        }
+        Target::AxisEnd { curve, end, .. } => axis_end_points(sketch, curve)
+            .into_iter()
+            .find(|(at, _)| *at == end)
+            .map(|(_, position)| position),
         Target::Intersection(first, second) => nearest(crossed(
             sketch,
             (first, geometry(sketch, first)),
@@ -1073,8 +1055,6 @@ pub fn position_of(
         | Target::Body(_) => None,
     }
 }
-
-const AXIS_TOLERANCE: f64 = 1e-9;
 
 pub fn tangents_from(
     sketch: &Sketch,
@@ -1337,13 +1317,6 @@ fn loop_through(sketch: &Sketch, piece: EntityId) -> Option<(Vec<OutlineLine>, V
     Some((lines, steps))
 }
 
-fn minor_end_offset(sketch: &Sketch, ellipse: EntityId, end: EllipseEnd, at: Point2) -> f64 {
-    sketch
-        .target_places(&PointTarget::EllipseEnd { ellipse, end })
-        .first()
-        .map_or(f64::INFINITY, |place| place.distance(at))
-}
-
 pub fn centroid_members(sketch: &Sketch, piece: EntityId) -> Option<Vec<EntityId>> {
     let (lines, steps) = loop_through(sketch, piece)?;
 
@@ -1422,11 +1395,12 @@ fn moves(lines: &[OutlineLine], steps: &[OutlineStep], moving: &impl Fn(EntityId
 pub fn nearest_moved(
     sketch: &Sketch,
     screen: &impl Screen,
-    moved: &[(EntityId, Vector2)],
+    moved: &[(EntityId, Pointer)],
     moving: &BTreeSet<EntityId>,
     reach: f64,
+    hold: Option<Hold>,
     inferred: Inferences,
-) -> Option<EntityId> {
+) -> Option<(EntityId, Snapped)> {
     if moved.is_empty() || reach <= 0.0 {
         return None;
     }
@@ -1435,12 +1409,21 @@ pub fn nearest_moved(
         let index = (at / reach).floor().as_i64vec2();
         (index.x, index.y)
     };
-    let mut cells: BTreeMap<(i64, i64), Vec<(EntityId, Vector2)>> = BTreeMap::new();
+    let mut cells: BTreeMap<_, Vec<_>> = BTreeMap::new();
     let mut window = (Vector2::INFINITY, Vector2::NEG_INFINITY);
+    let grid = hold.and_then(|hold| hold.grid);
 
-    for (point, at) in moved {
-        cells.entry(cell(*at)).or_default().push((*point, *at));
-        window = (window.0.min(*at - reach), window.1.max(*at + reach));
+    for (point, pointer) in moved {
+        let at = pointer.screen;
+        let within = grid
+            .and_then(|spacing| grid_crossing(spacing, screen, *pointer))
+            .map_or(reach, |(offset, _)| reach.min(offset));
+
+        cells
+            .entry(cell(at))
+            .or_default()
+            .push((*point, at, within));
+        window = (window.0.min(at - within), window.1.max(at + within));
     }
 
     let is_moving = |id: EntityId| moving.contains(&id);
@@ -1456,8 +1439,9 @@ pub fn nearest_moved(
         .chain(centres(sketch, &is_moving))
         .chain(quadrants_where(sketch, &on_screen))
         .chain(axis_ends_where(sketch, &on_screen))
-        .filter(|candidate| inferred.allows_target(candidate.target));
-    let mut nearest: Option<(f64, EntityId)> = None;
+        .filter(|candidate| inferred.allows_target(candidate.target))
+        .filter(|candidate| !candidate.target.involved().any(is_moving));
+    let mut nearest: Option<(f64, EntityId, Snapped)> = None;
 
     for target in targets {
         let Some(at) = screen.to_screen(target.position) else {
@@ -1470,19 +1454,21 @@ pub fn nearest_moved(
 
         let (column, row) = cell(at);
 
-        let near = (-1..=1)
-            .flat_map(|across| (-1..=1).map(move |down| (column + across, row + down)))
+        let near = (column.saturating_sub(1)..=column.saturating_add(1))
+            .flat_map(|column| {
+                (row.saturating_sub(1)..=row.saturating_add(1)).map(move |row| (column, row))
+            })
             .filter_map(|key| cells.get(&key))
             .flatten();
-        for (point, moved_at) in near {
+        for (point, moved_at, within) in near {
             let offset = moved_at.distance(at);
-            let nearer = nearest.is_none_or(|(least, _)| offset < least);
-            if offset <= reach && nearer && !target.target.involved().any(is_moving) {
-                nearest = Some((offset, *point));
+            let nearer = nearest.is_none_or(|(least, _, _)| offset < least);
+            if offset <= *within && nearer {
+                nearest = Some((offset, *point, target));
             }
         }
     }
-    nearest.map(|(_, point)| point)
+    nearest.map(|(_, point, target)| (point, target))
 }
 
 fn pieces_of<'a>(lines: &'a [OutlineLine], steps: &[OutlineStep]) -> Option<Vec<&'a OutlineLine>> {
@@ -2149,6 +2135,82 @@ pub mod tests {
     }
 
     #[test]
+    fn a_held_curve_snap_stays_nearer_than_the_grid_fallback() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::splat(10.0), Point2::splat(90.0));
+        let Some(Held::Target(snapped)) = held_at(&sketch, Point2::new(24.9, 26.9), Some(10.0))
+        else {
+            panic!("the line should win over the grid");
+        };
+
+        assert_eq!(snapped.target, Target::Curve(line));
+        assert!(snapped.position.distance(Point2::splat(25.9)) < 1e-9);
+    }
+
+    #[test]
+    fn a_held_arc_end_stays_on_its_circle_at_a_curve_crossing() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::new(10.0, 20.0), Point2::new(70.0, 20.0));
+        let lookup = Lookup {
+            pending: &[],
+            accept: Accept::OnCircle {
+                center: Point2::splat(20.0),
+                radius: 5.1,
+            },
+            extended: &[],
+            ignored: &[],
+            bodies: None,
+            inferred: Inferences::default(),
+        };
+        let Some(Held::Target(snapped)) = held(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(25.6, 20.2)),
+            lookup,
+            Some(10.0),
+        ) else {
+            panic!("the arc should end on the line");
+        };
+
+        assert_eq!(snapped.target, Target::Curve(line));
+        assert!(snapped.position.distance(Point2::new(25.1, 20.0)) < 1e-9);
+    }
+
+    #[test]
+    fn ignored_curves_do_not_displace_crossings_of_stationary_curves() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let ignored: Vec<_> = (0..MAX_CROSSING_CURVES)
+            .map(|index| {
+                let y = 100.0 + index as f64 * 0.01;
+                sketch.add_line(Point2::new(80.0, y), Point2::new(160.0, y))
+            })
+            .collect();
+        let horizontal = sketch.add_line(Point2::new(80.0, 100.4), Point2::new(160.0, 100.4));
+        let vertical = sketch.add_line(Point2::new(100.6, 80.0), Point2::new(100.6, 160.0));
+        let pointer = pointer_at(Point2::splat(100.0));
+        let lookup = Lookup {
+            pending: &[],
+            accept: Accept::Anything,
+            extended: &[],
+            ignored: &ignored,
+            bodies: None,
+            inferred: Inferences::default(),
+        };
+        let screen = Scaled(10.0);
+
+        let snapped = resolve_inferring(&sketch, &screen, pointer, lookup).unwrap();
+
+        assert_eq!(snapped.target, Target::Intersection(horizontal, vertical));
+        assert_eq!(
+            held(&sketch, &screen, pointer, lookup, None),
+            Some(Held::Target(snapped))
+        );
+    }
+
+    #[test]
     fn points_win_over_curves_within_their_tolerance() {
         let mut sketch = Sketch::new(Plane::XY);
 
@@ -2511,7 +2573,6 @@ pub mod tests {
         };
         let lone = sketch.add_point(Point2::new(30.0, 20.0));
         let screen = Scaled(10.0);
-        let moved = |at: Point2| screen.to_screen(at).unwrap();
 
         let moving = BTreeSet::from([start, end, line]);
 
@@ -2519,31 +2580,43 @@ pub mod tests {
             &sketch,
             &screen,
             &[
-                (start, moved(Point2::new(0.3, 0.0))),
-                (end, moved(Point2::new(30.05, 20.0))),
+                (start, pointer_at(Point2::new(0.3, 0.0))),
+                (end, pointer_at(Point2::new(30.05, 20.0))),
             ],
             &moving,
             POINT_TOLERANCE,
+            None,
             Inferences::default(),
         );
         let far = nearest_moved(
             &sketch,
             &screen,
-            &[(end, moved(Point2::new(31.0, 20.0)))],
+            &[(end, pointer_at(Point2::new(31.0, 20.0)))],
             &moving,
             POINT_TOLERANCE,
+            None,
             Inferences::default(),
         );
         let only_itself = nearest_moved(
             &sketch,
             &screen,
-            &[(lone, moved(Point2::new(30.05, 20.0)))],
+            &[(lone, pointer_at(Point2::new(30.05, 20.0)))],
             &BTreeSet::from([lone]),
             POINT_TOLERANCE,
+            None,
             Inferences::default(),
         );
 
-        assert_eq!(found, Some(end));
+        assert_eq!(
+            found,
+            Some((
+                end,
+                Snapped {
+                    position: Point2::new(30.0, 20.0),
+                    target: Target::Point(lone),
+                }
+            ))
+        );
         assert_eq!(far, None);
         assert_eq!(only_itself, None);
     }
@@ -2577,13 +2650,10 @@ pub mod tests {
         let mut found = 0;
 
         for _ in 0..300 {
-            let moved: Vec<(EntityId, Vector2)> = (0..3)
+            let moved: Vec<(EntityId, Pointer)> = (0..3)
                 .map(|index| {
                     let at = Point2::new(next(100.0), next(100.0));
-                    (
-                        EntityId::from_raw(1000 + index),
-                        screen.to_screen(at).unwrap(),
-                    )
+                    (EntityId::from_raw(1000 + index), pointer_at(at))
                 })
                 .collect();
             let reach = POINT_TOLERANCE;
@@ -2594,6 +2664,7 @@ pub mod tests {
                 &moved,
                 &moving,
                 reach,
+                None,
                 Inferences::default(),
             );
             let scanned = points(&sketch)
@@ -2604,13 +2675,13 @@ pub mod tests {
                 .chain(axis_ends(&sketch))
                 .flat_map(|target| {
                     let at = screen.to_screen(target.position).unwrap();
-                    moved
-                        .iter()
-                        .map(move |(point, moved_at)| (moved_at.distance(at), *point))
+                    moved.iter().map(move |(point, pointer)| {
+                        (pointer.screen.distance(at), (*point, target))
+                    })
                 })
                 .filter(|(offset, _)| *offset <= reach)
                 .min_by(|a, b| a.0.total_cmp(&b.0))
-                .map(|(_, point)| point);
+                .map(|(_, pair)| pair);
 
             found += usize::from(indexed.is_some());
 
@@ -3097,7 +3168,7 @@ pub mod tests {
                 curve: ellipse,
                 centre,
                 major,
-                end: AxisEnd::FarMajor,
+                end: EllipseEnd::FarMajor,
             }
         );
         assert_eq!(
@@ -3113,14 +3184,17 @@ pub mod tests {
             below.target.joins(&sketch, EntityId::from_raw(99)),
             vec![
                 Constraint::Coincident(EntityId::from_raw(99), ellipse),
-                Constraint::VerticalPoints(EntityId::from_raw(99), centre.into()),
+                Constraint::OnMinorAxis {
+                    point: EntityId::from_raw(99),
+                    ellipse,
+                },
             ]
         );
         assert!(matches!(
             across.target,
             Target::AxisEnd {
                 curve,
-                end: AxisEnd::MinorSlanted,
+                end: EllipseEnd::Minor,
                 ..
             } if curve == slanted
         ));
@@ -3332,9 +3406,18 @@ pub mod tests {
             .take(40)
             .collect();
 
-        let moved: Vec<(EntityId, Vector2)> = ends
+        let moved: Vec<(EntityId, Pointer)> = ends
             .iter()
-            .filter_map(|(id, at)| Some((*id, screen.to_screen(*at + Vector2::new(0.2, 0.1))?)))
+            .filter_map(|(id, at)| {
+                let sketch = *at + Vector2::new(0.2, 0.1);
+                Some((
+                    *id,
+                    Pointer {
+                        screen: screen.to_screen(sketch)?,
+                        sketch,
+                    },
+                ))
+            })
             .collect();
 
         let started = std::time::Instant::now();
@@ -3348,6 +3431,7 @@ pub mod tests {
                     &moved,
                     &moving,
                     POINT_TOLERANCE,
+                    None,
                     Inferences::default(),
                 )
                 .is_some(),
@@ -3369,6 +3453,7 @@ pub mod tests {
                 few,
                 &moving,
                 POINT_TOLERANCE,
+                None,
                 Inferences::default(),
             );
         }

@@ -1377,9 +1377,8 @@ impl Drawing {
 
     fn unsnapped(&self, screen: &impl Screen, pointer: Pointer) -> Placement {
         self.grid
-            .and_then(|spacing| snap::grid_crossing(spacing, screen, pointer))
-            .filter(|(offset, _)| *offset <= snap::POINT_TOLERANCE)
-            .map_or(Placement::free(pointer.sketch), |(_, crossing)| {
+            .and_then(|spacing| snap::nearby_grid_crossing(spacing, screen, pointer))
+            .map_or(Placement::free(pointer.sketch), |crossing| {
                 Placement::at(crossing, Snap::Grid(None))
             })
     }
@@ -4342,7 +4341,7 @@ impl<'a> Draft<'a> {
             .filter_map(|track| {
                 let through = match track.anchor {
                     Target::Body(body) => self.body_through(body)?,
-                    anchor => anchor.point_target(&self.shadow, track.from)?,
+                    anchor => anchor.point_target(&self.shadow)?,
                 };
                 Some(track.holding(point, through))
             })

@@ -1,12 +1,12 @@
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, EntityId, PointTarget, Sketch};
+use caditor_sketch::{Constraint, EllipseEnd, Entity, EntityId, PointTarget, Sketch};
 
 use crate::{
     body_snap::{BodySnaps, BodyTarget},
     inference::{Inference, Inferences},
     snap::{
-        self, Accept, AxisEnd, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen,
-        Snapped, Target,
+        self, Accept, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen, Snapped,
+        Target,
     },
     trimming,
 };
@@ -210,7 +210,7 @@ impl Track {
     }
 
     fn constraint(self, sketch: &Sketch, point: EntityId) -> Option<Constraint> {
-        let through = self.anchor.point_target(sketch, self.from)?;
+        let through = self.anchor.point_target(sketch)?;
         Some(self.holding(point, through))
     }
 
@@ -230,7 +230,7 @@ impl Track {
     fn is_held(self, sketch: &Sketch) -> bool {
         match self.anchor {
             Target::Body(body) => body.part.is_point_like(),
-            anchor => anchor.point_target(sketch, self.from).is_some(),
+            anchor => anchor.point_target(sketch).is_some(),
         }
     }
 
@@ -504,7 +504,7 @@ fn anchor_words(sketch: &Sketch, anchor: Target) -> String {
         ),
         Target::AxisEnd {
             curve,
-            end: AxisEnd::FarMajor,
+            end: EllipseEnd::FarMajor,
             ..
         } => format!(
             "the far end of the major axis of {}",
@@ -1286,7 +1286,7 @@ mod tests {
         );
         assert!(matches!(
             far_end.target,
-            Target::AxisEnd { curve, end: AxisEnd::FarMajor, .. } if curve == ellipse
+            Target::AxisEnd { curve, end: EllipseEnd::FarMajor, .. } if curve == ellipse
         ));
         assert_eq!(level_with_crossing.position, Point2::new(-30.0, 10.0));
         assert_eq!(

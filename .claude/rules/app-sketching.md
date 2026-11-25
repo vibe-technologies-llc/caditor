@@ -121,12 +121,11 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   targets once (not crossings, tracks or body items), dropping a target outside the moved points'
   screen box widened by the radius as the walks build the targets (centres aside) and before any cell is looked up, so a frame stays linear in the
   sketch and the selection; the moving point nearest one, when nearer than the handle's own point-like or grid
-  landing (else within `POINT_TOLERANCE`, `HELD_POINT_PULL` with Alt), lands through
-  `tracking::land` with no acquired anchors and takes the drag and the joins when it finds a
-  point-like target (`Grab::landed`). A circle dragged alone changes
-  its radius and lands its rim on the sketch point near the pointer only (`Grab::follow_rim`, its centre
-  and itself ignored, never a point nearer the centre than `SMALLEST_SNAPPED_RADIUS`, no body items,
-  tracks or guides); release adds `Coincident` of that point with the circle (`Join::rim_of`, which
+  landing (else within `POINT_TOLERANCE`, `HELD_POINT_PULL` with Alt), keeps the target that won
+  the distance comparison (`Grab::landed`); with Alt its reach is also limited by its own grid
+  crossing. A circle dragged alone changes its radius and snaps to a sketch point near its moved
+  rim (`Grab::follow_rim`, respecting the offset from the press and the radius floor); release adds
+  `Coincident` of that point with the circle (`Join::rim_of`, which
   `reached` also checks against the solved radius). Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
   items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose `onto_body` takes them):
   where no point-like target was found, a body corner, middle or centre, else an edge; with Alt they
@@ -720,7 +719,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   pending point; points and the origin within `POINT_TOLERANCE`; then, where any snap is accepted and
   within the same tolerance, the middle of a line, arc or elliptical arc (`Target::Midpoint`), the
   centre of a closed outline (`Target::Centre`), the crossing of two of the up to
-  `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`,
+  `MAX_CROSSING_CURVES` eligible curves nearest the pointer, axes included (`Target::Intersection`,
   `Sketch::curve_crossings`), quadrants of a circle or arc (`Target::Quadrant`) and ellipse axis ends
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
   projecting onto the curve. A point, middle, crossing or quadrant lying on that curve (`lies_on`,
@@ -730,9 +729,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   crossing), a `Midpoint` for a middle, a `Symmetric` of two opposite corners about it for a centre
   (a `Centroid` of the corners, or of the sides with an arc among them, for an odd outline's), and for a quadrant a `Coincident` plus a horizontal or vertical points constraint with the centre.
   A major axis end is held by a `Symmetric` of the axis point and the new point about the centre; a
-  minor axis end by a `Coincident` with the ellipse plus a vertical or horizontal points constraint
-  with the centre when the major axis is level or upright (`AxisEnd::MinorUpright`, `MinorLevel`), else
-  an `OnMinorAxis` (`MinorSlanted`).
+  minor axis end by a `Coincident` with the ellipse plus `OnMinorAxis`, so it follows the axis as
+  the ellipse turns.
 - A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle, arc,
   ellipse or elliptical arc (`snap::tangents_from`) lands there (`Target::Tangent`): a `Coincident` and
   a `Tangent`. It wins over curve snaps, not over point-like ones (`Target::is_point_like`). A line
@@ -788,7 +786,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   first, at most `MAX_ACQUIRED_POINTS`): a point or the origin, the middle of a line, arc or
   elliptical arc, a crossing of two curves, an outline's centre (`Centre`, `Centroid`), a quadrant
   and an ellipse's axis end, each kept as its `Target` with where it lay (`Anchor`), which tells
-  the two crossings of one pair or the two minor axis ends apart (`Target::has_several_places`).
+  the two crossings of one pair apart (`Target::has_several_places`). Minor axis ends carry the
+  specific `EllipseEnd` they refer to.
   So are the centre of a circle, arc or ellipse whose rim, middle, quadrant, axis end or centre was
   hovered and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`). Kept across tools within
   one sketch; `Acquired::retain` drops an anchor once an entity defining it is gone
@@ -799,8 +798,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   outline (`BodySnaps::position`, constant time, so the per-frame cost stays that of the at most
   `MAX_ACQUIRED_POINTS` anchors) and is dropped when the cache is rebuilt (`Acquired::keep_bodies`
   from `Drawing::use_bodies`), as its `BodyTarget` names an older generation.
-- Each frame an anchor is found again where it lies now (`snap::position_of`: the crossing or minor
-  axis end nearest where it was; an odd outline's centroid by the outline search from its first
+- Each frame an anchor is found again where it lies now (`snap::position_of`: the crossing nearest
+  where it was; an odd outline's centroid by the outline search from its first
   piece). One moving in a drag (touching the ignored entities, or an odd outline with a moving
   piece) or placed by the shape in progress (`own`) draws no track.
   Where any snap is accepted, a placed point within `TRACK_TOLERANCE` of the horizontal or vertical
@@ -858,7 +857,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `ViewportState::grid_snapping`, starting as Preferences say) places a point no target, direction or track took on the nearest
   crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to
   `Drawing::snap_to_grid`) within `POINT_TOLERANCE`; the point stays free, labelled "On the grid"
-  (`Snap::Grid`). The grid draws three levels, 1, 10 and 100 times `grid_minor_spacing`, each
+  (`Snap::Grid`). A Select drag uses the same fallback for its handle when no geometry or track
+  takes it. The grid draws three levels, 1, 10 and 100 times `grid_minor_spacing`, each
   fading in as its cells grow past 4 points and drawn in full from 16; the current level
   (`caditor_render::grid_snap_spacing`) is the finest drawn in full, else the coarsest, and cells
   are measured on screen at the view's target. The finer lines still fading in are never snapped
@@ -868,8 +868,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   ahead of directions, tracks and the toggles): the point lands on the nearest crossing of the same
   current level, grid snapping on or not, unless a snappable entity lies no further on screen. Point-like targets pull
   from `HELD_POINT_PULL` (three times the hover tolerance), then curves and extensions from
-  `HELD_CURVE_PULL`, a curve snap moving to the grid crossing nearest its foot when that lies on the
-  curve. Targets keep their constraints; a grid crossing is free and, for points that align or level
+  `HELD_CURVE_PULL`. A curve snap can move to the grid crossing nearest its foot if it lies on the
+  curve, satisfies the tool's placement restrictions, and is at least as close on screen as the
+  free grid snap. Targets keep their constraints; a grid crossing is free and, for points that align or level
   from a start (`aligned_from`, `levelled_from`), exactly level or upright with it takes Horizontal or
   Vertical. Width points never snap, typed points are untouched, and with the grid hidden only
   entities are taken. Body items pull too (`Lookup::bodies`, none for a tangent arc's start or a

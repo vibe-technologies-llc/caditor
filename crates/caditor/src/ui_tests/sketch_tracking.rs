@@ -584,6 +584,54 @@ fn a_point_upright_with_the_far_end_of_an_ellipse_follows_it_as_the_axis_moves()
 }
 
 #[test]
+fn a_point_snapped_to_the_minor_axis_end_follows_the_ellipse_as_it_turns() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let center = Point2::new(40.0, 30.0);
+
+    let ellipse = sketch.add_ellipse(center, Point2::new(60.0, 30.0), 8.0);
+    let Some(Entity::Ellipse {
+        center: centre,
+        major,
+        ..
+    }) = sketch.entity(ellipse).cloned()
+    else {
+        panic!("expected an ellipse");
+    };
+
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: centre,
+            at: center,
+        })
+        .unwrap();
+
+    let label = sketch.entity_label(ellipse);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = entities_of_kind(harness.sketch(feature), "Point");
+
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(40.05, 37.95));
+
+    assert!(harness.shows(&format!("End of the minor axis of {label}")));
+
+    harness.click_at(Point2::new(40.05, 37.95));
+
+    let placed = placed_alone(harness.sketch(feature), &before);
+
+    drag_point(&mut harness, feature, major, Point2::new(60.0, 40.0));
+
+    let shown = harness.shown(feature);
+    let end = shown.target_places(&PointTarget::EllipseEnd {
+        ellipse,
+        end: EllipseEnd::Minor,
+    })[0];
+
+    assert!((end.x - center.x).abs() > 1.0, "{end}");
+    assert!(shown.point(placed).unwrap().distance(end) < HELD);
+}
+
+#[test]
 fn a_point_placed_parallel_to_a_line_from_another_point_stays_parallel_when_the_line_turns() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

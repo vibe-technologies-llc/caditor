@@ -60,7 +60,7 @@ line, and a triangle round a dot for the centre of an outline.
 - {command:view.toggle_grid_snapping} puts free points on the grid's crossings. It snaps to the
   grid you see at the current zoom, the spacing named at the bottom of the view such as "Grid 10 mm",
   and to nothing finer: the faint lines between are left out until you zoom in far enough to
-  draw them in full. Alt steps along the same grid.
+  draw them in full. This also works when dragging points with Select. Alt steps along the same grid.
 
 - Preferences › Sketching › Constraints drawing infers turns off single kinds while snapping stays
   on: horizontal, vertical, parallel, perpendicular, tangent, equal length, coincident with a

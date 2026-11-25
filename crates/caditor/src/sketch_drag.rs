@@ -14,7 +14,7 @@ use crate::{
     feature_tree::count,
     inference::Inferences,
     snap::{self, HELD_POINT_PULL, Hold, POINT_TOLERANCE, Pointer, Screen, Target},
-    tracking::{self, Acquired, Landing, ShownOutlines},
+    tracking::{self, Acquired, Landing, ShownOutlines, Tracks},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -259,14 +259,23 @@ impl Grab {
         cursor: Point2,
         snapping: Option<(&Sketch, &impl Screen)>,
         hold: Option<Hold>,
+        grid: Option<f64>,
     ) -> Option<DragCommand> {
-        if let Handles::Radius { circle, centre, .. } = &self.handles {
-            return self.follow_rim(*circle, *centre, cursor, snapping, hold);
+        if let Handles::Radius {
+            circle,
+            centre,
+            radius,
+        } = self.handles
+        {
+            return self.follow_rim((circle, centre, radius), cursor, snapping, hold);
         }
 
         let offset = cursor - self.from;
         let landed = snapping.and_then(|(sketch, screen)| {
-            Some((sketch, self.snapper_landing(sketch, screen, offset, hold)?))
+            Some((
+                sketch,
+                self.snapper_landing(sketch, screen, offset, hold, grid)?,
+            ))
         });
 
         if let Some((sketch, (_, _, landing))) = landed
@@ -303,28 +312,30 @@ impl Grab {
         screen: &impl Screen,
         offset: Vector2,
         hold: Option<Hold>,
+        grid: Option<f64>,
     ) -> Option<(EntityId, Point2, Landing)> {
         let (handle, from) = self.handle?;
         let ignored = self.moving_with(sketch);
-        let land_from = |original: Point2, acquired: &Acquired, bodies: Option<&BodySnaps>| {
+        let pointer_at = |original: Point2| {
             let moved = original + offset;
-            let pointer = Pointer {
+            Some(Pointer {
                 screen: screen.to_screen(moved)?,
                 sketch: moved,
-            };
+            })
+        };
+
+        let by_handle = pointer_at(from).and_then(|pointer| {
             let landing = tracking::land(
                 sketch,
                 screen,
                 pointer,
-                (acquired, &ignored),
+                (&self.acquired, &ignored),
                 hold,
-                bodies,
+                Some(&self.bodies.0),
                 self.inferred,
             )?;
             Some((pointer, landing))
-        };
-
-        let by_handle = land_from(from, &self.acquired, Some(&self.bodies.0));
+        });
         let handle_reach = by_handle
             .filter(|(_, landing)| {
                 landing.on_grid || landing.target.is_some_and(Target::is_point_like)
@@ -340,59 +351,90 @@ impl Grab {
         let Handles::Points(points) = &self.handles else {
             return None;
         };
-        let moved: Vec<(EntityId, Vector2)> = points
+        let moved: Vec<(EntityId, Pointer)> = points
             .iter()
             .filter(|(point, _)| *point != handle)
-            .filter_map(|(point, original)| Some((*point, screen.to_screen(*original + offset)?)))
+            .filter_map(|(point, original)| Some((*point, pointer_at(*original)?)))
             .collect();
         let moving: BTreeSet<EntityId> = ignored.iter().copied().collect();
 
-        let by_other = snap::nearest_moved(sketch, screen, &moved, &moving, reach, self.inferred)
-            .and_then(|point| {
-                let (_, original) = points.iter().find(|(each, _)| *each == point)?;
-                let (_, landing) = land_from(*original, &Acquired::default(), None)?;
-                landing
-                    .target
-                    .is_some_and(Target::is_point_like)
-                    .then_some((point, *original, landing))
-            });
-        by_other.or_else(|| by_handle.map(|(_, landing)| (handle, from, landing)))
+        let by_other =
+            snap::nearest_moved(sketch, screen, &moved, &moving, reach, hold, self.inferred)
+                .and_then(|(point, snapped)| {
+                    let (_, original) = points.iter().find(|(each, _)| *each == point)?;
+                    let landing = Landing {
+                        position: snapped.position,
+                        target: Some(snapped.target),
+                        tracks: Tracks::default(),
+                        on_grid: false,
+                    };
+                    Some((point, *original, landing))
+                });
+        by_other
+            .or_else(|| by_handle.map(|(_, landing)| (handle, from, landing)))
+            .or_else(|| {
+                let position = snap::nearby_grid_crossing(grid?, screen, pointer_at(from)?)?;
+                let landing = Landing {
+                    position,
+                    target: None,
+                    tracks: Tracks::default(),
+                    on_grid: true,
+                };
+                Some((handle, from, landing))
+            })
     }
 
     fn follow_rim(
         &mut self,
-        circle: EntityId,
-        centre: Point2,
+        (circle, centre, radius): (EntityId, Point2, f64),
         cursor: Point2,
         snapping: Option<(&Sketch, &impl Screen)>,
         hold: Option<Hold>,
     ) -> Option<DragCommand> {
+        let wanted = self.cursor_radius(centre, radius, cursor);
+
         self.guides = Vec::new();
         self.outlines.keep_none();
         self.landing = snapping.and_then(|(sketch, screen)| {
             let Some(Entity::Circle { center, .. }) = sketch.entity(circle) else {
                 return None;
             };
+            let minimum = radius * SMALLEST_DRAGGED_RADIUS;
+            let at = snap::closest_on_circle(centre, wanted.max(minimum), cursor)?;
             let pointer = Pointer {
-                screen: screen.to_screen(cursor)?,
-                sketch: cursor,
+                screen: screen.to_screen(at)?,
+                sketch: at,
+            };
+            let reach = match hold {
+                Some(hold) => hold
+                    .grid
+                    .and_then(|spacing| snap::grid_crossing(spacing, screen, pointer))
+                    .map_or(HELD_POINT_PULL, |(offset, _)| HELD_POINT_PULL.min(offset)),
+                None => POINT_TOLERANCE,
             };
 
-            let landing = tracking::land(
+            let snapped = snap::point_within(
                 sketch,
                 screen,
                 pointer,
-                (&self.acquired, &[circle, *center]),
-                hold,
-                None,
+                &[*center],
                 self.inferred,
+                reach,
+                &|point| {
+                    let distance = centre.distance(point);
+                    distance >= minimum && distance > SMALLEST_SNAPPED_RADIUS
+                },
             )?;
-            let reached = centre.distance(landing.position) > SMALLEST_SNAPPED_RADIUS;
-            (matches!(landing.target, Some(Target::Point(_))) && reached).then_some(landing)
+            Some(Landing {
+                position: snapped.position,
+                target: Some(snapped.target),
+                tracks: Tracks::default(),
+                on_grid: false,
+            })
         });
         match self.landing {
             Some(landing) => self.radius_to(centre.distance(landing.position)),
-            None => self.to(cursor),
+            None => self.radius_to(wanted),
         }
     }
 
@@ -444,10 +486,13 @@ impl Grab {
                 self.send(drags)
             }
             Handles::Radius { centre, radius, .. } => {
-                let grown = radius + centre.distance(cursor) - centre.distance(self.from);
-                self.radius_to(grown)
+                self.radius_to(self.cursor_radius(*centre, *radius, cursor))
             }
         }
+    }
+
+    fn cursor_radius(&self, centre: Point2, radius: f64, cursor: Point2) -> f64 {
+        radius + (centre.distance(cursor) - centre.distance(self.from))
     }
 
     fn radius_to(&mut self, wanted: f64) -> Option<DragCommand> {
@@ -1389,6 +1434,7 @@ mod tests {
             Point2::new(30.05, 40.02),
             Some((&sketch, &Scaled(10.0))),
             None,
+            None,
         ) else {
             panic!("the radius is dragged");
         };
@@ -1407,14 +1453,39 @@ mod tests {
             }
         );
 
-        let Some(DragCommand::Move { drags, .. }) =
-            grab.follow(Point2::new(60.0, 0.0), Some((&sketch, &Scaled(10.0))), None)
-        else {
+        let Some(DragCommand::Move { drags, .. }) = grab.follow(
+            Point2::new(60.0, 0.0),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+            None,
+        ) else {
             panic!("the radius is dragged");
         };
 
         assert_eq!(drags, vec![Drag::Radius { circle, to: 60.0 }]);
         assert_eq!(grab.finish(), DragCommand::Finish { join: None });
+    }
+
+    #[test]
+    fn a_rim_drag_snaps_from_the_grab_offset_and_skips_points_inside_its_radius_floor() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let circle = sketch.add_circle(Point2::ZERO, 1000.0);
+
+        sketch.add_point(Point2::new(0.95, 0.0));
+
+        let target = sketch.add_point(Point2::new(1.4, 0.0));
+        let mut grab = Grab::of(&sketch, feature(), circle, &[], Point2::new(1001.0, 0.0)).unwrap();
+        let screen = Scaled(10.0);
+
+        let Some(DragCommand::Move { drags, .. }) =
+            grab.follow(Point2::new(2.05, 0.0), Some((&sketch, &screen)), None, None)
+        else {
+            panic!("the radius is dragged");
+        };
+
+        assert_eq!(drags, vec![Drag::Radius { circle, to: 1.4 }]);
+        assert_eq!(grab.landing().unwrap().target, Some(Target::Point(target)));
     }
 
     #[test]
@@ -1647,7 +1718,12 @@ mod tests {
         let lone = sketch.add_point(Point2::new(10.0, 10.0));
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.1, 0.1)).unwrap();
 
-        let command = grab.follow(Point2::new(10.3, 9.8), Some((&sketch, &Scaled(10.0))), None);
+        let command = grab.follow(
+            Point2::new(10.3, 9.8),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+            None,
+        );
 
         assert_eq!(grab.moving_with(&sketch), vec![end, line]);
         assert_eq!(
@@ -1691,6 +1767,7 @@ mod tests {
         let Some(DragCommand::Move { drags, .. }) = grab.follow(
             Point2::new(28.05, 20.02),
             Some((&sketch, &Scaled(10.0))),
+            None,
             None,
         ) else {
             panic!("the line is dragged");
@@ -1736,6 +1813,7 @@ mod tests {
             Point2::new(21.05, 20.02),
             Some((&sketch, &Scaled(10.0))),
             None,
+            None,
         ) else {
             panic!("the line is dragged");
         };
@@ -1778,7 +1856,12 @@ mod tests {
         let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(1.0, 0.0)).unwrap();
         let screen = Scaled(10.0);
 
-        grab.follow(Point2::new(21.0, 20.0), Some((&sketch, &screen)), None);
+        grab.follow(
+            Point2::new(21.0, 20.0),
+            Some((&sketch, &screen)),
+            None,
+            None,
+        );
 
         let DragCommand::Finish { join: Some(join) } = grab.finish() else {
             panic!("the drag lands on a point");
@@ -1795,6 +1878,42 @@ mod tests {
     }
 
     #[test]
+    fn a_group_drag_keeps_the_midpoint_that_won_the_distance_comparison() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let (_, end) = ends(&sketch, line);
+        let upright = sketch.add_line(Point2::new(30.05, 10.0), Point2::new(30.05, 30.0));
+
+        sketch.add_point(Point2::new(20.3, 20.0));
+        sketch.add_point(Point2::new(30.7, 20.0));
+
+        let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(1.0, 0.0)).unwrap();
+        let screen = Scaled(10.0);
+
+        grab.follow(
+            Point2::new(21.0, 20.0),
+            Some((&sketch, &screen)),
+            None,
+            None,
+        );
+
+        let DragCommand::Finish { join: Some(join) } = grab.finish() else {
+            panic!("the drag lands on the midpoint");
+        };
+
+        assert_eq!(join.point, end);
+        assert_eq!(join.at, Point2::new(30.05, 20.0));
+        assert_eq!(
+            join.constraints,
+            vec![Constraint::Midpoint {
+                point: end,
+                curve: upright
+            }]
+        );
+    }
+
+    #[test]
     fn a_grabbed_point_tracks_the_other_end_of_its_line_and_keeps_it_level() {
         let mut sketch = Sketch::new(Plane::XY);
 
@@ -1805,6 +1924,7 @@ mod tests {
         grab.follow(
             Point2::new(20.0, 10.2),
             Some((&sketch, &Scaled(10.0))),
+            None,
             None,
         );
 
@@ -1832,7 +1952,12 @@ mod tests {
 
         let mut free = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
 
-        free.follow(Point2::new(20.0, 10.2), None::<(&Sketch, &Scaled)>, None);
+        free.follow(
+            Point2::new(20.0, 10.2),
+            None::<(&Sketch, &Scaled)>,
+            None,
+            None,
+        );
 
         assert_eq!(free.landing(), None);
         assert_eq!(free.finish(), DragCommand::Finish { join: None });
@@ -1851,6 +1976,7 @@ mod tests {
             Point2::new(11.2, 9.3),
             Some((&sketch, &Scaled(10.0))),
             Some(hold),
+            None,
         );
 
         let landing = grab.landing().unwrap();
