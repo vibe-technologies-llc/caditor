@@ -9,6 +9,8 @@ use crate::{
 };
 
 const EXACT: f64 = 1e-7;
+const MICROMETRE: f64 = 1e-3;
+const NUDGED_INPUTS: u64 = 64;
 
 fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
     Ok(Quantity::plain(0.0))
@@ -750,4 +752,86 @@ fn a_closed_fit_spline_through_one_point_twice_holds_a_distance_at_the_tip_it_tu
         .unwrap();
 
     solves_again_in_place(&sketch);
+}
+
+fn nudges(seed: u64, count: usize) -> Vec<i64> {
+    let mut state = seed;
+    (0..count)
+        .map(|_| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            i64::try_from((state >> 33) % 7).unwrap() - 3
+        })
+        .collect()
+}
+
+fn largest_move(first: &Solved, again: &Solved) -> f64 {
+    first
+        .geometry
+        .entities()
+        .zip(again.geometry.entities())
+        .map(|((_, own), (_, theirs))| match (own, theirs) {
+            (Entity::Point(own), Entity::Point(theirs)) => own.distance(*theirs),
+            _ => 0.0,
+        })
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn a_spline_with_three_of_four_points_coincident_stays_within_a_micrometre_however_its_inputs_round()
+ {
+    let base = [
+        Point2::new(9.5001, 10.499999),
+        Point2::new(9.5, 10.5),
+        Point2::new(9.4999, 10.500001),
+        Point2::new(14.0, 3.0),
+    ];
+
+    for seed in 0..NUDGED_INPUTS {
+        for kind in [
+            SplineKind::OPEN,
+            SplineKind::fit(false),
+            SplineKind::fit(true),
+        ] {
+            let nudge = nudges(seed, 2 * base.len() + 1);
+            let mut points = base;
+
+            for (point, pair) in points.iter_mut().zip(nudge.chunks(2)) {
+                point.x = ulps_off(point.x, pair[0]);
+                point.y = ulps_off(point.y, pair[1]);
+            }
+
+            let mut sketch = Sketch::new(Plane::XY);
+
+            let spline = sketch.add_spline_of(&points, kind.clone());
+            let ends = points_of(&sketch, spline);
+
+            for pair in ends.windows(2).take(2) {
+                sketch
+                    .add_constraint(Constraint::Coincident(pair[0], pair[1]))
+                    .unwrap();
+            }
+
+            let line = sketch.add_line(Point2::new(-4.0, -6.0), Point2::new(-4.0, 6.0));
+
+            sketch
+                .add_constraint(Constraint::Distance {
+                    from: line,
+                    to: spline,
+                    value: millimetres(ulps_off(5.49998, nudge[2 * base.len()])),
+                })
+                .unwrap();
+
+            let first = solve(&sketch).unwrap();
+            let again = first
+                .geometry
+                .solve_from(&no_parameters, &|| false, &[], Some(&first.memo))
+                .unwrap();
+
+            let moved = largest_move(&first, &again);
+
+            assert!(moved <= MICROMETRE, "seed {seed}, {kind:?}: moved {moved}");
+        }
+    }
 }

@@ -147,15 +147,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   result (seed 1555 of `a_solved_sketch_of_splines_of_chosen_degrees_does_not_move_when_solved_again`
   with `regraded` allowed degree one for closed splines, which it no longer does: `regraded`
   gives a closed spline at least degree two). The cause was not worked out.
-- [medium · hard] An open fit spline through three coincident points and a fourth, held a distance
-  from a line (`a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_result`),
-  moves by 0.05 mm when solved again from its own result for about one rounding in ten of an
-  input by up to three ulps (the Windows CI run fails it where Linux passes). The hidden controls
-  beside the coincident points sit 1e-6 mm apart, so the end tangent's direction is finer than a
-  coordinate of 10 mm can hold: the first attempt stalls at a residual of 2e-9 against a tolerance
-  of 1.6e-9 and a perturbed retry lands elsewhere. Weighting the tangent form by the tangent's
-  length, or the interpolation rows by 1e3, each removed the jump and left a drift of 2e-6 mm or
-  moved it to the closed spline; neither is kept.
+- [low · hard] An open centripetal fit spline through three coincident points and a fourth, held a
+  distance from a line, still moves by up to 1e-4 mm when solved again from its own result for
+  about one rounding in fifty of its inputs by up to three ulps
+  (`a_spline_with_three_of_four_points_coincident_stays_within_a_micrometre_however_its_inputs_round`
+  holds it within a micrometre over 64 roundings). The spline is a straight segment, the dimension
+  sets the line parallel to it and every point of it is a stationary point of the distance. The
+  hidden controls beside the coincident points weigh about 1e-3 in their interpolation rows, so the
+  end tangent there is known only to about 1e-6 rad: the first solve holds the contact at that end
+  with the line parallel to it, the far end comes nearer by up to `DISTANCE_SETTLING` of the value,
+  which the re-measurement accepts, and the second solve starts its contact there. In the worst
+  cases the first solve also stops with the interpolation rows at the tolerance (1.5e-10), which
+  leaves the solved curve 1e-7 mm from the drawn one.
 
 ## Sketching and expressions
 
