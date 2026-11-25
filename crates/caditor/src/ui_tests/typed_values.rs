@@ -495,7 +495,6 @@ fn typed_point_completes_parameters_and_steps_with_arrows() {
     assert_eq!(ends.len(), 1);
     assert!(near(ends[0].1, Point2::new(32.0, 0.0)), "{:?}", ends[0]);
 
-    harness.use_tool(Key::L);
     type_point(&mut harness, "0, 10");
     harness.point_at(Point2::new(40.0, 10.0));
     harness.frame();
