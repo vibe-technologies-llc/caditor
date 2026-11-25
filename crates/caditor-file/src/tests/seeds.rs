@@ -13,9 +13,11 @@ use crate::{
     journal::{JournalHead, Mirror, decode_journal, encode_journal, replay},
 };
 
-const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
+pub(crate) const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
 const SEED_SLICE: usize = 512;
-const MESH_FORMATS: [MeshFormat; 3] = [MeshFormat::Stl, MeshFormat::Obj, MeshFormat::ThreeMf];
+const REFUSED: &str = "refused-";
+pub(crate) const MESH_FORMATS: [MeshFormat; 3] =
+    [MeshFormat::Stl, MeshFormat::Obj, MeshFormat::ThreeMf];
 const INTER: &[u8] = include_bytes!("../../../caditor/assets/fonts/InterVariable.ttf");
 const INTER_ITALIC: &[u8] =
     include_bytes!("../../../caditor/assets/fonts/InterVariable-Italic.ttf");
@@ -24,7 +26,7 @@ fn seeds_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
 }
 
-fn seeds_in(kind: &str) -> Vec<(PathBuf, Vec<u8>)> {
+pub(crate) fn seeds_in(kind: &str) -> Vec<(PathBuf, Vec<u8>)> {
     let dir = seeds_dir().join(kind);
     let mut seeds: Vec<(PathBuf, Vec<u8>)> = fs::read_dir(&dir)
         .unwrap()
@@ -39,6 +41,19 @@ fn seeds_in(kind: &str) -> Vec<(PathBuf, Vec<u8>)> {
 
     assert!(!seeds.is_empty(), "no seeds in {}", dir.display());
     seeds
+}
+
+pub(crate) fn is_refused(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(REFUSED))
+}
+
+fn imported_seeds_in(kind: &str) -> Vec<(PathBuf, Vec<u8>)> {
+    seeds_in(kind)
+        .into_iter()
+        .filter(|(path, _)| !is_refused(path))
+        .collect()
 }
 
 fn seed_model() -> Vec<u8> {
@@ -115,7 +130,7 @@ fn seed_journal_entries() -> (Document, Vec<JournalEntry>) {
     (base, entries)
 }
 
-fn seed_mesh(format: MeshFormat, file: &[u8]) -> Vec<u8> {
+pub(crate) fn seed_mesh(format: MeshFormat, file: &[u8]) -> Vec<u8> {
     let tag = MESH_FORMATS
         .iter()
         .position(|known| *known == format)
@@ -392,7 +407,7 @@ pub(super) fn seed_path(name: &str) -> Option<PathBuf> {
     (!corpus::inside_corpus(&path)).then_some(path)
 }
 
-fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
+pub(crate) fn write_seeds<const N: usize>(seeds: [(&str, Vec<u8>); N]) {
     for (name, bytes) in seeds {
         let path = seed_path(name)
             .unwrap_or_else(|| panic!("the seed {name} would land in the format corpus"));
@@ -465,7 +480,7 @@ fn zstd_seeds_decompress_after_their_prefix() {
 
 #[test]
 fn step_dxf_and_svg_seeds_import() {
-    for (path, bytes) in seeds_in("step") {
+    for (path, bytes) in imported_seeds_in("step") {
         let text = String::from_utf8(bytes).unwrap();
         let import = parse_step(&text, "seed.step")
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
@@ -478,7 +493,7 @@ fn step_dxf_and_svg_seeds_import() {
 
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
-    for (path, bytes) in seeds_in("svg") {
+    for (path, bytes) in imported_seeds_in("svg") {
         let drawing = parse_svg(
             &bytes,
             TextOutlines::InFont {
@@ -494,7 +509,7 @@ fn step_dxf_and_svg_seeds_import() {
 
 #[test]
 fn mesh_seeds_import() {
-    for (path, bytes) in seeds_in("mesh") {
+    for (path, bytes) in imported_seeds_in("mesh") {
         let (&tag, file) = bytes.split_first().unwrap();
         let format = MESH_FORMATS[usize::from(tag)];
 

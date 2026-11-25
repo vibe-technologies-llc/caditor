@@ -18,6 +18,7 @@ use crate::{
     },
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
+    tally,
     untrusted::UntrustedMap,
 };
 
@@ -749,6 +750,7 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
 
     for (index, vertex) in vertices.enumerate() {
         poll_between_lines(index)?;
+        tally::add(1);
         positions.push(Point3::new(
             coordinate(vertex, "x")?,
             coordinate(vertex, "y")?,
@@ -766,6 +768,7 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
 
     for (index, triangle) in declared.enumerate() {
         poll_between_lines(index)?;
+        tally::add(1);
 
         let corner = |name: &str| -> Result<usize, ImportError> {
             triangle
@@ -831,6 +834,7 @@ impl Placement<'_> {
         let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
 
         check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
+        tally::add(1);
         self.placed_objects += 1;
         if self.placed_objects > MAX_PLACED_OBJECTS {
             return Err(ImportError::ModelPlacesTooMuch);
@@ -882,6 +886,7 @@ fn add_mesh(mesh: &mut TriangleMesh, shape: &Shape, placed: Transform) -> Result
         return Err(ImportError::ModelPlacesTooMuch);
     }
 
+    tally::add(shape.positions.len() + shape.triangles.len());
     mesh.positions
         .extend(shape.positions.iter().map(|&point| placed.apply(point)));
     mesh.triangles.extend(

@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     part21::{Exchange, Instance, List, Parameter, Record},
-    read::fault::Fault,
+    read::{fault::Fault, tally},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +42,7 @@ impl<'a> Graph<'a> {
     }
 
     pub fn entity(&self, id: u64) -> Read<Entity<'a>> {
+        tally::add(1);
         self.exchange
             .instance(id)
             .map(|instance| Entity { id, instance })

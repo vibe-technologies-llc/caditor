@@ -8729,7 +8729,7 @@ mod drawings;
 mod journal_during_saves;
 mod pictures;
 mod save_costs;
-mod seeds;
+pub(crate) mod seeds;
 mod selection_sets;
 #[cfg(unix)]
 mod unix;

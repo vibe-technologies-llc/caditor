@@ -8,9 +8,12 @@ mod look_tests;
 mod loose;
 mod offset;
 mod presentation;
+#[cfg(test)]
+mod seeds;
 mod snap;
 mod spline;
 mod structure;
+mod tally;
 #[cfg(test)]
 mod tests;
 mod topology;

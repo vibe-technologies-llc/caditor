@@ -7,6 +7,8 @@ mod mesh;
 pub(crate) mod mesh_tests;
 mod mesh_unit;
 mod model;
+#[cfg(test)]
+mod seed_tests;
 mod sketch;
 mod svg;
 #[cfg(test)]

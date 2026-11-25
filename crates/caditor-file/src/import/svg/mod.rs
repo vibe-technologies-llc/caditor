@@ -37,6 +37,7 @@ use crate::{
         },
         xml::{Budget, Node, Tree, XmlError, parse},
     },
+    tally,
     untrusted::UntrustedMap,
 };
 
@@ -494,6 +495,7 @@ impl<'a, 't> Walker<'a, 't> {
 
     fn visit(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
         check_interrupt().map_err(|_| ImportError::Cancelled)?;
+        tally::add(1);
 
         let Some(kind) = self.kind(node) else {
             return Ok(());
@@ -779,6 +781,7 @@ impl<'a, 't> Walker<'a, 't> {
         context: &Context<'a>,
     ) -> Result<(), ImportError> {
         self.charge(shapes.len())?;
+        tally::add(shapes.len());
 
         let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
         let beyond = shapes.len().saturating_sub(room);

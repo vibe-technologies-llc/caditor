@@ -10,6 +10,7 @@ use caditor_kernel::{Interrupted, check_interrupt};
 use crate::read::{
     geometry::{Geometry, Work},
     graph::{Entity, Fields, Graph},
+    tally,
     units::{Units, context_units},
 };
 
@@ -372,6 +373,7 @@ impl Structure {
                         self.truncated = true;
                         break;
                     }
+                    tally::add(1);
                     placed.transforms.push(transform.then(outer));
                     placed.occurrences.push(parent.occurrence.clone());
                     placed.paths.push(

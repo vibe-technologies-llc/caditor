@@ -73,7 +73,12 @@ paths:
   per parent, so every part is still placed and memory stays bounded, with a note that only the first
   copies were imported. Representations a plain relationship makes identical join one class as the
   relationships are read (`Classes`, smaller into larger, never searched per lookup), and a face
-  loop's fins are peeled from a deque, so a crafted file costs time linear in its size. A placement's
+  loop's fins are peeled from a deque, so a crafted file costs time linear in its size. Tests read
+  that cost from `read/tally.rs` (free outside tests): one unit per entity `Graph::entity` looks up
+  and one per placement `Structure::walk` keeps, on the calling thread only, so the parallel builds
+  of several solids go uncounted; `step_seeds_are_read_within_their_work_bound` holds every STEP
+  fuzz seed to its bytes, plus `MAX_WALKED_PLACEMENTS` and `MAX_INSTANCES` when the read notes the
+  copies were cut short (`ci.md`). A placement's
   path names each class by its key (`Classes::key`, its smallest member), never its members, so a
   path costs its depth however large its classes; product names are kept per class key, and
   `placements` hands out the memoised `Arc`, copied per solid only for the copies taken. Names are

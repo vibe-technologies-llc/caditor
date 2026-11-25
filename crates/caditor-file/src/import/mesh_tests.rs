@@ -279,7 +279,7 @@ fn cancelling_stops_a_text_obj_between_lines() {
     );
 }
 
-fn model_package(model: &str) -> Vec<u8> {
+pub(crate) fn model_package(model: &str) -> Vec<u8> {
     archive(&[ZipEntry {
         name: "3D/3dmodel.model",
         contents: model.as_bytes(),
@@ -335,7 +335,7 @@ fn a_3mf_with_relationships_nested_a_hundred_thousand_deep_is_refused_instead_of
     );
 }
 
-fn component_bomb() -> Vec<u8> {
+pub(crate) fn component_bomb() -> Vec<u8> {
     let levels = 16;
     let mut model = String::from(
         "<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>\
@@ -408,7 +408,7 @@ fn a_cancelled_token_stops_a_3mf_components_expansion() {
 
 const PRODUCTION: &str = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06";
 
-fn cube_object(id: u32, side: f64) -> String {
+pub(crate) fn cube_object(id: u32, side: f64) -> String {
     let mut object = format!("<object id=\"{id}\" type=\"model\"><mesh><vertices>");
 
     for [x, y, z] in CORNERS {
@@ -865,7 +865,7 @@ fn a_3mf_declares_its_units_so_it_is_neither_guessed_nor_offered_a_scale() {
     assert!(imported.notes.iter().all(|note| !note.contains("no units")));
 }
 
-fn nested_cube_objects(depth: usize) -> String {
+pub(crate) fn nested_cube_objects(depth: usize) -> String {
     let mut model = String::from("<model unit=\"millimeter\"><resources>");
 
     for level in 1..=depth {

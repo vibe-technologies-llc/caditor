@@ -221,7 +221,10 @@ paths:
   own; every `textPath` laid out, inside a use or not, charges its track's points against
   `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), so many `textPath`s or uses of one long path are refused
   instead of hanging. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is counted
-  without being merged.
+  without being merged. The `tally` counts each element `Walker::visit` visits and each shape
+  `place` places beside the path steps and track points, so `svg_seeds_are_read_within_their_work_bound`
+  holds an SVG seed to twice its bytes and curves, and a refused one to its bytes and
+  `MAX_EXPANDED_OBJECTS`.
 
 ## STEP import (`import/model.rs`)
 
@@ -300,7 +303,10 @@ paths:
   counted before any vertex is pushed (`add_mesh`); past any the file is `ModelPlacesTooMuch`, and
   each placed object polls the kernel interrupt. An object reached again while its own components
   are being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
-  damage.
+  damage. The `tally` counts each vertex and triangle `read_shape` reads, each placed object and
+  each vertex and triangle `add_mesh` places, so `mesh_seeds_are_read_within_their_work_bound`
+  (`import/seed_tests.rs`, `ci.md`) holds a 3MF seed to its unpacked bytes and what it places,
+  and a refused one to the placement limits besides.
 - Text STL and OBJ are charged the same way: vertices and triangles each against `MAX_MODEL_ELEMENTS`
   (`ModelTooManyElements`), an OBJ face counted before its fan is made, a binary STL's header count
   before any triangle is read, and the kernel interrupt is

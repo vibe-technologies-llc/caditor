@@ -189,6 +189,26 @@ paths:
   change. The seed writer refuses any path inside the write-once format corpus
   (`crates/caditor-file/corpus`, `file-format.md`), which proves shipped formats still read.
   `fuzz/corpus` is not committed; CI caches it.
+- The readers' deep and wide seeds are built by code, small on disk and large in reach, in the
+  shapes of the crafted files that once hung or exhausted memory: STEP styles listing each other
+  fifty times a level, a 30-layer diamond assembly, a class of joined representations mapped
+  hundreds of times, placements nested to `MAX_DEPTH`, a 200-sided prism's long lists, a list
+  nested 60 deep and point and curve replicas chained to their depth limit (`caditor-step`'s
+  `read/seeds.rs`); 3MF components nested to `MAX_COMPONENT_DEPTH`, components placing billions
+  of objects, a hundred and twenty objects, objects nested in objects and a box of seven thousand
+  triangles; SVG groups nested past `MAX_NESTING`, uses fanned four ways seven and ten levels
+  deep, `textPath`s and uses of one long path and hundreds of transformed paths
+  (`caditor-file`'s `import/seed_tests.rs`). They are written by
+  `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-step -p caditor-file fuzz_seeds -- --ignored`
+  (with the model, journal and other seeds). A seed named `refused-…` must be refused in words, every
+  other one must import (the import tests skip the refused ones); `step_seeds_are_read_within_their_work_bound`,
+  `mesh_seeds_are_read_within_their_work_bound` and `svg_seeds_are_read_within_their_work_bound`
+  hold every seed of the kind, generated or not, to its reader's `tally`: work linear in the
+  (unpacked) bytes and what the read yields (curves, placed vertices and triangles), plus the
+  reader's fixed caps only when it says it stopped short (a refusal, or STEP's note that copies were
+  cut short: `MAX_WALKED_PLACEMENTS` and `MAX_INSTANCES`; SVG's `MAX_EXPANDED_OBJECTS`; 3MF's placed
+  objects, vertices and triangles), so a walk whose work grows with the reach rather than the file
+  fails in CI.
 - `fuzz/Cargo.lock` is committed and CI fails when it is stale: after any change to the root
   dependencies, run `cargo update -w` in `fuzz/`. A Stop hook in `.claude/settings.json`
   (`.claude/hooks/fuzz-lock-fresh.sh`) runs `cargo metadata --locked` on the fuzz workspace and
