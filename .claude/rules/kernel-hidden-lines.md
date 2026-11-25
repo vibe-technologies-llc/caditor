@@ -114,9 +114,15 @@ paths:
   for part of its length. Coincident stretches facing one way keep the best ranked, a sharp edge
   over a tangent one over a silhouette (`without_coincident`), so a cylinder's silhouette line and
   seam are one line. Stretches are oriented with the material on their left and walked into loops
-  (`outer_loops`): a positive area is an outer boundary and a negative one a hole, left out, so a
-  block seen along its bore is four lines and a torus along its axis its rim alone. A stretch that
-  cannot be decided is `OutlineUndecided`, one that closes no loop `OutlineOpen`.
+  (`outer_loops_of`): a positive area is an outer boundary and a negative one a hole, left out, so a
+  block seen along its bore is four lines and a torus along its axis its rim alone. From a
+  stretch's tip the walk goes on to the start within reach (twice the chord plus `EXACT_SAME_LINE`)
+  turning furthest right, the loop's own first stretch among them (`Walk::next_after`, nearest then
+  first as ties): a hole meeting the outline at one point is walked as its own loop and left out,
+  not run through as a figure eight with it. Directions are taken to the first sample beyond reach.
+  Starts sit in a `BoxTree`, so a step looks only at those near its tip, and every step polls the
+  interrupt. A stretch that cannot be decided is `OutlineUndecided`, one that closes no loop
+  `OutlineOpen`.
 - Pieces of one source are numbered by `occurrence`, of `of`, along their middles' x then y, so a
   cylinder's two silhouette lines are told apart while the face's name is the same.
 
@@ -127,4 +133,6 @@ paths:
   the mesh decides clearly, and `work_on_a_row_of_blocks_grows_about_linearly` the cost by `tally` on one thread (tally is
   per thread). `lines_found_on_many_threads_are_those_of_one_thread` and
   `it_can_be_cancelled_anywhere_on_many_threads` hold the fan-out to the serial answer and to
-  cancelling at every poll.
+  cancelling at every poll. A ring of bars whose hole meets the outside at one corner, built in
+  every order, and checkerboards with their edges shuffled hold the outline walk to the outside
+  alone; `walking_the_outline_grows_about_linearly` holds its cost by `tally`.

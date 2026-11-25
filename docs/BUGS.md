@@ -113,11 +113,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   resolve to the other edge without `Ambiguous` (`kernel-naming.md` calls the grid coarse enough
   never to swap them). Unreproduced; an order from the feature itself (the profile entity, the
   parameter along the generating curve) would not depend on placement.
-- [low · medium] `outer_outline` (`hidden_lines/outline.rs`) walks on to the nearest chain start,
-  so where a hole meets the outline at one point the walk can run through both as a figure eight
-  and keep the hole's runs in the outline Project makes; the walk also scans every chain at each
-  step without polling the interrupt. Unreproduced; choose by turning angle at a tip with several
-  candidates, and index the starts.
 - [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
   boolean show no line where their surfaces cross (each hides its part inside the other, and the
   stretches are right). A traced silhouette on a revolution or spline face misses a closed loop

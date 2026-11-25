@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, f64::consts::PI};
 
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector2};
+use caditor_geometry::{Aabb, Maths, Plane, Point2, Point3, Vector2};
 
 use super::{
     HiddenLineError, HiddenLineView, Scene, TRACKS_PER_THREAD, Track, ViewEdgeKind, ViewSource,
@@ -368,61 +368,144 @@ fn outer_loops(
         .iter()
         .map(|run| oriented_chain(run, tracks, view))
         .collect();
-    let reach = 2.0 * chord + EXACT_SAME_LINE;
-    let mut used = vec![false; runs.len()];
-    let mut kept = Vec::new();
+    outer_loops_of(&chains, 2.0 * chord + EXACT_SAME_LINE)
+}
 
-    for start in 0..runs.len() {
-        interrupt::check()?;
-        if used.get(start).copied().unwrap_or(true) {
-            continue;
-        }
+fn lifted(point: Point2) -> Aabb {
+    Aabb::from_point(Point3::new(point.x, point.y, 0.0))
+}
 
-        let Some(begin) = chains.get(start).and_then(|chain| chain.first().copied()) else {
-            continue;
-        };
-        let mut members = vec![start];
-        let mut walked: Vec<Point2> = Vec::new();
-        let mut current = start;
+fn arriving_direction(chain: &[Point2], reach: f64) -> Vector2 {
+    let Some(tip) = chain.last().copied() else {
+        return Vector2::ZERO;
+    };
+    let from = chain
+        .iter()
+        .rev()
+        .find(|point| point.distance(tip) > reach)
+        .or_else(|| chain.first())
+        .copied()
+        .unwrap_or(tip);
+    tip - from
+}
 
-        if let Some(slot) = used.get_mut(start) {
+fn leaving_direction(chain: &[Point2], reach: f64) -> Vector2 {
+    let Some(begin) = chain.first().copied() else {
+        return Vector2::ZERO;
+    };
+    let to = chain
+        .iter()
+        .find(|point| point.distance(begin) > reach)
+        .or_else(|| chain.last())
+        .copied()
+        .unwrap_or(begin);
+    to - begin
+}
+
+fn turn(arriving: Vector2, leaving: Vector2) -> f64 {
+    let angle = arriving.perp_dot(leaving).atan2_libm(arriving.dot(leaving));
+
+    if angle > -PI { angle } else { PI }
+}
+
+struct Walk<'a> {
+    chains: &'a [Vec<Point2>],
+    leaving: Vec<Vector2>,
+    starts: BoxTree,
+    used: Vec<bool>,
+    reach: f64,
+}
+
+impl Walk<'_> {
+    fn is_used(&self, index: usize) -> bool {
+        self.used.get(index).copied().unwrap_or(true)
+    }
+
+    fn take(&mut self, index: usize) {
+        if let Some(slot) = self.used.get_mut(index) {
             *slot = true;
         }
+    }
+
+    fn next_after(&self, chain: &[Point2], first: usize) -> Option<usize> {
+        let tip = chain.last().copied()?;
+        let arriving = arriving_direction(chain, self.reach);
+
+        self.starts
+            .overlapping(&lifted(tip), self.reach)
+            .into_iter()
+            .filter(|index| *index == first || !self.is_used(*index))
+            .filter_map(|index| {
+                tally::add(1);
+
+                let distance = self.chains.get(index)?.first()?.distance(tip);
+                let leaving = self.leaving.get(index).copied()?;
+                (distance <= self.reach).then(|| (turn(arriving, leaving), distance, index))
+            })
+            .min_by(|a, b| {
+                a.0.total_cmp(&b.0)
+                    .then(a.1.total_cmp(&b.1))
+                    .then(a.2.cmp(&b.2))
+            })
+            .map(|(_, _, index)| index)
+    }
+
+    fn loop_from(&mut self, first: usize) -> Result<Option<Vec<usize>>, HiddenLineError> {
+        let mut members = vec![first];
+        let mut walked: Vec<Point2> = Vec::new();
+        let mut current = first;
+
+        self.take(first);
         loop {
-            let Some(chain) = chains.get(current) else {
+            interrupt::check()?;
+
+            let Some(chain) = self.chains.get(current) else {
                 return Err(HiddenLineError::OutlineOpen);
             };
 
             walked.extend(chain.iter().copied());
 
-            let Some(tip) = chain.last().copied() else {
+            let Some(next) = self.next_after(chain, first) else {
                 return Err(HiddenLineError::OutlineOpen);
             };
 
-            if tip.distance(begin) <= reach {
+            if next == first {
                 break;
             }
-
-            let next = chains
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| !used.get(*index).copied().unwrap_or(true))
-                .filter_map(|(index, candidate)| {
-                    let distance = candidate.first()?.distance(tip);
-                    (distance <= reach).then_some((index, distance))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            let Some((index, _)) = next else {
-                return Err(HiddenLineError::OutlineOpen);
-            };
-
-            if let Some(slot) = used.get_mut(index) {
-                *slot = true;
-            }
-            members.push(index);
-            current = index;
+            self.take(next);
+            members.push(next);
+            current = next;
         }
-        if signed_area(&walked) > SMALLEST_LOOP_AREA {
+        Ok((signed_area(&walked) > SMALLEST_LOOP_AREA).then_some(members))
+    }
+}
+
+pub(super) fn outer_loops_of(
+    chains: &[Vec<Point2>],
+    reach: f64,
+) -> Result<Vec<usize>, HiddenLineError> {
+    let mut walk = Walk {
+        chains,
+        leaving: chains
+            .iter()
+            .map(|chain| leaving_direction(chain, reach))
+            .collect(),
+        starts: BoxTree::new(
+            chains
+                .iter()
+                .map(|chain| lifted(chain.first().copied().unwrap_or(Point2::ZERO))),
+        ),
+        used: chains.iter().map(Vec::is_empty).collect(),
+        reach,
+    };
+    let mut kept = Vec::new();
+
+    for first in 0..chains.len() {
+        interrupt::check()?;
+        if walk.is_used(first) {
+            continue;
+        }
+        if let Some(members) = walk.loop_from(first)? {
             kept.extend(members);
         }
     }

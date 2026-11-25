@@ -2,14 +2,17 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use caditor_geometry::{Maths, Point2, Point3, RigidTransform, Vector3};
 
-use super::{outline::outer_outline_on, *};
+use super::{
+    outline::{outer_loops_of, outer_outline_on},
+    *,
+};
 use crate::{
     fixtures::{
         Fixture, Tweak, add_cuboid, cone, cuboid, cylinder, extruded_spline, frustum, holed_block,
         perforated_plate, sphere, spline_topped_block, torus,
     },
     tally,
-    test_support::{assert_cancelled_anywhere, polls_during},
+    test_support::{Random, assert_cancelled_anywhere, polls_during},
 };
 
 const CLOSE: f64 = 1e-6;
@@ -1251,4 +1254,141 @@ fn hidden_line_costs() {
             outline(threads),
         );
     }
+}
+
+fn ring_pinched_at_one_corner(order: [usize; 4]) -> Solid {
+    let bars = [
+        ((0.0, 0.0, 0.0), (4.0, 2.0, 1.0)),
+        ((0.0, 2.0, 2.0), (2.0, 8.0, 3.0)),
+        ((2.0, 6.0, 0.0), (6.0, 8.0, 1.0)),
+        ((4.0, 2.0, 2.0), (6.0, 6.0, 3.0)),
+    ];
+    let mut fixture = Fixture::new();
+
+    for (position, bar) in order.iter().enumerate() {
+        let ((x0, y0, z0), (x1, y1, z1)) = bars[*bar];
+
+        if position > 0 {
+            fixture.next_shell();
+        }
+        add_cuboid(
+            &mut fixture,
+            Point3::new(x0, y0, z0),
+            Point3::new(x1, y1, z1),
+            Tweak::default(),
+        );
+    }
+    fixture.build()
+}
+
+#[test]
+fn the_outline_leaves_out_a_hole_meeting_it_at_one_corner() {
+    let orders = (0..256_usize)
+        .map(|code| [code % 4, code / 4 % 4, code / 16 % 4, code / 64])
+        .filter(|order| (0..4).all(|bar| order.contains(&bar)));
+
+    for order in orders {
+        let outline = outline_of(&ring_pinched_at_one_corner(order), &from_above());
+
+        assert_close(
+            outline_length(&outline),
+            28.0,
+            &format!("the ring's outside alone, bars built in the order {order:?}"),
+        );
+    }
+}
+
+fn checkerboard_edges(side: usize, seed: u64) -> (Vec<Vec<Point2>>, usize) {
+    let corner = |x: usize, y: usize| Point2::new(x as f64, y as f64);
+    let black = |x: usize, y: usize| (x + y).is_multiple_of(2);
+    let mut chains = Vec::new();
+
+    for x in 0..side {
+        for y in 0..side {
+            if !black(x, y) {
+                continue;
+            }
+
+            let corners = [
+                corner(x, y),
+                corner(x + 1, y),
+                corner(x + 1, y + 1),
+                corner(x, y + 1),
+            ];
+
+            for (from, to) in corners.iter().zip(corners.iter().cycle().skip(1)) {
+                chains.push(vec![*from, from.midpoint(*to), *to]);
+            }
+        }
+    }
+
+    let mut random = Random::new(seed);
+
+    for last in (1..chains.len()).rev() {
+        let other = (random.unit() * (last + 1) as f64) as usize;
+
+        chains.swap(last, other.min(last));
+    }
+
+    let enclosed_white = (1..side - 1)
+        .flat_map(|x| (1..side - 1).map(move |y| (x, y)))
+        .filter(|(x, y)| !black(*x, *y))
+        .count();
+    (chains, 4 * enclosed_white)
+}
+
+fn walked_outline(side: usize, seed: u64) -> (Vec<usize>, usize) {
+    let (chains, enclosed) = checkerboard_edges(side, seed);
+    let kept = outer_loops_of(&chains, 1e-3).unwrap();
+
+    (kept, chains.len() - enclosed)
+}
+
+#[test]
+fn a_checkerboard_walks_round_its_outside_leaving_out_the_enclosed_squares() {
+    for side in [2, 3, 4, 7, 8] {
+        for seed in 0..8 {
+            let (kept, outside) = walked_outline(side, seed);
+
+            assert_eq!(
+                kept.len(),
+                outside,
+                "a board {side} squares a side, edges shuffled by {seed}"
+            );
+        }
+    }
+}
+
+#[test]
+fn walking_the_outline_grows_about_linearly() {
+    let work = |side: usize| tally::measure(|| walked_outline(side, 0)).1;
+
+    let (few, many) = (work(8), work(32));
+
+    assert!(
+        many <= 64 * few,
+        "sixteen times the edges stay within n log n, far under the 256 times of every step \
+         scanning every chain: {many} against {few}"
+    );
+}
+
+#[test]
+fn walking_the_outline_polls_at_every_step_and_can_be_cancelled_anywhere() {
+    let (chains, _) = checkerboard_edges(8, 0);
+
+    let ((), polls) = polls_during(|| {
+        outer_loops_of(&chains, 1e-3).unwrap();
+    });
+
+    assert!(
+        polls >= chains.len(),
+        "{polls} polls for {} chains",
+        chains.len()
+    );
+
+    assert_cancelled_anywhere(
+        "walking the outline",
+        || outer_loops_of(&chains, 1e-3),
+        |error| matches!(error, HiddenLineError::Cancelled(_)),
+    );
 }
