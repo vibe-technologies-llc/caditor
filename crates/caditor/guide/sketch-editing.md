@@ -2,11 +2,15 @@
 
 ## Moving, turning and scaling
 
-- {command:sketch.move} moves the selected geometry: type where to, or `@` and an offset.
+- {command:sketch.move} moves the selected geometry: drag the X or Y arrows or the XY plane square
+  in the view, or type where to, or `@` and an offset.
 - {command:sketch.rotate} turns it by an angle, counter-clockwise, about the one selected loose
-  point, else about the middle of the selection.
-- {command:sketch.scale} scales it by a factor the same way.
+  point, else about the middle of the selection — drag the rotation ring or type an angle.
+- {command:sketch.scale} scales it by a factor the same way — drag the scale handle or type a
+  factor.
 
+Handles step in neat increments as you drag; hold Ctrl to move freely, click any handle to type an
+exact value for that axis, angle or scale, and press Escape to cancel a drag or close the handles.
 While typing a move, rotation or scale, the view marks the anchor or pivot and previews the moved
 curves live. Double-click sketch text or a gear with Select to edit it in its panel, or right-click
 it and choose **Edit text** or **Edit gear**.

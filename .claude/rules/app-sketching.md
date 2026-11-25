@@ -2,6 +2,7 @@
 paths:
   - "crates/caditor/src/editing.rs"
   - "crates/caditor/src/sketch_drag.rs"
+  - "crates/caditor/src/sketch_handles.rs"
   - "crates/caditor/src/drag_solver.rs"
   - "crates/caditor/src/drawing.rs"
   - "crates/caditor/src/trimming.rs"
@@ -184,7 +185,15 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   splines (files saved before centripetal spacing) into centripetal ones
   (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", solved like a
-  drag; button and command share availability (`Moving::offered`). While the field is open,
+  drag; button and command share availability (`Moving::offered`). Activating Move, Rotate or Scale
+  also shows 2D transform handles on the canvas (`sketch_handles.rs`, `SketchHandles`, rendered in
+  `Overlay::sketch_handles`): X and Y axis arrows and an XY plane square, plus a rotation ring and
+  scale handle when the selection can rotate/scale about its pivot (`pivot_and_transformable`).
+  Dragging a handle (`PrimaryDrag::SketchHandle`, `SketchHandleDrag`) solves live through
+  `SketchDragging` with snapped increments (`Ctrl` free) and pointer readouts, committing one
+  undoable step on release; Escape mid-drag cancels and restores geometry, and Escape at rest
+  dismisses the handles. Clicking a handle focuses the typed-value field for that handle's delta,
+  angle or scale factor (`type_sketch_grip`, `apply_typed`, `preview_typed`). While the field is open,
   `Moving::preview` and `Transforming::preview` show the anchor or pivot marker and a live ghost
   preview of the transformed geometry (texts and gears included). Positions and the relative anchor
   are taken afresh from the displayed sketch at Enter (`Moving::refreshed`, `Transforming::refreshed`),
@@ -406,8 +415,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 ## Construction geometry and control polygons
 
 - Construction makes the selected curves construction in one transaction
-  (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve selected it
-  switches drawing (`ActiveSketch::construction`): new curves are construction, points stay points.
+  (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve selected, or
+  whenever a drawing or projecting tool is active (`Tool::draws`, `Tool::projects`), it switches
+  drawing (`ActiveSketch::construction`): new curves are construction, points stay points. Entering
+  a drawing tool clears any prior selection (`ViewportState::track_drawing`).
   Construction curves are dashed (`scene::curve_segments`) and coloured by constraint state like any
   curve, so dashes never carry a constraint state.
 - Control-point splines (open or closed) and conics of the edited sketch show their control polygon
@@ -686,7 +697,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   centroid of the enclosed area because the solver holds it with the arcs' middles and no new
   equation kind, and it is the corners' centre for straight sides. A loop with a piece or corner
   moving in a drag offers no centre.
-- `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points only;
+- `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points
+  (constrained `Coincident`) and, for a centre-and-point circle while tangent inference is on,
+  snaps tangent to sketch curves (`snap::circle_tangents_from`) and body edges
+  (`BodySnaps::edge_tangent`, projecting the edge), constrained `Tangent`;
   an arc's end takes points on its circle and where it crosses other curves
   (`Sketch::circle_crossings`) and the axes.
 - A line end (and the second point of either straight slot, of a three-point rectangle's first side

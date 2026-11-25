@@ -19,6 +19,7 @@ use crate::{
     scene::{self, BuiltScene, Highlight, Parts, SketchShapes, Sources},
     scene_palette::{Canvas, Contrast},
     selection::Pickable,
+    sketch_handles,
     view_aids::ViewAids,
 };
 
@@ -61,6 +62,7 @@ pub struct Overlay {
     pub comb: Option<Arc<CombDrawing>>,
     pub isocurves: Option<Arc<IsocurveDrawing>>,
     pub manipulator: Option<Drawn>,
+    pub sketch_handles: Option<sketch_handles::Drawn>,
 }
 
 impl Overlay {
@@ -96,6 +98,9 @@ impl Overlay {
         }
         if let Some(manipulator) = &self.manipulator {
             manipulator.add_to(&mut batch, palette);
+        }
+        if let Some(sketch_handles) = &self.sketch_handles {
+            sketch_handles.add_to(&mut batch, palette);
         }
         (!batch.is_empty()).then(|| Arc::new(batch))
     }

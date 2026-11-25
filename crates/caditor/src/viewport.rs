@@ -86,6 +86,7 @@ use crate::{
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
+    sketch_handles::{self, SketchGrip, SketchHandleDrag, SketchHandleTypingError, SketchHandles},
     sketch_placement::{DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Accept, Hold, Pointer, Screen, Target},
@@ -243,6 +244,8 @@ enum TypedEditError {
     #[error(transparent)]
     Transformed(#[from] sketch_drag::TransformError),
     #[error(transparent)]
+    SketchHandle(#[from] SketchHandleTypingError),
+    #[error(transparent)]
     Point(#[from] TypedPointError),
     #[error(transparent)]
     Value(#[from] TypedValueError),
@@ -361,6 +364,7 @@ enum PrimaryDrag {
         feature: FeatureId,
     },
     Manipulate(Manipulating),
+    SketchHandle(SketchHandleDrag),
     Unmovable {
         feature: FeatureId,
         held: Unmovable,
@@ -513,6 +517,10 @@ pub struct ViewportState {
     analyses: Analyses,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
+    sketch_handles: Option<SketchHandles>,
+    sketch_handle_hover: Option<SketchGrip>,
+    typed_sketch_grip: Option<SketchGrip>,
+    last_sketch_tool: Option<(FeatureId, Tool)>,
     dimensioning: Option<FeatureId>,
     dimension_of_selection: Option<FeatureId>,
     body_snaps: Arc<BodySnaps>,
@@ -987,6 +995,10 @@ impl ViewportState {
             analyses: Analyses::default(),
             manipulator: None,
             manipulator_hover: None,
+            sketch_handles: None,
+            sketch_handle_hover: None,
+            typed_sketch_grip: None,
+            last_sketch_tool: None,
             dimensioning: None,
             dimension_of_selection: None,
             body_snaps: Arc::default(),
@@ -1532,6 +1544,10 @@ impl ViewportState {
         self.moving = None;
         self.moving_label = None;
         self.transforming = None;
+        self.sketch_handles = None;
+        self.sketch_handle_hover = None;
+        self.typed_sketch_grip = None;
+        self.last_sketch_tool = None;
         self.press = None;
         self.primary = None;
     }
@@ -1801,6 +1817,7 @@ impl ViewportState {
             manipulator::publish_dragged(ui.ctx(), self.dragged_feature());
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
+            self.track_sketch_handles(model, editing);
             self.dimension_selection(model, actions);
             self.type_points(ui, rect, model, editing, keys_free, actions);
             self.navigate(ui, &response, rect);
@@ -2108,6 +2125,10 @@ impl ViewportState {
                 .manipulator
                 .as_ref()
                 .map(|manipulator| manipulator.drawn(self.manipulator_hover)),
+            sketch_handles: self
+                .sketch_handles
+                .as_ref()
+                .map(|handles| handles.drawn(self.sketch_handle_hover)),
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.can_highlight(highlight)
@@ -2450,6 +2471,18 @@ impl ViewportState {
     #[cfg(test)]
     pub fn manipulator_step(&self) -> Option<f64> {
         self.manipulator.as_ref().map(Manipulator::step)
+    }
+
+    #[cfg(test)]
+    pub fn sketch_handle_position(&self, grip: SketchGrip, along: f64) -> Option<egui::Pos2> {
+        let world = self.sketch_handles.as_ref()?.grip(grip, along)?;
+        let pixel = self.view()?.project(world)? / f64::from(self.pixels_per_point);
+        Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn has_sketch_handles(&self) -> bool {
+        self.sketch_handles.is_some()
     }
 
     #[cfg(test)]
@@ -2885,6 +2918,21 @@ impl ViewportState {
                     });
                 }
             }
+            Some(PrimaryDrag::SketchHandle(drag))
+                if editing.active().is_none_or(|active| {
+                    active.feature != drag.feature || active.tool != Tool::Select
+                }) =>
+            {
+                self.primary = None;
+                actions.push(Action::Drag(DragCommand::Cancel));
+            }
+            Some(PrimaryDrag::SketchHandle(drag)) => {
+                if let Some(ray) = ray
+                    && let Some(command) = drag.follow(ray, free)
+                {
+                    actions.push(Action::Drag(command));
+                }
+            }
             Some(PrimaryDrag::Grab(grab)) if Some(grab.feature()) != edited => {
                 self.primary = None;
                 actions.push(Action::Drag(DragCommand::Cancel));
@@ -2969,8 +3017,14 @@ impl ViewportState {
                         }),
                     }
                 }
+                Some(PrimaryDrag::SketchHandle(drag)) if drag.has_moved() => {
+                    actions.push(Action::Drag(drag.finish()));
+                }
                 Some(
-                    PrimaryDrag::Grab(_) | PrimaryDrag::Paint(_) | PrimaryDrag::Unmovable { .. },
+                    PrimaryDrag::Grab(_)
+                    | PrimaryDrag::SketchHandle(_)
+                    | PrimaryDrag::Paint(_)
+                    | PrimaryDrag::Unmovable { .. },
                 )
                 | None => {}
             }
@@ -3076,6 +3130,110 @@ impl ViewportState {
         Manipulating::begin(model, manipulator, handle, ray)
     }
 
+    fn active_sketch_transform(
+        &self,
+        editing: &SketchEditing,
+    ) -> Option<(FeatureId, Vec<EntityId>, Option<Point2>)> {
+        let active = editing
+            .active()
+            .filter(|active| active.tool == Tool::Select)?;
+
+        if let Some(moving) = self
+            .moving
+            .as_ref()
+            .filter(|moving| moving.feature == active.feature)
+        {
+            return Some((moving.feature, moving.selected().to_vec(), None));
+        }
+        if let Some(transforming) = self
+            .transforming
+            .as_ref()
+            .filter(|transforming| transforming.feature == active.feature)
+        {
+            return Some((
+                transforming.feature,
+                transforming.selected().to_vec(),
+                Some(transforming.pivot),
+            ));
+        }
+        None
+    }
+
+    fn track_sketch_handles(&mut self, model: &Model, editing: &SketchEditing) {
+        let pixels_per_point = f64::from(self.pixels_per_point);
+        let built = self
+            .active_sketch_transform(editing)
+            .zip(self.view())
+            .and_then(|((feature, selected, explicit_pivot), view)| {
+                let owner = model.document().feature(feature)?;
+                let sketch = model.displayed_sketch(owner)?;
+                let drag_pivot = match &self.primary {
+                    Some(PrimaryDrag::SketchHandle(drag)) if drag.feature == feature => {
+                        Some(drag.current_pivot())
+                    }
+                    _ => None,
+                };
+
+                let (pivot, can_transform) = sketch_handles::pivot_and_transformable(
+                    &sketch,
+                    &selected,
+                    drag_pivot.or(explicit_pivot),
+                )?;
+                SketchHandles::of(
+                    &sketch,
+                    feature,
+                    pivot,
+                    can_transform,
+                    &view,
+                    pixels_per_point,
+                )
+            });
+
+        self.sketch_handles = built;
+        self.sketch_handle_hover = match &self.primary {
+            Some(PrimaryDrag::SketchHandle(drag)) => Some(drag.grip),
+            Some(_) => None,
+            None => self
+                .sketch_handles
+                .as_ref()
+                .zip(self.view())
+                .zip(self.cursor)
+                .and_then(|((handles, view), cursor)| handles.hit(&view, cursor, pixels_per_point)),
+        };
+    }
+
+    fn sketch_handle_from(
+        &self,
+        press: Press,
+        model: &Model,
+        editing: &SketchEditing,
+    ) -> Option<SketchHandleDrag> {
+        let handles = self.sketch_handles.as_ref()?;
+        let (feature, selected, _) = self.active_sketch_transform(editing)?;
+
+        if handles.feature != feature {
+            return None;
+        }
+
+        let view = self.view()?;
+        let grip = handles.hit(&view, press.cursor, f64::from(self.pixels_per_point))?;
+        let ray = view.ray_through(press.cursor)?;
+        let owner = model.document().feature(feature)?;
+        let sketch = model.displayed_sketch(owner)?;
+        SketchHandleDrag::begin(&sketch, handles, grip, &selected, ray)
+    }
+
+    fn effective_sketch_grip(&self) -> Option<SketchGrip> {
+        if let Some(grip) = self.typed_sketch_grip {
+            return Some(grip);
+        }
+        self.typed_point
+            .typing_text()
+            .is_none()
+            .then_some(self.sketch_handle_hover)
+            .flatten()
+    }
+
     fn grab_preview(&self) -> Preview {
         match &self.primary {
             Some(PrimaryDrag::Grab(grab)) => {
@@ -3143,9 +3301,30 @@ impl ViewportState {
         editing: &SketchEditing,
         faceting: Faceting,
     ) -> Preview {
+        if matches!(self.primary, Some(PrimaryDrag::SketchHandle(_))) {
+            return Preview::default();
+        }
+
         let Some(sketch) = edited_sketch(model, editing) else {
             return Preview::default();
         };
+
+        if let Some(grip) = self
+            .effective_sketch_grip()
+            .filter(|grip| grip.typing_field().is_some())
+            && let Some((feature, selected, _)) = self.active_sketch_transform(editing)
+            && let Some(handles) = self.sketch_handles
+        {
+            return sketch_handles::preview_typed(
+                model,
+                &sketch,
+                (feature, grip),
+                handles.pivot(),
+                &selected,
+                self.typed_point.typing_text(),
+                faceting,
+            );
+        }
 
         if let Some(moving) = &self.moving {
             let target = self.typed_point.typing_text().and_then(|text| {
@@ -3247,6 +3426,9 @@ impl ViewportState {
         }
         if let Some(manipulating) = self.manipulate_from(press, model) {
             return Some(PrimaryDrag::Manipulate(manipulating));
+        }
+        if let Some(drag) = self.sketch_handle_from(press, model, editing) {
+            return Some(PrimaryDrag::SketchHandle(drag));
         }
 
         let active = editing.active().filter(|active| !active.tool.draws())?;
@@ -3496,6 +3678,22 @@ impl ViewportState {
     }
 
     fn track_drawing(&mut self, model: &Model, editing: &SketchEditing) {
+        let current_tool = editing.active().map(|active| (active.feature, active.tool));
+
+        if current_tool != self.last_sketch_tool {
+            if let Some((_, tool)) = current_tool {
+                if tool.draws() {
+                    self.selection.clear();
+                }
+                if tool != Tool::Select {
+                    self.moving = None;
+                    self.transforming = None;
+                    self.typed_sketch_grip = None;
+                }
+            }
+            self.last_sketch_tool = current_tool;
+        }
+
         let displayed = editing
             .feature()
             .and_then(|feature| model.document().feature(feature))
@@ -3679,6 +3877,19 @@ impl ViewportState {
             || self.context_menu.is_some()
         {
             return;
+        }
+        if let Some(grip) = self.sketch_handle_hover {
+            if click.primary {
+                self.typed_sketch_grip = Some(grip);
+                self.typed_point.open();
+            }
+            return;
+        }
+        if self.moving.is_some() || self.transforming.is_some() {
+            self.moving = None;
+            self.transforming = None;
+            self.typed_sketch_grip = None;
+            self.typed_point.close();
         }
         if drawing || self.hover_is_current() {
             self.perform_click(click, model, editing, drawing, actions);
@@ -4705,6 +4916,7 @@ impl ViewportState {
         if self.pick_list.is_some()
             || self.primary.is_some()
             || self.manipulator_hover.is_some()
+            || self.sketch_handle_hover.is_some()
             || tool_takes_presses
             || self.list_availability().is_err()
         {
@@ -5093,6 +5305,7 @@ impl ViewportState {
                 Err(_) => self.moving_label = label,
             }
             self.transforming = None;
+            self.typed_sketch_grip = None;
             self.typed_point.open();
         }
         for (command, transform) in [
@@ -5107,6 +5320,7 @@ impl ViewportState {
                 self.transforming = Some(transforming);
                 self.moving = None;
                 self.moving_label = None;
+                self.typed_sketch_grip = None;
                 self.typed_point.open();
             }
         }
@@ -5386,6 +5600,9 @@ impl ViewportState {
             .take()
             .filter(|moving| editing.feature() == Some(moving.feature));
         if self.moving.is_some() {
+            if matches!(self.primary, Some(PrimaryDrag::SketchHandle(_))) {
+                return;
+            }
             self.type_move(ui, rect, model, actions);
             return;
         }
@@ -5402,9 +5619,13 @@ impl ViewportState {
             .take()
             .filter(|transforming| editing.feature() == Some(transforming.feature));
         if self.transforming.is_some() {
+            if matches!(self.primary, Some(PrimaryDrag::SketchHandle(_))) {
+                return;
+            }
             self.type_transform(ui, rect, model, actions);
             return;
         }
+        self.typed_sketch_grip = None;
         if self.modifying.value_field().is_some() {
             self.type_value(ui, rect, model, editing, keys_free, actions);
             return;
@@ -5763,7 +5984,84 @@ impl ViewportState {
         }
     }
 
+    fn type_sketch_grip(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        (feature, grip): (FeatureId, SketchGrip),
+        selected: &[EntityId],
+        actions: &mut Vec<Action>,
+    ) -> bool {
+        let Some((label, base_hint, placeholder)) = grip.typing_field() else {
+            return false;
+        };
+        let hint = match grip {
+            SketchGrip::AlongX | SketchGrip::AlongY => {
+                format!("Lengths in {}   {base_hint}", model.length_unit().symbol())
+            }
+            SketchGrip::Rotate | SketchGrip::Scale | SketchGrip::OnPlane => base_hint.to_owned(),
+        };
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+
+        let typed = self.typed_point.show(
+            ui.ctx(),
+            model,
+            (
+                top_band(rect, self.cube_area(rect), self.display_area),
+                anchor,
+            ),
+            label,
+            &hint,
+            placeholder,
+        );
+
+        if self.typed_point.typing_text().is_some() {
+            self.typed_sketch_grip = Some(grip);
+        }
+
+        let Some(typed) = typed.or_else(|| self.take_resubmitted()) else {
+            if !self.typed_point.is_open() {
+                self.moving = None;
+                self.transforming = None;
+                self.typed_sketch_grip = None;
+            }
+            return true;
+        };
+
+        let commands = fresh_from_sketch(model, feature, |sketch| {
+            sketch_handles::apply_typed(model, sketch, feature, grip, selected, &typed.text)
+        });
+
+        match commands {
+            Ok(commands) => {
+                self.moving = None;
+                self.transforming = None;
+                self.typed_sketch_grip = None;
+                actions.extend(commands.into_iter().map(Action::Drag));
+            }
+            Err(error) => {
+                queue_typed(&typed.entered, label, &error, actions);
+                self.typed_point.open_with(typed.entered, error.to_string());
+                self.typed_sketch_grip = Some(grip);
+            }
+        }
+        true
+    }
+
     fn type_move(&mut self, ui: &egui::Ui, rect: Rect, model: &Model, actions: &mut Vec<Action>) {
+        if let Some(grip) = self
+            .effective_sketch_grip()
+            .filter(|grip| grip.typing_field().is_some())
+            && let Some((feature, selected)) = self
+                .moving
+                .as_ref()
+                .map(|moving| (moving.feature, moving.selected().to_vec()))
+            && self.type_sketch_grip(ui, rect, model, (feature, grip), &selected, actions)
+        {
+            return;
+        }
+
         let hint = format!("Lengths in {}   {MOVE_HINT}", model.length_unit().symbol());
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
 
@@ -5784,6 +6082,8 @@ impl ViewportState {
         let Some(typed) = typed.or_else(|| self.take_resubmitted()) else {
             if self.typed_point.is_open() {
                 self.moving = Some(moving);
+            } else {
+                self.typed_sketch_grip = None;
             }
             return;
         };
@@ -5798,7 +6098,10 @@ impl ViewportState {
             Ok(fresh.to(target))
         });
         match target {
-            Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
+            Ok(commands) => {
+                self.typed_sketch_grip = None;
+                actions.extend(commands.into_iter().map(Action::Drag));
+            }
             Err(error) => {
                 queue_typed(&typed.entered, typed_point::MOVE_LABEL, &error, actions);
                 self.typed_point.open_with(typed.entered, error.to_string());
@@ -5866,6 +6169,18 @@ impl ViewportState {
         model: &Model,
         actions: &mut Vec<Action>,
     ) {
+        if let Some(grip) = self
+            .effective_sketch_grip()
+            .filter(|grip| grip.typing_field().is_some())
+            && let Some((feature, selected)) = self
+                .transforming
+                .as_ref()
+                .map(|transforming| (transforming.feature, transforming.selected().to_vec()))
+            && self.type_sketch_grip(ui, rect, model, (feature, grip), &selected, actions)
+        {
+            return;
+        }
+
         let Some(transform) = self
             .transforming
             .as_ref()
@@ -5893,6 +6208,8 @@ impl ViewportState {
         let Some(typed) = typed.or_else(|| self.take_resubmitted()) else {
             if self.typed_point.is_open() {
                 self.transforming = Some(transforming);
+            } else {
+                self.typed_sketch_grip = None;
             }
             return;
         };
@@ -5909,7 +6226,10 @@ impl ViewportState {
             .map_err(TypedEditError::from)
         });
         match commands {
-            Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
+            Ok(commands) => {
+                self.typed_sketch_grip = None;
+                actions.extend(commands.into_iter().map(Action::Drag));
+            }
             Err(error) => {
                 queue_typed(&typed.entered, field.label, &error, actions);
                 self.typed_point.open_with(typed.entered, error.to_string());
@@ -6296,13 +6616,11 @@ impl ViewportState {
             actions.push(Action::CancelOutline);
             return;
         }
-        if self.typed_point.is_waiting() {
-            self.typed_point.close();
-            return;
-        }
         if let Some(primary) = self.primary.take() {
             match primary {
-                PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
+                PrimaryDrag::Grab(_) | PrimaryDrag::SketchHandle(_) => {
+                    actions.push(Action::Drag(DragCommand::Cancel));
+                }
                 PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
                 PrimaryDrag::Manipulate(manipulating) => actions.push(Action::Preview {
                     feature: manipulating.feature,
@@ -6314,7 +6632,23 @@ impl ViewportState {
                 | PrimaryDrag::Pull { .. }
                 | PrimaryDrag::Unmovable { .. } => {}
             }
-        } else if editing.is_choosing_plane() {
+            return;
+        }
+        if self.typed_point.is_waiting() {
+            self.typed_point.close();
+            self.moving = None;
+            self.transforming = None;
+            self.typed_sketch_grip = None;
+            return;
+        }
+        if self.moving.is_some() || self.transforming.is_some() {
+            self.moving = None;
+            self.transforming = None;
+            self.typed_sketch_grip = None;
+            self.typed_point.close();
+            return;
+        }
+        if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if editing.combining().is_some() {
             actions.push(Action::Editing(EditingCommand::CancelCombine));
@@ -6962,6 +7296,7 @@ impl ViewportState {
             Some(PrimaryDrag::Manipulate(manipulating)) => {
                 Some(manipulating.readout(model.units()))
             }
+            Some(PrimaryDrag::SketchHandle(drag)) => Some(drag.readout(model.units())),
             _ => None,
         };
 
@@ -7042,6 +7377,9 @@ impl ViewportState {
                     .as_ref()
                     .map_or_else(|| handle.words(), |shown| shown.words(model, handle)),
             ));
+        }
+        if let Some(grip) = self.sketch_handle_hover.filter(|_| self.primary.is_none()) {
+            return Some(Described::Tool(grip.words().to_owned()));
         }
 
         let tool = if let Some(active) = projecting {

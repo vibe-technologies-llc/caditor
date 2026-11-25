@@ -73,8 +73,9 @@ paths:
 - A `RegionReference` keeps what a feature chose: the key, the boundary pieces and an anchor (the
   centroid of the largest triangle of `Region::triangulate`, `RegionMesh::anchor`). `resolve` gives
   `Same` when the key still exists, else `Healed` to the region most like it among those sharing at
-  least one (entity, side): most pieces shared, then holding the anchor, then most pairs shared; a
-  tie is `AmbiguousRegion`, nothing shared is `Gone` (a hole drawn inside a chosen region keeps the
+  least one (entity, side): holding the anchor, then most pieces shared, then most pairs shared,
+  breaking a remaining tie by distance from the anchor to each tied region's bounds and bounds
+  centre when one is held; an unbroken tie is `AmbiguousRegion`, nothing shared is `Gone` (a hole drawn inside a chosen region keeps the
   region around it, a splitting line keeps the part holding the anchor, a disc whose circle was
   deleted is gone rather than taken for the region it was a hole of). A key-only reference (one
   without boundary pieces) is `Same` or `Gone`. `resolve_regions` resolves a feature's whole choice and fails only on

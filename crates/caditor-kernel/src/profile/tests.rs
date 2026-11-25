@@ -910,6 +910,79 @@ fn a_chosen_region_split_in_two_is_healed_to_the_part_holding_its_anchor() {
 }
 
 #[test]
+fn a_region_divided_among_symmetric_parts_heals_to_the_part_holding_its_anchor_even_with_fewer_intact_pieces()
+ {
+    let mut base = rectangle(1, (0.0, 0.0), (30.0, 10.0));
+
+    base.push(circle(5, (5.0, 5.0), 1.5));
+    base.push(circle(6, (25.0, 5.0), 1.5));
+
+    let original = profile(&base);
+    let ring = original
+        .regions()
+        .iter()
+        .find(|region| region.depth() == 0)
+        .unwrap();
+    let reference = RegionReference::capture(ring, Some(Point2::new(15.0, 5.0)));
+
+    let mut divided = base.clone();
+
+    divided.push(line(7, (10.0, -1.0), (10.0, 11.0)));
+    divided.push(line(8, (20.0, -1.0), (20.0, 11.0)));
+
+    let split = profile(&divided);
+    let middle = region_holding(&split, (15.0, 5.0));
+
+    assert_eq!(
+        reference.resolve(split.regions()),
+        Ok(RegionMatch::Healed(middle))
+    );
+
+    let mut holed_anchor = divided.clone();
+
+    holed_anchor.push(circle(9, (13.0, 5.0), 1.0));
+
+    let split_with_hole = profile(&holed_anchor);
+    let near_anchor = RegionReference::capture(ring, Some(Point2::new(13.0, 5.0)));
+    let expected = region_holding(&split_with_hole, (2.0, 5.0));
+
+    assert_eq!(
+        near_anchor.resolve(split_with_hole.regions()),
+        Ok(RegionMatch::Healed(expected))
+    );
+}
+
+#[test]
+fn a_ring_divided_by_radial_spokes_heals_to_the_sector_nearest_its_anchor() {
+    let base = vec![circle(1, (0.0, 0.0), 30.0), circle(2, (0.0, 0.0), 10.0)];
+    let original = profile(&base);
+    let ring = original
+        .regions()
+        .iter()
+        .find(|region| region.depth() == 0)
+        .unwrap();
+    let reference = RegionReference::capture(ring, ring.anchor());
+    let anchor = reference.anchor().unwrap();
+
+    let mut spoked = base;
+
+    for index in 0..5 {
+        let angle = (index as f64) * std::f64::consts::TAU / 5.0;
+        let tip = (35.0 * angle.cos_libm(), 35.0 * angle.sin_libm());
+
+        spoked.push(line(10 + index, (0.0, 0.0), tip));
+    }
+
+    let divided = profile(&spoked);
+    let healed = reference.resolve(divided.regions());
+
+    assert!(
+        matches!(healed, Ok(RegionMatch::Healed(_))),
+        "expected radial division to heal cleanly for anchor {anchor}, got {healed:?}"
+    );
+}
+
+#[test]
 fn a_chosen_region_whose_curves_are_all_gone_is_gone() {
     let mut curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
 

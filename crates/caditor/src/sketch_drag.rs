@@ -534,6 +534,10 @@ impl Moving {
         Self::of(sketch, self.feature, &self.selected)
     }
 
+    pub fn selected(&self) -> &[EntityId] {
+        &self.selected
+    }
+
     pub fn to(&self, target: Point2) -> Vec<DragCommand> {
         vec![
             DragCommand::Move {
@@ -677,23 +681,7 @@ impl Transforming {
             return Err(TransformError::NothingSelected { transform });
         }
 
-        let circles: Vec<(EntityId, f64)> = moved
-            .iter()
-            .filter_map(|entity| match sketch.entity(*entity) {
-                Some(
-                    Entity::Circle { radius, .. }
-                    | Entity::Ellipse {
-                        minor_radius: radius,
-                        ..
-                    }
-                    | Entity::EllipticalArc {
-                        minor_radius: radius,
-                        ..
-                    },
-                ) => Some((*entity, *radius)),
-                _ => None,
-            })
-            .collect();
+        let circles = circles_of(sketch, &moved);
         let pivot = match pivot_point.and_then(|point| sketch.point(point)) {
             Some(pivot) => pivot,
             None if points.len() == 1 && circles.is_empty() => {
@@ -710,6 +698,10 @@ impl Transforming {
             points,
             circles,
         })
+    }
+
+    pub fn selected(&self) -> &[EntityId] {
+        &self.selected
     }
 
     pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, TransformError> {
@@ -802,7 +794,27 @@ impl Transforming {
     }
 }
 
-fn extent_centre(
+pub(crate) fn circles_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId, f64)> {
+    entities
+        .iter()
+        .filter_map(|entity| match sketch.entity(*entity) {
+            Some(
+                Entity::Circle { radius, .. }
+                | Entity::Ellipse {
+                    minor_radius: radius,
+                    ..
+                }
+                | Entity::EllipticalArc {
+                    minor_radius: radius,
+                    ..
+                },
+            ) => Some((*entity, *radius)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn extent_centre(
     sketch: &Sketch,
     points: &[(EntityId, Point2)],
     circles: &[(EntityId, f64)],
@@ -844,14 +856,14 @@ fn ellipse_half_extent(major: Vector2, minor_radius: f64) -> Vector2 {
     )
 }
 
-fn subject(sketch: &Sketch, entities: &[EntityId]) -> String {
+pub(crate) fn subject(sketch: &Sketch, entities: &[EntityId]) -> String {
     match entities {
         [only] => sketch.entity_label(*only),
         entities => count(entities.len(), "item", "items"),
     }
 }
 
-fn points_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId, Point2)> {
+pub(crate) fn points_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId, Point2)> {
     let mut seen = BTreeSet::new();
     entities
         .iter()

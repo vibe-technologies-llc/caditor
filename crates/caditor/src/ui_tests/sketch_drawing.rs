@@ -576,3 +576,112 @@ fn the_sketch_bar_counts_curve_ends_joined_to_nothing() {
 
     assert!(harness.shows("1 open end"));
 }
+
+#[test]
+fn toggling_construction_mode_in_a_drawing_tool_does_not_convert_a_previously_selected_line() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let existing = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select([crate::selection::Pickable::SketchEntity {
+        feature,
+        entity: existing,
+    }]);
+    harness.frame();
+
+    harness.use_tool(Key::L);
+    harness.frame();
+    harness.key(Key::Q, Modifiers::NONE);
+    harness.frame();
+
+    assert!(!harness.sketch(feature).is_construction(existing));
+    assert!(
+        harness
+            .workspace
+            .editing
+            .active()
+            .is_some_and(|active| active.construction)
+    );
+
+    harness.click_at(Point2::new(2.0, 4.0));
+    harness.click_at(Point2::new(18.0, 4.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let drawn = entities_of_kind(sketch, "Line")
+        .into_iter()
+        .find(|line| *line != existing)
+        .expect("a second line should be drawn");
+
+    assert!(!sketch.is_construction(existing));
+    assert!(sketch.is_construction(drawn));
+}
+
+#[test]
+fn a_circle_drawn_from_its_centre_snaps_tangent_to_a_circular_or_straight_wall() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let wall = sketch.add_circle(Point2::ZERO, 60.0);
+    let hole = sketch.add_circle(Point2::new(40.0, 0.0), 3.0);
+    let line_wall = sketch.add_line(Point2::new(-10.0, 30.0), Point2::new(50.0, 30.0));
+    let Some(&Entity::Circle {
+        center: hole_center,
+        ..
+    }) = sketch.entity(hole)
+    else {
+        panic!("expected hole circle");
+    };
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::C);
+    harness.click_at(Point2::new(40.0, 0.0));
+    harness.point_at(Point2::new(58.5, 13.0));
+
+    assert!(harness.shows(&format!("Tangent to Circle {wall}")));
+
+    harness.click_at(Point2::new(58.5, 13.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let drawn_round = entities_of_kind(sketch, "Circle")
+        .into_iter()
+        .find(|id| *id != wall && *id != hole)
+        .expect("a tangent circle should be drawn");
+
+    let (center, radius) = sketch.circle(drawn_round).unwrap();
+
+    assert!(center.distance(Point2::new(40.0, 0.0)) < 1e-6, "{center}");
+    assert!((radius - 20.0).abs() < 1e-6, "{radius}");
+    assert!(
+        constraints_of_kind(sketch, "Tangent").contains(&Constraint::Tangent(drawn_round, wall))
+    );
+    assert!(constraints_of_kind(sketch, "Coincident").iter().any(
+        |constraint| matches!(constraint, Constraint::Coincident(_, other) if *other == hole_center)
+    ));
+
+    harness.click_at(Point2::new(10.0, 15.0));
+    harness.point_at(Point2::new(25.0, 30.0));
+
+    assert!(harness.shows(&format!("Tangent to Line {line_wall}")));
+
+    harness.click_at(Point2::new(25.0, 30.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let drawn_straight = entities_of_kind(sketch, "Circle")
+        .into_iter()
+        .find(|id| *id != wall && *id != hole && *id != drawn_round)
+        .expect("a second tangent circle should be drawn");
+
+    let (_, straight_radius) = sketch.circle(drawn_straight).unwrap();
+
+    assert!((straight_radius - 15.0).abs() < DRAWN, "{straight_radius}");
+    assert!(
+        constraints_of_kind(sketch, "Tangent")
+            .contains(&Constraint::Tangent(drawn_straight, line_wall))
+    );
+}

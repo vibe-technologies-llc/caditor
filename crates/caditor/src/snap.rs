@@ -1163,6 +1163,112 @@ fn touching(from: Point2, centre: Point2, radius: f64) -> Vec<Point2> {
 }
 
 const TANGENT_CLEARANCE: f64 = 1e-6;
+const MIN_TANGENT_RADIUS: f64 = 1e-6;
+
+pub fn circle_tangents_from(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    center: Point2,
+    tolerance: f64,
+) -> Option<Snapped> {
+    curves(sketch, pointer.sketch)
+        .into_iter()
+        .filter_map(|candidate| {
+            let Target::Curve(curve) = candidate.target else {
+                return None;
+            };
+            let offset = screen
+                .to_screen(candidate.position)?
+                .distance(pointer.screen);
+
+            if offset > tolerance {
+                return None;
+            }
+
+            let touch = circle_tangent_on(sketch, curve, center, pointer.sketch)?;
+            Some((
+                offset,
+                Snapped {
+                    position: touch,
+                    target: Target::Tangent(curve),
+                },
+            ))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, snapped)| snapped)
+}
+
+fn circle_tangent_on(
+    sketch: &Sketch,
+    curve: EntityId,
+    center: Point2,
+    near: Point2,
+) -> Option<Point2> {
+    if curve == EntityId::HORIZONTAL_AXIS {
+        let foot = Point2::new(center.x, 0.0);
+
+        return (center.distance(foot) > MIN_TANGENT_RADIUS).then_some(foot);
+    }
+    if curve == EntityId::VERTICAL_AXIS {
+        let foot = Point2::new(0.0, center.y);
+
+        return (center.distance(foot) > MIN_TANGENT_RADIUS).then_some(foot);
+    }
+    match sketch.entity(curve)? {
+        Entity::Line { .. } => {
+            let (start, end) = sketch.line_endpoints(curve)?;
+
+            let along = end - start;
+            let length_squared = along.length_squared();
+
+            if length_squared == 0.0 {
+                return None;
+            }
+
+            let foot = start + along * ((center - start).dot(along) / length_squared);
+            (center.distance(foot) > MIN_TANGENT_RADIUS).then_some(foot)
+        }
+        Entity::Circle { .. } => {
+            let (other, radius) = sketch.circle(curve)?;
+            round_circle_tangent(other, radius, None, center, near)
+        }
+        Entity::Arc { .. } => {
+            let arc = sketch.arc(curve)?;
+            round_circle_tangent(arc.center, arc.radius, Some(arc), center, near)
+        }
+        Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            let foot = sketch.closest_on_curve(curve, center)?;
+            (center.distance(foot) > MIN_TANGENT_RADIUS).then_some(foot)
+        }
+        Entity::Point(_) => None,
+    }
+}
+
+fn round_circle_tangent(
+    other: Point2,
+    radius: f64,
+    arc: Option<ArcGeometry>,
+    center: Point2,
+    near: Point2,
+) -> Option<Point2> {
+    let offset = center - other;
+    let distance = offset.length();
+
+    if radius <= 0.0 || distance <= MIN_TANGENT_RADIUS {
+        return None;
+    }
+
+    let toward = offset / distance;
+    [other + toward * radius, other - toward * radius]
+        .into_iter()
+        .filter(|at| center.distance(*at) > MIN_TANGENT_RADIUS)
+        .filter(|at| arc.is_none_or(|arc| within_sweep(&arc, *at)))
+        .min_by(|a, b| {
+            a.distance_squared(near)
+                .total_cmp(&b.distance_squared(near))
+        })
+}
 
 struct Corner {
     position: Point2,

@@ -1388,10 +1388,45 @@ impl Drawing {
         };
         match snap::held(sketch, screen, pointer, lookup, hold.grid) {
             Some(Held::Target(snapped)) => Placement::snapped(snapped),
-            Some(Held::Grid(crossing)) => {
-                Placement::at(crossing, Snap::Grid(self.level_on_grid(shape, crossing)))
+            other => {
+                if let (Shape::Circle(CircleMode::Center), &[center]) =
+                    (shape, self.placed.as_slice())
+                    && self.inferred.allows(Inference::Tangent)
+                {
+                    let grid_distance = hold
+                        .grid
+                        .and_then(|spacing| snap::grid_crossing(spacing, screen, pointer))
+                        .map(|(offset, _)| offset);
+                    let pull = grid_distance.map_or(snap::HELD_CURVE_PULL, |offset| {
+                        snap::HELD_CURVE_PULL.min(offset)
+                    });
+                    let tangent =
+                        snap::circle_tangents_from(sketch, screen, pointer, center.position, pull)
+                            .or_else(|| {
+                                self.offers_bodies(shape)
+                                    .then(|| {
+                                        self.bodies.edge_tangent_within(
+                                            screen,
+                                            pointer,
+                                            center.position,
+                                            self.inferred,
+                                            pull,
+                                        )
+                                    })
+                                    .flatten()
+                            });
+                    if let Some(snapped) = tangent {
+                        return Placement::snapped(snapped);
+                    }
+                }
+                match other {
+                    Some(Held::Grid(crossing)) => {
+                        Placement::at(crossing, Snap::Grid(self.level_on_grid(shape, crossing)))
+                    }
+                    Some(Held::Target(snapped)) => Placement::snapped(snapped),
+                    None => Placement::free(pointer.sketch),
+                }
             }
-            None => Placement::free(pointer.sketch),
         }
     }
 
@@ -3055,6 +3090,13 @@ impl Drawing {
                 "Finish the spline".to_owned()
             }
             Target::Pending(_) => "Stop here".to_owned(),
+            Target::Body(body)
+                if shape == Shape::Circle(CircleMode::Center) && body.part == BodyPart::Edge =>
+            {
+                self.bodies
+                    .tangent_label(body)
+                    .unwrap_or_else(|| target.label(sketch))
+            }
             Target::Body(body) => self
                 .bodies
                 .label(body)
@@ -3292,6 +3334,29 @@ impl Drawing {
         let touching = match (shape, self.placed.as_slice()) {
             (Shape::Line, &[start]) if self.inferred.allows(Inference::Tangent) => {
                 snap::tangents_from(sketch, screen, pointer, start.position)
+            }
+            (Shape::Circle(CircleMode::Center), &[center])
+                if self.inferred.allows(Inference::Tangent) =>
+            {
+                snap::circle_tangents_from(
+                    sketch,
+                    screen,
+                    pointer,
+                    center.position,
+                    snap::CURVE_TOLERANCE,
+                )
+                .or_else(|| {
+                    offers_bodies
+                        .then(|| {
+                            self.bodies.edge_tangent(
+                                screen,
+                                pointer,
+                                center.position,
+                                self.inferred,
+                            )
+                        })
+                        .flatten()
+                })
             }
             _ => None,
         };
@@ -4295,8 +4360,20 @@ impl<'a> Draft<'a> {
 
         let circle = self.entity(Entity::Circle { center, radius });
 
-        if let Some(point) = self.point_of(rim.snap) {
-            self.constrain(Constraint::Coincident(point, circle));
+        match rim.snap.target() {
+            Some(Target::Tangent(curve)) => {
+                self.constrain(Constraint::Tangent(circle, curve));
+            }
+            Some(Target::Body(body)) if body.part == BodyPart::Edge => {
+                if let Some(curve) = self.projection(body) {
+                    self.constrain(Constraint::Tangent(circle, curve));
+                }
+            }
+            _ => {
+                if let Some(point) = self.point_of(rim.snap) {
+                    self.constrain(Constraint::Coincident(point, circle));
+                }
+            }
         }
         self.sized.push(SizedTarget::Radius {
             at: rim.position,

@@ -369,3 +369,37 @@ fn a_point_dragged_with_alt_held_is_pulled_onto_a_body_corner_and_joins_its_proj
     );
     assert!(moved.distance(corner) < 1e-6, "{moved}");
 }
+
+#[test]
+fn a_circle_drawn_from_its_centre_snaps_tangent_to_a_body_edge_and_projects_it() {
+    let mut harness = Harness::new();
+
+    extruded_plate(&mut harness);
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::C);
+    harness.click_at(Point2::new(25.0, 20.0));
+    harness.point_at(Point2::new(40.1, 12.0));
+
+    assert!(harness.shows("Tangent to an edge of Extrude 1"));
+
+    harness.click_at(Point2::new(40.1, 12.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let circle = *entities_of_kind(sketch, "Circle")
+        .iter()
+        .find(|id| !sketch.is_projected(**id))
+        .expect("a tangent circle should be drawn");
+    let edge = sketch
+        .projected()
+        .find(|id| matches!(sketch.entity(*id), Some(Entity::Line { .. })))
+        .expect("the body edge should be projected");
+
+    let (center, radius) = sketch.circle(circle).unwrap();
+
+    assert!(center.distance(Point2::new(25.0, 20.0)) < 1e-3, "{center}");
+    assert!((radius - 15.0).abs() < 1e-3, "{radius}");
+    assert!(constraints_of_kind(sketch, "Tangent").contains(&Constraint::Tangent(circle, edge)));
+}

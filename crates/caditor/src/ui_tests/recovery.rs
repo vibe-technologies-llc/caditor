@@ -454,6 +454,98 @@ fn discarding_changes_another_window_already_removed_takes_them_off_the_list() {
 }
 
 #[test]
+fn discarding_all_recovered_work_confirms_then_clears_every_journal_permanently() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let first = root.as_path().join("first.caditor");
+    let second = root.as_path().join("second.caditor");
+
+    crashed_with_a_width_change_to(root.as_path(), Some(first.clone()));
+    crashed_with_a_width_change_to(root.as_path(), Some(second.clone()));
+
+    let first_journal = root.as_path().join(".first.caditor.journal");
+    let second_journal = root.as_path().join(".second.caditor.journal");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+
+    harness.wait_until("recovery is offered for both models", |harness| {
+        harness.shows("Recover unsaved work")
+            && harness.shows("first.caditor")
+            && harness.shows("second.caditor")
+    });
+
+    assert!(harness.shows("Discard all…"));
+
+    harness.click("Discard all…");
+
+    assert!(harness.shows("Discard all 2 recovered models permanently? This cannot be undone."));
+
+    harness.click("Keep");
+
+    assert!(harness.shows("Recover unsaved work"));
+    assert!(first_journal.exists());
+    assert!(second_journal.exists());
+
+    harness.click("Discard all…");
+    harness.click("Discard all");
+    harness.wait_until("all recovered entries are cleared", |harness| {
+        !harness.files.has_recoverable()
+    });
+
+    assert!(!harness.shows("Recover unsaved work"));
+    assert!(!first_journal.exists());
+    assert!(!second_journal.exists());
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text == "Discarded all 2 recovered models permanently.")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn discarding_all_keeps_any_entry_that_could_not_be_removed_and_removes_the_rest() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let file = root.as_path().join("plate.caditor");
+
+    crashed_with_a_width_change(root.as_path());
+    crashed_with_a_width_change_to(root.as_path(), Some(file));
+
+    let recovery = root.as_path().join("recovery");
+    let file_journal = root.as_path().join(".plate.caditor.journal");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+
+    harness.wait_until("recovery is offered for both entries", |harness| {
+        harness.shows("Recover unsaved work")
+            && harness.shows("Untitled model")
+            && harness.shows("plate.caditor")
+    });
+
+    assert!(harness.model.flush_journal(FILE_TIMEOUT));
+
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
+    harness.click("Discard all…");
+    harness.click("Discard all");
+    harness.wait_until("the partial failure is reported", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice
+                .text
+                .starts_with("Could not discard the recovered changes")
+        })
+    });
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(!file_journal.exists());
+    assert!(harness.files.has_recoverable());
+    assert!(harness.shows("Recover unsaved work"));
+    assert!(harness.shows("Untitled model"));
+    assert!(!harness.shows("plate.caditor"));
+}
+
+#[test]
 fn a_failed_frame_during_a_sketch_drag_drops_the_drag_and_shows_the_committed_sketch() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

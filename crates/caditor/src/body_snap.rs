@@ -12,7 +12,7 @@ use caditor_kernel::{Edge, EdgeName, VertexName};
 
 use crate::{
     bodies,
-    inference::Inferences,
+    inference::{Inference, Inferences},
     model::Model,
     projecting,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
@@ -21,6 +21,7 @@ use crate::{
 
 const SAME_POINT: f64 = 1e-9;
 const SAME_PLACE: f64 = 1e-6;
+const MIN_TANGENT_RADIUS: f64 = 1e-6;
 const ARC_PREVIEW_SEGMENTS: usize = 64;
 const SCREEN_SLACK: f64 = 1e-3;
 
@@ -263,6 +264,53 @@ impl Path {
                     _ => None,
                 })
                 .min_by(|a, b| a.distance(point).total_cmp(&b.distance(point))),
+        }
+    }
+
+    fn circle_tangent(&self, center: Point2, near: Point2) -> Option<Point2> {
+        match self {
+            Self::Segment(start, end) => {
+                let along = *end - *start;
+                let length_squared = along.length_squared();
+
+                if length_squared == 0.0 {
+                    return None;
+                }
+
+                let foot = *start + along * ((center - *start).dot(along) / length_squared);
+                (center.distance(foot) > MIN_TANGENT_RADIUS).then_some(foot)
+            }
+            Self::Arc {
+                center: other,
+                radius,
+                start,
+                sweep,
+            } => {
+                let offset = center - *other;
+                let distance = offset.length();
+
+                if *radius <= 0.0 || distance <= MIN_TANGENT_RADIUS {
+                    return None;
+                }
+
+                let toward = offset / distance;
+                let on_sweep = |point: Point2| {
+                    let ray = point - *other;
+                    let angle = ray.y.atan2(ray.x);
+                    (angle - *start).rem_euclid(TAU) <= *sweep + SAME_POINT
+                };
+                [*other + toward * *radius, *other - toward * *radius]
+                    .into_iter()
+                    .filter(|at| center.distance(*at) > MIN_TANGENT_RADIUS)
+                    .filter(|at| *sweep >= TAU - SAME_POINT || on_sweep(*at))
+                    .min_by(|a, b| {
+                        a.distance_squared(near)
+                            .total_cmp(&b.distance_squared(near))
+                    })
+            }
+            Self::Polyline(_) => self
+                .closest(center)
+                .filter(|foot| center.distance(*foot) > MIN_TANGENT_RADIUS),
         }
     }
 }
@@ -620,6 +668,57 @@ impl BodySnaps {
         .map(|(position, source, part)| self.snapped(position, source, part))
     }
 
+    pub fn edge_tangent(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        center: Point2,
+        inferred: Inferences,
+    ) -> Option<Snapped> {
+        self.edge_tangent_within(screen, pointer, center, inferred, snap::CURVE_TOLERANCE)
+    }
+
+    pub fn edge_tangent_within(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        center: Point2,
+        inferred: Inferences,
+        tolerance: f64,
+    ) -> Option<Snapped> {
+        if !inferred.allows(Inference::Tangent) {
+            return None;
+        }
+
+        let reachable = self.reachable_bodies(screen, pointer, tolerance);
+        let mut best: Option<(f64, Point2, usize)> = None;
+
+        for edge in self
+            .edges
+            .iter()
+            .filter(|edge| reachable.get(edge.body).copied().unwrap_or(false))
+            .filter(|edge| edge.may_reach(screen, pointer, tolerance))
+        {
+            let Some(closest) = edge.path.closest(pointer.sketch) else {
+                continue;
+            };
+            let Some(on_screen) = screen.to_screen(closest) else {
+                continue;
+            };
+            let offset = on_screen.distance(pointer.screen);
+            let closer = best
+                .as_ref()
+                .is_none_or(|(nearest, _, _)| offset < *nearest - SAME_POINT);
+            if offset <= tolerance
+                && closer
+                && let Some(touch) = edge.path.circle_tangent(center, pointer.sketch)
+            {
+                best = Some((offset, touch, edge.source));
+            }
+        }
+        best.map(|(_, position, source)| self.snapped(position, source, BodyPart::Edge))
+    }
+
     pub fn foot(&self, target: BodyTarget, point: Point2) -> Option<Point2> {
         self.source(target)?;
         if target.part != BodyPart::Edge {
@@ -750,6 +849,11 @@ impl BodySnaps {
             BodyPart::Centre => format!("Centre of a round edge of {body}"),
             BodyPart::Edge => format!("On an edge of {body}"),
         })
+    }
+
+    pub fn tangent_label(&self, target: BodyTarget) -> Option<String> {
+        let body = &self.source(target)?.body;
+        Some(format!("Tangent to an edge of {body}"))
     }
 }
 

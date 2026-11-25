@@ -509,6 +509,8 @@ fn q_switches_the_selected_curves_or_new_drawing_to_construction_geometry() {
     type_point(&mut harness, "20, 10");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
 
     let guide = entities_of_kind(harness.sketch(feature), "Line")[1];
 

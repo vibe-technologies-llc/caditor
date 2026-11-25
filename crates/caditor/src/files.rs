@@ -193,8 +193,10 @@ pub enum FileCommand {
     Restore(PathBuf),
     RestoreSuppressed(PathBuf),
     AskDiscard(PathBuf),
+    AskDiscardAll,
     KeepRecovered,
     Discard(PathBuf),
+    DiscardAll,
     DismissReport,
     ImportOptions(ImportOptionsCommand),
     ImportUnit(ImportUnitCommand),
@@ -890,6 +892,7 @@ enum Event {
         journal: PathBuf,
         result: Result<(), DiscardFailure>,
     },
+    DiscardedAll(Vec<(PathBuf, Result<(), DiscardFailure>)>),
     Exported {
         path: PathBuf,
         report: ExportReport,
@@ -1218,6 +1221,12 @@ struct Queued {
     session: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum DiscardPrompt {
+    One(PathBuf),
+    All,
+}
+
 type Job = Box<dyn FnOnce() + Send>;
 
 pub struct Files {
@@ -1231,7 +1240,7 @@ pub struct Files {
     recent: RecentFiles,
     recoverable: Vec<Candidate>,
     recovery_open: bool,
-    confirm_discard: Option<PathBuf>,
+    confirm_discard: Option<DiscardPrompt>,
     guard: Option<Intent>,
     after_save: Option<AfterSave>,
     report: Option<Report>,
@@ -1633,7 +1642,10 @@ impl Files {
                 self.recovery_open = false;
                 self.confirm_discard = None;
             }
-            FileCommand::AskDiscard(journal) => self.confirm_discard = Some(journal),
+            FileCommand::AskDiscard(journal) => {
+                self.confirm_discard = Some(DiscardPrompt::One(journal));
+            }
+            FileCommand::AskDiscardAll => self.confirm_discard = Some(DiscardPrompt::All),
             FileCommand::KeepRecovered => self.confirm_discard = None,
             FileCommand::Discard(journal) => {
                 self.confirm_discard = None;
@@ -1648,6 +1660,43 @@ impl Files {
                     move || Event::Discarded {
                         journal: failed,
                         result: Err(DiscardFailure::Crashed),
+                    },
+                );
+            }
+            FileCommand::DiscardAll => {
+                self.confirm_discard = None;
+
+                let journals: Vec<PathBuf> = self
+                    .recoverable
+                    .iter()
+                    .map(|candidate| candidate.recovered.journal.clone())
+                    .collect();
+
+                if journals.is_empty() {
+                    return;
+                }
+
+                let failed = journals.clone();
+
+                self.spawn(
+                    move || {
+                        let results = journals
+                            .into_iter()
+                            .map(|journal| {
+                                let result = caditor_file::discard(&journal)
+                                    .map_err(DiscardFailure::Refused);
+                                (journal, result)
+                            })
+                            .collect();
+                        Event::DiscardedAll(results)
+                    },
+                    move || {
+                        Event::DiscardedAll(
+                            failed
+                                .into_iter()
+                                .map(|journal| (journal, Err(DiscardFailure::Crashed)))
+                                .collect(),
+                        )
                     },
                 );
             }
@@ -2504,6 +2553,51 @@ impl Files {
                     && let Some(file) = candidate.recovered.file
                 {
                     self.request(Intent::Open(Some(file)), model);
+                }
+            }
+            Event::DiscardedAll(results) => {
+                let mut discarded = 0usize;
+                let mut failures: Vec<DiscardFailure> = Vec::new();
+
+                for (journal, result) in results {
+                    match result {
+                        Ok(()) => {
+                            self.settled_journals.insert(journal.clone());
+                            if let Some(index) = self
+                                .recoverable
+                                .iter()
+                                .position(|candidate| candidate.recovered.journal == journal)
+                            {
+                                self.recoverable.remove(index);
+                            }
+                            discarded += 1;
+                        }
+                        Err(error) => {
+                            log::warn!("could not discard {}: {error}", journal.display());
+                            failures.push(error);
+                        }
+                    }
+                }
+                if let Some(first) = failures.first() {
+                    let message = match failures.len() {
+                        1 => format!(
+                            "Could not discard the recovered changes: {first}. They are still \
+                             offered under Recover unsaved work, where you can restore them."
+                        ),
+                        count => format!(
+                            "Could not discard {count} recovered models: {first}. They are still \
+                             offered under Recover unsaved work, where you can restore them."
+                        ),
+                    };
+
+                    model.set_notice(Notice::failure(message));
+                } else if discarded > 0 {
+                    let message = match discarded {
+                        1 => "Discarded the recovered changes permanently.".to_owned(),
+                        count => format!("Discarded all {count} recovered models permanently."),
+                    };
+
+                    model.set_notice(Notice::info(message));
                 }
             }
             Event::Exported {

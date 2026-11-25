@@ -90,8 +90,8 @@ What you type is kept as dimensions, unless {command:sketch.toggle_typed_dimensi
 ## Construction geometry
 
 {command:sketch.construction} makes the selected curves construction geometry, drawn dashed. It
-guides the drawing and takes constraints but never makes regions. With nothing selected it switches
-whether new curves are drawn as construction.
+guides the drawing and takes constraints but never makes regions. With nothing selected, or while
+using a drawing or projecting tool, it switches whether new curves are drawn as construction.
 
 See also [snapping](snapping), [changing sketch geometry](sketch-editing) and
 [the sketch's status](sketch-status).

@@ -68,7 +68,9 @@ the file itself is never touched.
 From the first change, every change is also written to a hidden journal beside the file (for an
 untitled model, in caditor's own folder), within seconds, also while a save is running. If
 caditor, the computer or the power fails, the next start offers to restore the unsaved work, undo
-history included; {command:file.recover} offers it again later. Saving clears what the journal
+history included; {command:file.recover} offers it again later. You can discard individual entries
+or choose **Discard all…** in the recovery dialog to permanently clear every listed recovery entry
+at once after confirming. Saving clears what the journal
 held up to the save; changes made while it ran stay in the journal. Discarding
 changes that another caditor window has meanwhile restored or discarded simply takes them off the
 list. Opening a model while caditor is still looking for unsaved work waits for that look to end,

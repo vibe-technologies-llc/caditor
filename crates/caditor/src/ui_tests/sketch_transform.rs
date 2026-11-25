@@ -21,8 +21,8 @@ fn the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point() {
     harness.hover_button(sketch_toolbar::MOVE_LABEL);
 
     assert!(harness.shows(
-        "Move the selected geometry to a typed position, or by a typed offset. Select sketch \
-         geometry to move it (M)"
+        "Move, rotate or scale the selected geometry with handles, or type a position or offset. \
+         Select sketch geometry to move it (M)"
     ));
 
     harness.click_button(sketch_toolbar::SELECT_ALL_LABEL);

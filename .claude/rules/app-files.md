@@ -99,7 +99,11 @@ paths:
   after another model opened they write nothing and say so (`not_written_for_another_model`).
 - A recovery offer leaves the list only when its discard succeeded; a failure keeps the card, worded
   through `caditor_file::DiscardError` (`DiscardFailure` adds a crashed job). A journal already gone
-  counts as discarded.
+  counts as discarded. When recovery offers entries, the dialog footer offers **Discard all…**
+  (`FileCommand::AskDiscardAll`, `DiscardPrompt::All`), which confirms before running one batch job
+  (`FileCommand::DiscardAll`, `Event::DiscardedAll`) that discards every listed journal: succeeded
+  entries are removed without opening their saved files, failed entries remain listed, and one
+  notice summarizes the outcome.
 - A failed save (`Report::SaveFailed`, or a writer that stopped) raises its notice through
   `Model::fail_save`; the next successful save takes that notice off the screen when it is still the
   one shown, and leaves any other notice alone.

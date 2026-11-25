@@ -174,7 +174,8 @@ const ENABLE_HELP: &str = "Make the selected constraints hold again";
 pub const REFERENCE_ADDED: &str = "That size is already determined by the other constraints, so the dimension shows the measured value as a reference; enable it to make it drive instead";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
-const MOVE_HELP: &str = "Move the selected geometry to a typed position, or by a typed offset";
+const MOVE_HELP: &str =
+    "Move, rotate or scale the selected geometry with handles, or type a position or offset";
 const SELECT_ALL_HELP: &str = "Select all of the sketch's geometry";
 const START_CONSTRUCTION: &str =
     "Draw construction geometry, which guides the sketch but makes no profile";
@@ -493,7 +494,9 @@ pub fn show(
             .collect(),
         constraints: sketch_tools::selected_constraints(selection, feature.id()),
     };
-    let construction = ConstructionChange::of(definition, &selected);
+    let construction = (!active.tool.draws() && !active.tool.projects())
+        .then(|| ConstructionChange::of(definition, &selected))
+        .flatten();
     let split = SplitChange::of(&shown, &selected);
     let breaking = BreakChange::of(&shown, &selected);
     let unlinking = match &feature.kind {

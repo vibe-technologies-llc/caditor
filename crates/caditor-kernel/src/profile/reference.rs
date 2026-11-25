@@ -54,10 +54,12 @@ impl RegionMatch {
     }
 }
 
+const ANCHOR_TIE_TOLERANCE: f64 = 1e-6;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Likeness {
-    shared_pieces: usize,
     holds_anchor: bool,
+    shared_pieces: usize,
     shared_sides: usize,
 }
 
@@ -110,7 +112,7 @@ impl RegionReference {
             .map(|piece| piece.entity_side())
             .collect();
 
-        let mut likenesses: Vec<(Likeness, RegionKey)> = Vec::new();
+        let mut likenesses: Vec<(Likeness, &Region)> = Vec::new();
 
         for region in regions {
             let boundary: BTreeSet<BoundaryPiece> =
@@ -127,29 +129,84 @@ impl RegionReference {
             }
 
             let likeness = Likeness {
-                shared_pieces: boundary.intersection(&self.boundary).count(),
                 holds_anchor: self.anchor.is_some_and(|anchor| region.contains(anchor)),
+                shared_pieces: boundary.intersection(&self.boundary).count(),
                 shared_sides,
             };
 
-            likenesses.push((likeness, region.key()));
+            likenesses.push((likeness, region));
         }
 
         let Some(best) = likenesses.iter().map(|(likeness, _)| *likeness).max() else {
             return Ok(RegionMatch::Gone);
         };
-        let candidates: Vec<RegionKey> = likenesses
+        let tied: Vec<&Region> = likenesses
             .into_iter()
             .filter(|(likeness, _)| *likeness == best)
-            .map(|(_, key)| key)
+            .map(|(_, region)| region)
             .collect();
-        match candidates.as_slice() {
-            [only] => Ok(RegionMatch::Healed(*only)),
-            _ => Err(ProfileError::AmbiguousRegion {
-                region: self.key,
-                candidates,
-            }),
+
+        if let [only] = tied.as_slice() {
+            return Ok(RegionMatch::Healed(only.key()));
         }
+        if let Some(anchor) = self.anchor
+            && let Some(nearest) = nearest_to_anchor(&tied, anchor)
+        {
+            return Ok(RegionMatch::Healed(nearest));
+        }
+        Err(ProfileError::AmbiguousRegion {
+            region: self.key,
+            candidates: tied.into_iter().map(Region::key).collect(),
+        })
+    }
+}
+
+fn nearest_to_anchor(candidates: &[&Region], anchor: Point2) -> Option<RegionKey> {
+    let scored: Vec<(f64, f64, RegionKey)> = candidates
+        .iter()
+        .map(|region| {
+            let bounds = region.bounds()?;
+            let clamped = Point2::new(
+                anchor.x.clamp(bounds.min().x, bounds.max().x),
+                anchor.y.clamp(bounds.min().y, bounds.max().y),
+            );
+            Some((
+                clamped.distance(anchor),
+                bounds.center().distance(anchor),
+                region.key(),
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let min_box = scored
+        .iter()
+        .map(|(box_distance, _, _)| *box_distance)
+        .fold(f64::INFINITY, f64::min);
+    let box_slack = ANCHOR_TIE_TOLERANCE * (1.0 + min_box);
+
+    let near_box: Vec<(f64, RegionKey)> = scored
+        .into_iter()
+        .filter(|(box_distance, _, _)| *box_distance <= min_box + box_slack)
+        .map(|(_, centre_distance, key)| (centre_distance, key))
+        .collect();
+
+    if let [(_, only)] = near_box.as_slice() {
+        return Some(*only);
+    }
+
+    let min_centre = near_box
+        .iter()
+        .map(|(centre_distance, _)| *centre_distance)
+        .fold(f64::INFINITY, f64::min);
+    let centre_slack = ANCHOR_TIE_TOLERANCE * (1.0 + min_centre);
+
+    let best: Vec<RegionKey> = near_box
+        .into_iter()
+        .filter(|(centre_distance, _)| *centre_distance <= min_centre + centre_slack)
+        .map(|(_, key)| key)
+        .collect();
+    match best.as_slice() {
+        [only] => Some(*only),
+        _ => None,
     }
 }
 

@@ -189,6 +189,7 @@ mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
 mod sketch_gears;
+mod sketch_handles;
 mod sketch_inference;
 mod sketch_keys;
 mod sketch_modify;

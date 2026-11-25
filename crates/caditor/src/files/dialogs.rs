@@ -7,8 +7,8 @@ use caditor_file::Recovered;
 use egui::{Sides, Ui};
 
 use super::{
-    ExportWait, FileCommand, Files, GuardChoice, Intent, Origin, OutsideChangeChoice, Replacement,
-    Report, on_disk::ReloadChoice,
+    DiscardPrompt, ExportWait, FileCommand, Files, GuardChoice, Intent, Origin,
+    OutsideChangeChoice, Replacement, Report, on_disk::ReloadChoice,
 };
 use crate::{
     appearance::{self, SPACE_S},
@@ -402,17 +402,57 @@ pub(super) fn recovery(ctx: &egui::Context, files: &Files) -> Option<FileCommand
                     });
                 }
             });
-            widgets::footer(ui, |ui| {
-                if ui
-                    .add(widgets::button("Decide later"))
-                    .on_hover_text(
-                        "These changes will be offered again the next time caditor starts.",
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::HideRecovery);
-                }
-            });
+
+            let count = files.recoverable.len();
+
+            if files.confirm_discard == Some(DiscardPrompt::All) {
+                let prompt = match count {
+                    1 => "Discard these recovered changes permanently? This cannot be undone."
+                        .to_owned(),
+                    count => format!(
+                        "Discard all {count} recovered models permanently? This cannot be undone."
+                    ),
+                };
+
+                widgets::callout(ui, Tone::Warning, |ui| {
+                    ui.label(prompt);
+                });
+                command = command.or(widgets::footer_split(
+                    ui,
+                    |ui| {
+                        ui.add(widgets::danger_button("Discard all"))
+                            .on_hover_text("Permanently delete every recovered model listed above.")
+                            .clicked()
+                            .then_some(FileCommand::DiscardAll)
+                    },
+                    |ui| {
+                        ui.add(widgets::primary_button(ui, "Keep"))
+                            .clicked()
+                            .then_some(FileCommand::KeepRecovered)
+                    },
+                ));
+            } else {
+                command = command.or(widgets::footer_split(
+                    ui,
+                    |ui| {
+                        ui.add(widgets::danger_button("Discard all…"))
+                            .on_hover_text(
+                                "Permanently delete every recovered model listed here so they are \
+                                 not offered again.",
+                            )
+                            .clicked()
+                            .then_some(FileCommand::AskDiscardAll)
+                    },
+                    |ui| {
+                        ui.add(widgets::button("Decide later"))
+                            .on_hover_text(
+                                "These changes will be offered again the next time caditor starts.",
+                            )
+                            .clicked()
+                            .then_some(FileCommand::HideRecovery)
+                    },
+                ));
+            }
             command
         },
     );
@@ -450,7 +490,7 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
     let journal = recovered.journal.clone();
 
     ui.add_space(SPACE_S);
-    if files.confirm_discard.as_ref() == Some(&journal) {
+    if files.confirm_discard.as_ref() == Some(&DiscardPrompt::One(journal.clone())) {
         ui.label("Discard these changes permanently?");
 
         let discarding = journal.clone();
