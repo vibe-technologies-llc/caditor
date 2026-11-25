@@ -23,7 +23,10 @@ const WORKSPACE_WIDE_FOLDERS: [&str; 2] = [".cargo", ".config"];
 
 pub const OUTSIDE_READS: [(&str, &[&str]); 3] = [
     ("packaging", &["caditor", "caditor-file"]),
-    ("fuzz/seeds", &["caditor-file"]),
+    (
+        "fuzz/seeds",
+        &["caditor-file", "caditor-checks", "caditor-step"],
+    ),
     (
         "crates/caditor/assets/fonts",
         &["caditor-lettering", "caditor-file"],

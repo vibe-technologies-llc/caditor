@@ -29,7 +29,7 @@ paths:
   selected crate may have no tests on this platform (`caditor-windows` off Windows).
 - Files read from outside a crate's folder select their reader through `OUTSIDE_READS`
   (`changed.rs`): `packaging/` (the app's about box, logo and Windows resources, the MIME test of
-  `caditor-file`), `fuzz/seeds/` (`caditor-file`'s seed tests) and the Inter fonts in
+  `caditor-file`), `fuzz/seeds/` (the seed tests of `caditor-file`, `caditor-step` and `caditor-checks`) and the Inter fonts in
   `crates/caditor/assets/fonts/` (compiled into `caditor-lettering`, read by `caditor-file`'s
   tests). `every_file_a_crate_reads_outside_its_folder_selects_it_when_changed` scans every
   `include_bytes!`, `include_str!` and `env!("CARGO_MANIFEST_DIR")).join(...)` and fails on one

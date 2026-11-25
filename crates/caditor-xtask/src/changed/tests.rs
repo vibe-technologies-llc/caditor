@@ -82,7 +82,10 @@ fn a_file_another_crate_reads_touches_that_crate_too() {
         font,
         Touch::These(files(&["caditor", "caditor-file", "caditor-lettering"]))
     );
-    assert_eq!(seed, Touch::These(files(&["caditor-file"])));
+    assert_eq!(
+        seed,
+        Touch::These(files(&["caditor-checks", "caditor-file", "caditor-step"]))
+    );
     assert_eq!(target, Touch::These(BTreeSet::new()));
 }
 
