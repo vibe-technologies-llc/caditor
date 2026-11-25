@@ -33,11 +33,18 @@ struct Key {
     weights: Option<Vec<u64>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    WithinTolerance,
+    ClosestTheSamplesAllow,
+}
+
 struct Entry {
     order: usize,
     points: Vec<Point2>,
     fitted: Vec<Point2>,
     relative_deviation: f64,
+    reach: Reach,
 }
 
 pub(super) struct Canonical {
@@ -166,7 +173,7 @@ impl FitCache {
             .find_map(|entry| {
                 let deviation = entry.relative_deviation * canonical.leg;
 
-                if deviation > tolerance {
+                if deviation > tolerance && entry.reach == Reach::WithinTolerance {
                     return None;
                 }
                 [false, true]
@@ -183,12 +190,24 @@ impl FitCache {
             })
     }
 
-    pub(super) fn store(&mut self, canonical: Canonical, fitted: &[Point2], deviation: f64) {
+    pub(super) fn store(
+        &mut self,
+        canonical: Canonical,
+        fitted: &[Point2],
+        deviation: f64,
+        tolerance: f64,
+    ) {
+        let reach = if deviation <= tolerance {
+            Reach::WithinTolerance
+        } else {
+            Reach::ClosestTheSamplesAllow
+        };
         let entry = Entry {
             order: self.stored,
             points: canonical.points.clone(),
             fitted: fitted.iter().map(|point| canonical.local(*point)).collect(),
             relative_deviation: deviation / canonical.leg,
+            reach,
         };
 
         self.stored += 1;
@@ -231,7 +250,7 @@ mod tests {
             .collect();
         let mut cache = FitCache::default();
 
-        cache.store(canonical, &fitted, 0.01);
+        cache.store(canonical, &fitted, 0.01, 1.0);
         (cache, fitted)
     }
 
@@ -271,6 +290,26 @@ mod tests {
         assert!(cache.find(&Canonical::of(&bent).unwrap(), 1.0).is_none());
         assert!(cache.find(&Canonical::of(&large).unwrap(), 0.5).is_none());
         assert!(cache.find(&Canonical::of(&large).unwrap(), 5.0).is_some());
+    }
+
+    #[test]
+    fn a_fit_that_missed_the_tolerance_with_every_attempt_is_reused_for_a_copy_of_any_size() {
+        let original = nurbs(|point| point);
+        let canonical = Canonical::of(&original).unwrap();
+        let fitted: Vec<Point2> = (0..4)
+            .map(|index| Point2::new(f64::from(index), 0.0))
+            .collect();
+        let mut cache = FitCache::default();
+
+        cache.store(canonical, &fitted, 0.5, 0.1);
+
+        let same = cache.find(&Canonical::of(&original).unwrap(), 0.1);
+        let large = cache.find(&Canonical::of(&nurbs(|point| point * 100.0)).unwrap(), 0.1);
+        let bent = nurbs(|point| Point2::new(point.x, point.y + 0.001 * point.x * point.x));
+
+        assert!(same.is_some_and(|(_, deviation)| (deviation - 0.5).abs() < 1e-12));
+        assert!(large.is_some_and(|(_, deviation)| (deviation - 50.0).abs() < 1e-9));
+        assert!(cache.find(&Canonical::of(&bent).unwrap(), 0.1).is_none());
     }
 
     fn canonical_of(points: Vec<Point2>) -> Canonical {
@@ -313,7 +352,12 @@ mod tests {
             .collect();
 
         for (index, points) in shapes.iter().enumerate() {
-            cache.store(canonical_of(points.clone()), &fit_at(index as f64), 0.01);
+            cache.store(
+                canonical_of(points.clone()),
+                &fit_at(index as f64),
+                0.01,
+                1.0,
+            );
         }
 
         let key = canonical_of(Vec::new()).key;
@@ -336,7 +380,7 @@ mod tests {
         let below = shape(boundary - 1.0 - 3e-10, 0.4);
         let above = shape(boundary - 1.0 + 3e-10, 0.4);
 
-        cache.store(canonical_of(below.clone()), &fit_at(1.0), 0.01);
+        cache.store(canonical_of(below.clone()), &fit_at(1.0), 0.01, 1.0);
 
         let stored_cell = cell(Signature::of(&below).across);
         let query_cell = cell(Signature::of(&above).across);
@@ -351,8 +395,8 @@ mod tests {
         let first = shape(0.5, 0.4);
         let second = shape(0.5 + 4e-10, 0.4);
 
-        cache.store(canonical_of(first.clone()), &fit_at(1.0), 0.01);
-        cache.store(canonical_of(second.clone()), &fit_at(2.0), 0.01);
+        cache.store(canonical_of(first.clone()), &fit_at(1.0), 0.01, 1.0);
+        cache.store(canonical_of(second.clone()), &fit_at(2.0), 0.01, 1.0);
 
         assert_eq!(
             cache.find(&canonical_of(second), 1.0).unwrap().0,

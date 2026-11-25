@@ -449,7 +449,7 @@ fn sampled(
         fitting
             .cache
             .lock()
-            .store(canonical, &control_points, fit.deviation);
+            .store(canonical, &control_points, fit.deviation, tolerance);
     }
     Some(DrawingCurve::Spline { control_points })
 }

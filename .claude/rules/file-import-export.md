@@ -27,7 +27,11 @@ paths:
   by degree, knots, weights and their control points in the frame of the first distinct one
   (translation, rotation, mirror and size divided out), so the copies a block's INSERT array makes
   are placed from one fit and charged nothing; a copy is reused only while the stored deviation
-  scaled to its size stays within the drawing's tolerance; a copy under a non-uniform scale matches
+  scaled to its size stays within the drawing's tolerance, or when the stored fit took every attempt
+  its samples allow without reaching the tolerance (`Reach::ClosestTheSamplesAllow`), since a copy
+  has the same knots and so the same samples and a refit can do no better for its size, and
+  refitting each copy of such a spline would spend the work limit on one shape; a copy under a
+  non-uniform scale matches
   nothing and is fitted. Within one degree, knots and weights the entries sit in a grid by their
   point count and two sums a mirror leaves alone (the points' x and their distances from the
   origin, each in cells of `CELL`), and a lookup reads only the cells within the reach the points'

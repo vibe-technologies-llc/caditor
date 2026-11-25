@@ -2963,6 +2963,7 @@ fn the_sketch_limit_applies_to_the_layers_chosen_so_leaving_layers_out_brings_la
 }
 
 const SPLINE_ARRAY: &[u8] = include_bytes!("../../regressions/dxf-spline-array.dxf");
+const BOLT_ARRAY: &[u8] = include_bytes!("../../regressions/dxf-bolt-array.dxf");
 const WIGGLY_CONTROL_POINTS: usize = 60;
 
 fn wiggly_spline(frequency: f64, amplitude: f64) -> Pairs {
@@ -3003,6 +3004,17 @@ fn a_block_of_splines_repeated_thousands_of_times_is_read_quickly() {
     let drawing = parse_dxf(SPLINE_ARRAY).unwrap();
 
     assert_eq!(drawing.curves.len(), 30_733);
+}
+
+#[test]
+fn a_spline_no_fit_brings_within_tolerance_repeated_thousands_of_times_is_read_quickly() {
+    let drawing = parse_dxf(BOLT_ARRAY).unwrap();
+
+    assert_eq!(drawing.curves.len(), 53_971);
+    assert!(drawing.notes.iter().any(|note| {
+        note == "7710 splines were converted to sketch splines that stay within 0.033 mm of the \
+                 original."
+    }));
 }
 
 #[test]
