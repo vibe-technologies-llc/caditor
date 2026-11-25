@@ -7898,7 +7898,7 @@ impl ViewportState {
         let mut keys = self
             .drawing
             .mode()
-            .filter(|mode| mode.run_again().is_some())
+            .filter(|mode| mode.tool() != Tool::Line)
             .map(|mode| key_hints.mode(mode))
             .unwrap_or_default();
 

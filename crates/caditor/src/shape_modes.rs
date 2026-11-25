@@ -205,19 +205,6 @@ impl ShapeMode {
         }
     }
 
-    pub fn run_again(self) -> Option<Self> {
-        match self {
-            Self::Line(_) => None,
-            Self::Rectangle(_)
-            | Self::Circle(_)
-            | Self::Polygon(_)
-            | Self::Slot(_)
-            | Self::Spline(_)
-            | Self::Blend(_)
-            | Self::Offset(_) => Some(self.next()),
-        }
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Line(LineMode::End) => "From one end",
@@ -371,8 +358,8 @@ impl ShapeMode {
 
     pub fn hint(self, keys: Option<&str>) -> String {
         let named = self.named();
-        match keys.zip(self.run_again()) {
-            Some((keys, next)) => format!("{named}   {keys}: {}", decapitalized(next.label())),
+        match keys {
+            Some(keys) => format!("{named}   {keys}: {}", decapitalized(self.next().label())),
             None => named,
         }
     }
@@ -583,7 +570,7 @@ mod tests {
     }
 
     #[test]
-    fn a_line_is_drawn_from_one_end_unless_chosen_from_its_middle_and_its_key_never_steps() {
+    fn a_line_is_drawn_from_one_end_unless_chosen_from_its_middle_and_its_key_steps_between_them() {
         let end = ShapeModes::default().of(Tool::Line).unwrap();
         let middle = end.next();
 
@@ -591,12 +578,18 @@ mod tests {
         assert_eq!(middle, ShapeMode::Line(LineMode::Middle));
         assert_eq!(middle.next(), end);
         assert_eq!(middle.title(), "Draw line from its middle");
-        assert_eq!(end.run_again(), None);
-        assert_eq!(end.hint(Some("L")), "Line from one end");
-        assert_eq!(middle.hint(Some("L")), "Line from its middle");
         assert_eq!(
-            ShapeMode::Rectangle(RectangleMode::Corners).run_again(),
-            Some(ShapeMode::Rectangle(RectangleMode::Center))
+            end.hint(Some("L")),
+            "Line from one end   L: from its middle"
+        );
+        assert_eq!(
+            middle.hint(Some("L")),
+            "Line from its middle   L: from one end"
+        );
+        assert_eq!(end.hint(None), "Line from one end");
+        assert_eq!(
+            ShapeMode::Rectangle(RectangleMode::Corners).next(),
+            ShapeMode::Rectangle(RectangleMode::Center)
         );
     }
 }

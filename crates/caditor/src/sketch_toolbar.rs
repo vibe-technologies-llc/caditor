@@ -1223,7 +1223,7 @@ impl Bar<'_, '_> {
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
 
-        let hover = match (keys, mode.and_then(ShapeMode::run_again)) {
+        let hover = match (keys, mode.map(ShapeMode::next)) {
             (Some(keys), Some(next)) => format!(
                 "{description} ({keys})\n{keys} again: {}",
                 next.label().to_lowercase()
@@ -1244,10 +1244,7 @@ impl Bar<'_, '_> {
             ui.add(button).on_hover_text(hover)
         };
 
-        match mode
-            .filter(|_| invoked && active)
-            .and_then(ShapeMode::run_again)
-        {
+        match mode.filter(|_| invoked && active).map(ShapeMode::next) {
             Some(next) => self.request.mode = Some(next),
             None if response.clicked() || invoked => self.request.tool = Some(tool),
             None => {}
@@ -1273,7 +1270,7 @@ impl Bar<'_, '_> {
             .modes
             .of(tool)
             .filter(|_| invoked && active)
-            .and_then(ShapeMode::run_again)
+            .map(ShapeMode::next)
         {
             Some(next) => self.request.mode = Some(next),
             None if invoked => self.request.tool = Some(tool),
@@ -1335,7 +1332,7 @@ impl Bar<'_, '_> {
         let description = mode.map_or(tool.description(), ShapeMode::description);
         let keys = self.commands.keys(command);
 
-        let hover = match (keys, mode.and_then(ShapeMode::run_again)) {
+        let hover = match (keys, mode.map(ShapeMode::next)) {
             (Some(keys), Some(next)) => format!(
                 "{description} ({keys})\n{keys} again: {}",
                 next.label().to_lowercase()
@@ -1348,10 +1345,7 @@ impl Bar<'_, '_> {
         let response = explained(ui.add(button), tool.label(), &help);
 
         self.request_invoked_way(tool);
-        match mode
-            .filter(|_| invoked && active)
-            .and_then(ShapeMode::run_again)
-        {
+        match mode.filter(|_| invoked && active).map(ShapeMode::next) {
             Some(next) => self.request.mode = Some(next),
             None if response.clicked() || invoked => self.request.tool = Some(tool),
             None => {}

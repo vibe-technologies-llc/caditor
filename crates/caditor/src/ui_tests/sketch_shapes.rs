@@ -504,7 +504,6 @@ fn q_switches_the_selected_curves_or_new_drawing_to_construction_geometry() {
 
     let drawing_construction = construction(&harness);
 
-    harness.use_tool(Key::L);
     type_point(&mut harness, "0, 10");
     type_point(&mut harness, "20, 10");
     harness.key(Key::Escape, Modifiers::NONE);
@@ -2039,7 +2038,9 @@ fn tool_buttons_name_their_shortcuts() {
     harness.draw_on_new_sketch();
     harness.hover("Line");
 
-    assert!(harness.shows("Draw connected lines, one click per corner (L)"));
+    assert!(
+        harness.shows("Draw connected lines, one click per corner (L)\nL again: from its middle")
+    );
 
     harness.click("Circle");
 

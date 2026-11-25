@@ -36,6 +36,6 @@ Drawing tools › Ways to draw shapes and in the command palette:
   next click starts another. A length you type, such as `40` or `@40 < 30`, is the whole line's,
   and is kept as a dimension of its length.
 
-Unlike the other shapes, pressing L again while the tool is active keeps its way rather than
-stepping to the next; choose the way from one of those menus or the palette. The way last used is
-remembered while caditor runs.
+Pressing L again while the tool is active steps to the other way, as the other shapes' keys do, or
+choose the way from one of those menus or the palette. The way last used is remembered while
+caditor runs.

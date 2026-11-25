@@ -265,7 +265,7 @@ fn a_press_dragged_to_its_release_draws_one_line_from_its_middle() {
 }
 
 #[test]
-fn a_line_changes_way_only_with_nothing_placed_and_its_key_keeps_the_way() {
+fn a_line_changes_way_only_with_nothing_placed_and_its_key_steps_the_way() {
     let mut harness = Harness::new();
 
     harness.draw_on_new_sketch();
@@ -286,6 +286,10 @@ fn a_line_changes_way_only_with_nothing_placed_and_its_key_keeps_the_way() {
     harness.frame();
     harness.use_tool(Key::L);
 
+    assert!(harness.shows(MIDDLE_PROMPT));
+
+    harness.use_tool(Key::L);
+
     assert!(harness.shows("Click the start of the line"));
 
     harness.perform(Action::Editing(EditingCommand::SetMode(ShapeMode::Line(
@@ -299,6 +303,10 @@ fn a_line_changes_way_only_with_nothing_placed_and_its_key_keeps_the_way() {
     harness.use_tool(Key::L);
 
     assert!(harness.shows(END_PROMPT));
+    assert_eq!(
+        notice_text(&harness).as_deref(),
+        Some("Finish or cancel the line first, then change how it is drawn")
+    );
 
     harness.perform(Action::Editing(EditingCommand::SetMode(ShapeMode::Line(
         LineMode::End,
@@ -328,7 +336,9 @@ fn both_ways_of_drawing_a_line_are_in_the_palette_and_the_menu_on_its_button() {
     harness.use_tool(Key::L);
     harness.hover("Line");
 
-    assert!(harness.shows("Draw connected lines, one click per corner (L)"));
+    assert!(
+        harness.shows("Draw connected lines, one click per corner (L)\nL again: from its middle")
+    );
 
     assert!(!harness.shows(&sketch_toolbar::modes_label(Tool::Line)));
 

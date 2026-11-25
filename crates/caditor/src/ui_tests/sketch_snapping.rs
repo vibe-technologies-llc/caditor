@@ -71,7 +71,6 @@ fn grid_snapping_ignores_the_sub_grid_until_it_becomes_the_current_level() {
     assert!(near(start, between), "{start}");
     assert!(near(end, Point2::new(30.0, 20.0)), "{end}");
 
-    harness.use_tool(Key::L);
     harness
         .events
         .push(Event::PointerMoved(viewport_centre(&harness)));
@@ -585,7 +584,6 @@ fn snapping_can_be_turned_off_for_good_and_back_on() {
 
     assert!(!harness.workspace.viewport.snapping());
 
-    harness.use_tool(Key::L);
     harness.point_at(Point2::new(50.3, 10.4));
 
     assert!(!harness.shows("On Point"));
@@ -690,7 +688,6 @@ fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
     harness.frame();
     harness.settle();
 
-    harness.use_tool(Key::L);
     harness.point_at(Point2::new(30.4, 10.5));
 
     let base = entities_of_kind(harness.sketch(feature), "Line")[0];

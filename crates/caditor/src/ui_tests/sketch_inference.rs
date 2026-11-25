@@ -130,7 +130,6 @@ fn draw_reference_and_aim_near_its_length(
     let start = Point2::new(12.0, 18.0);
     let nearly = start + Vector2::ONE.normalize() * (REFERENCE_LENGTH - 0.1);
 
-    harness.use_tool(Key::L);
     harness.click_at(start);
     harness.point_at(nearly);
 

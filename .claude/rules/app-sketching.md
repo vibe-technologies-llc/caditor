@@ -347,8 +347,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   Offset (`ShapeMode::Offset`, `ShapeModes::offset`: three ways) keep theirs likewise; the modify
   tool reads the way each frame and its prompt leads with it.
 - Running a tool's command while it is active steps to its next way, round to the first
-  (`ShapeMode::run_again`), except Line, whose L pressed again keeps its way, since pressing L to
-  carry on drawing connected lines is a habit stepping would break; clicking
+  (`ShapeMode::next`), Line's two ways included; clicking
   its ribbon button only chooses the tool (`sketch_toolbar::partnered_tool_button` for compact
   buttons, `off_ribbon_tool` for off-ribbon tools). Every way is also its own command
   (`Command::ShapeMode`, id `sketch.<shape>.<way>`) in the palette, the arrow menu, the Draw
@@ -356,8 +355,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`sketch_toolbar::WAYS_OFF_RIBBON`; `request_invoked_way` still takes their commands): one there
   wraps the Modify group off the sketch bar's first row at the usual size
   (`interface_fit::the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button`).
-  The canvas names the way with its key (`ShapeMode::hint`) only for a shape whose key steps, so
-  Line's short key list stays whole; its prompt says which way it is drawing.
+  The canvas names the next way with the key (`ShapeMode::hint`) for every shape but Line, so
+  Line's four key hints stay whole without a More keys chip (`a_short_list_of_keys_shows_whole_without_a_chip`);
+  its prompt says which way it is drawing, and its button's hover names the next way.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
   sketches and documents; it is not a preference, as no tool state is.
 
