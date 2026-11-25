@@ -13,7 +13,7 @@ use caditor_sketch::{BSpline, FittedSpline, SplineKind};
 use parking_lot::Mutex;
 
 use crate::import::{
-    Drawing, DrawingCurve, ImportError, MAX_FIT_WORK,
+    Drawing, DrawingCurve, ImportError, MAX_FIT_WORK, UnitSource,
     dxf::{
         capitalized, counted,
         fit_cache::{Canonical, FitCache},
@@ -237,6 +237,7 @@ pub(in crate::import) fn flatten(
         construction,
         notes,
         unit_scale: 1.0,
+        unit_source: UnitSource::Assumed,
         layers: Vec::new(),
         curve_layers,
     })

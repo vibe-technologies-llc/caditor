@@ -56,6 +56,11 @@ paths:
   box (arcs by sweep) on the origin, layers left out. Each curve keeps its layer index
   (`Drawing::curve_layers` into `Drawing::layers`, first-use order, names compared without case;
   layer 0 inside a block takes its INSERT's layer); only layers that kept a curve are listed.
+- `Drawing::unit_source` (`UnitSource`) says whether the file named its unit: `Named` for a DXF whose
+  `$INSUNITS` is a unit caditor knows, and for an SVG with a viewBox whose width or height is in
+  mm, cm, in, pt or pc; `Assumed` for every other reading (DXF unitless, unknown code or only
+  `$MEASUREMENT` imperial, SVG in pixels, plain numbers, no size or no viewBox). The import dialog
+  uses it to decide whether a remembered unit may start the options (`app-files.md`).
 - Dashed linetypes make a curve construction geometry (`Drawing::construction`), with a note.
   Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared.
 - SPLINE uses control points up to `MAX_SPLINE_DEGREE`, else fit points: with an end tangent the

@@ -1171,10 +1171,11 @@ impl Sketching {
 
 #[cfg(test)]
 mod tests {
+    use caditor_file::DrawingUnit;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::scene_palette::Canvas;
+    use crate::{import_options::UnitlessStart, scene_palette::Canvas};
 
     #[test]
     fn a_damaged_preferences_file_is_reported_with_what_to_expect() {
@@ -1515,6 +1516,61 @@ mod tests {
     }
 
     #[test]
+    fn a_remembered_unit_for_files_naming_none_round_trips_and_reads_leniently() {
+        let start = UnitlessStart {
+            unit: DrawingUnit::Centimetres,
+            scale: 2.5,
+        };
+        let preferences = Preferences {
+            import_placement: StartingPlacement {
+                unitless: Some(start),
+                ..StartingPlacement::default()
+            },
+            ..Preferences::default()
+        };
+
+        let settings = preferences.settings();
+        let read = Preferences::from_settings(settings.clone());
+
+        assert_eq!(settings.text("import.drawing.unitless.unit"), Some("cm"));
+        assert_eq!(settings.number("import.drawing.unitless.scale"), Some(2.5));
+        assert_eq!(read.import_placement.unitless, Some(start));
+
+        let mut unscaled = Settings::default();
+
+        unscaled.set_text("import.drawing.unitless.unit", "m");
+
+        let mut hopeless = Settings::default();
+
+        hopeless.set_text("import.drawing.unitless.unit", "m");
+        hopeless.set_number("import.drawing.unitless.scale", 1e12);
+
+        let mut unknown = Settings::default();
+
+        unknown.set_text("import.drawing.unitless.unit", "furlongs");
+        unknown.set_number("import.drawing.unitless.scale", 3.0);
+
+        for settings in [unscaled, hopeless] {
+            let read = Preferences::from_settings(settings);
+
+            assert_eq!(
+                read.import_placement.unitless,
+                Some(UnitlessStart {
+                    unit: DrawingUnit::Metres,
+                    scale: 1.0,
+                })
+            );
+        }
+
+        assert_eq!(
+            Preferences::from_settings(unknown)
+                .import_placement
+                .unitless,
+            None
+        );
+    }
+
+    #[test]
     fn the_newer_settings_round_trip_and_an_older_or_odd_file_reads_as_today_s_behaviour() {
         let older = Preferences::from_settings(Settings::default());
         let mut odd = Settings::default();
@@ -1535,6 +1591,8 @@ mod tests {
         }
         odd.set_text("import.drawing.plane", "from a newer caditor");
         odd.set_text("import.drawing.recentre", "from a newer caditor");
+        odd.set_text("import.drawing.unitless.unit", "from a newer caditor");
+        odd.set_text("import.drawing.unitless.scale", "from a newer caditor");
         odd.set_text(OUTLINES_KEY, "yes");
         odd.set_number(GLYPHS_KEY, 3.0);
 

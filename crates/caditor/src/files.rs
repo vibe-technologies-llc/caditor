@@ -1912,6 +1912,7 @@ impl Files {
                     into,
                     drawing,
                     arrangement,
+                    ..
                 }) = self.arranging.take()
                 {
                     self.plan_again(path, into, drawing, arrangement, model);

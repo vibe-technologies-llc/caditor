@@ -17,7 +17,7 @@ use crate::{
     export::{Construction, SketchFormat, export_sketch},
     import::{
         self, Drawing, DrawingCurve, DrawingOptions, ImportError, MAX_UNPACKED_DRAWING,
-        TextOutlines, read_drawing, zip_read_tests::deflated_zeros,
+        TextOutlines, UnitSource, read_drawing, zip_read_tests::deflated_zeros,
     },
 };
 
@@ -496,6 +496,46 @@ fn the_size_and_view_box_set_the_scale_in_millimetres() {
         "{:?}",
         drawing.notes
     );
+}
+
+#[test]
+fn only_an_absolute_size_with_a_view_box_names_the_unit() {
+    let ns = r#"xmlns="http://www.w3.org/2000/svg""#;
+    let segment = r#"<line x1="0" y1="0" x2="1" y2="0"/>"#;
+    let cases = [
+        (
+            r#"width="10mm" height="10mm" viewBox="0 0 10 10""#,
+            UnitSource::Named,
+        ),
+        (
+            r#"width="10cm" height="5cm" viewBox="0 0 10 5""#,
+            UnitSource::Named,
+        ),
+        (
+            r#"width="1in" height="1in" viewBox="0 0 1 1""#,
+            UnitSource::Named,
+        ),
+        (r#"width="6pc" viewBox="0 0 6 3""#, UnitSource::Named),
+        (
+            r#"width="96px" height="96px" viewBox="0 0 96 96""#,
+            UnitSource::Assumed,
+        ),
+        (
+            r#"width="96" height="96" viewBox="0 0 48 48""#,
+            UnitSource::Assumed,
+        ),
+        (r#"viewBox="0 0 10 10""#, UnitSource::Assumed),
+        (r#"width="210mm" height="297mm""#, UnitSource::Assumed),
+        (r#"width="50%" viewBox="0 0 10 10""#, UnitSource::Assumed),
+        ("", UnitSource::Assumed),
+    ];
+
+    for (attributes, source) in cases {
+        let text = format!("<svg {ns} {attributes}>{segment}</svg>");
+        let drawing = parse_svg(text.as_bytes()).unwrap();
+
+        assert_eq!(drawing.unit_source, source, "{attributes}");
+    }
 }
 
 #[test]

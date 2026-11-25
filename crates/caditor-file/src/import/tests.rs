@@ -16,7 +16,7 @@ use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch, SplineKin
 use crate::{
     import::{
         Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES,
-        MAX_EXPANDED_OBJECTS, MAX_READ_CURVES, MAX_SCALE, MIN_SCALE, SketchTarget,
+        MAX_EXPANDED_OBJECTS, MAX_READ_CURVES, MAX_SCALE, MIN_SCALE, SketchTarget, UnitSource,
         drawing_transaction, parse_dxf,
     },
     tally,
@@ -395,6 +395,34 @@ fn units_are_converted_to_millimetres_and_named() {
     .unwrap();
 
     assert_eq!(lines(&metric_named), vec![(Point2::ZERO, Point2::X)]);
+}
+
+#[test]
+fn only_a_known_unit_the_header_names_is_named() {
+    let segment = || vec![line((0.0, 0.0), (1.0, 0.0))];
+
+    for code in [1, 4, 5, 6] {
+        assert_eq!(
+            drawing(Some(code), segment()).unit_source,
+            UnitSource::Named,
+            "{code}"
+        );
+    }
+    for units in [None, Some(0), Some(99)] {
+        assert_eq!(
+            drawing(units, segment()).unit_source,
+            UnitSource::Assumed,
+            "{units:?}"
+        );
+    }
+
+    let imperial = parse_dxf(&text(vec![
+        section("HEADER", vec![vec![pair(9, "$MEASUREMENT"), pair(70, 0)]]),
+        section("ENTITIES", segment()),
+    ]))
+    .unwrap();
+
+    assert_eq!(imperial.unit_source, UnitSource::Assumed);
 }
 
 pub(super) fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {

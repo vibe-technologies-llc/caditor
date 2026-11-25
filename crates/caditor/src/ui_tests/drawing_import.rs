@@ -14,7 +14,9 @@ use crate::{
     files::FileCommand,
     import,
     import::Placement,
-    import_options::{Arrangement, ImportOptionsCommand, PlaneChoice, StartingPlacement},
+    import_options::{
+        Arrangement, ImportOptionsCommand, PlaneChoice, StartingPlacement, UnitlessStart,
+    },
     model::Action,
 };
 
@@ -211,6 +213,7 @@ fn the_next_drawing_starts_centred_and_on_the_plane_of_the_last_but_in_its_own_u
     let placed = StartingPlacement {
         recentre: true,
         plane: PlaneChoice::Xz,
+        ..StartingPlacement::default()
     };
 
     harness.answer_dialog(Some(square));
@@ -698,4 +701,127 @@ fn an_import_report_with_a_long_filename_keeps_its_close_button_clear_and_dismis
     harness.frame();
 
     assert!(!harness.files.is_blocking());
+}
+
+const UNITLESS_SQUARE: &str = "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+     10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n";
+const REMEMBERED_NOTE: &str =
+    "This file names no unit, so the unit and scale start as in the last import";
+
+#[test]
+fn a_file_naming_no_unit_starts_from_the_last_such_import_and_a_file_naming_one_from_itself() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let first = dir.path().join("first.dxf");
+    let second = dir.path().join("second.dxf");
+    let named = dir.path().join("named.dxf");
+
+    write_drawing(&first, None, UNITLESS_SQUARE);
+    write_drawing(&second, None, UNITLESS_SQUARE);
+    square_drawing(&named);
+
+    let features = harness.document().features().len();
+
+    harness.answer_dialog(Some(first));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("first.dxf");
+
+    assert!(harness.shows("4 curves drawn, 30.000 mm wide and 30.000 mm high."));
+    assert!(!harness.shows_containing(REMEMBERED_NOTE));
+
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Unit(
+        DrawingUnit::Centimetres,
+    )));
+    harness.click("Import");
+    harness.wait_until("the first drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
+    harness.frame();
+
+    let remembered = UnitlessStart {
+        unit: DrawingUnit::Centimetres,
+        scale: 1.0,
+    };
+
+    assert_eq!(
+        harness.workspace.preferences.import_placement.unitless,
+        Some(remembered)
+    );
+    assert_eq!(
+        StartingPlacement::from_settings(&harness.workspace.preferences.settings()).unitless,
+        Some(remembered)
+    );
+
+    harness.answer_dialog(Some(second));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("second.dxf");
+
+    assert!(harness.shows("4 curves drawn, 300.000 mm wide and 300.000 mm high."));
+    assert!(harness.shows_containing(REMEMBERED_NOTE));
+
+    harness.click("Import");
+    harness.wait_until("the second drawing is imported", |harness| {
+        harness.document().features().len() == features + 2
+    });
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
+    harness.frame();
+
+    harness.answer_dialog(Some(named));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("named.dxf");
+
+    assert!(harness.shows("4 curves drawn, 30.000 mm wide and 30.000 mm high."));
+    assert!(!harness.shows_containing(REMEMBERED_NOTE));
+
+    harness.click("Import");
+    harness.wait_until("the named drawing is imported", |harness| {
+        harness.document().features().len() == features + 3
+    });
+    harness.frame();
+
+    assert_eq!(
+        harness.workspace.preferences.import_placement.unitless,
+        Some(remembered)
+    );
+}
+
+#[test]
+fn asking_for_the_files_own_reading_again_forgets_the_remembered_unit() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let first = dir.path().join("first.dxf");
+    let second = dir.path().join("second.dxf");
+
+    write_drawing(&first, None, UNITLESS_SQUARE);
+    write_drawing(&second, None, UNITLESS_SQUARE);
+
+    let features = harness.document().features().len();
+
+    for (index, (path, name)) in [(first, "first.dxf"), (second, "second.dxf")]
+        .into_iter()
+        .enumerate()
+    {
+        harness.answer_dialog(Some(path));
+        harness.command(FileCommand::Import { into: None });
+        harness.wait_for_import_options(name);
+        harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Unit(
+            if index == 0 {
+                DrawingUnit::Metres
+            } else {
+                DrawingUnit::AsInFile
+            },
+        )));
+        harness.click("Import");
+        harness.wait_until("the drawing is imported", |harness| {
+            harness.document().features().len() == features + index + 1
+        });
+        harness.click_button(crate::widgets::CLOSE_DIALOG);
+        harness.frame();
+    }
+
+    assert_eq!(
+        harness.workspace.preferences.import_placement.unitless,
+        None
+    );
 }

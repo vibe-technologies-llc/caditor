@@ -69,9 +69,9 @@ pub use crate::{
         DrawingOptions, DrawingUnit, ImportError, ImportedBody, ImportedFace, MAX_DRAWING_CURVES,
         MAX_SCALE, MESH_IMPORT_EXTENSIONS, MIN_SCALE, MeshFormat, MeshUnit, ModelImport,
         ReadingProgress, ReadingStage, STEP_IMPORT_EXTENSIONS, SVG_EXTENSIONS, SketchTarget,
-        TextOutlines, UnitBasis, UnitReading, bodies_transaction, drawing_transaction, parse_dxf,
-        parse_mesh, parse_mesh_in, parse_step, parse_svg, read_drawing, read_dxf, read_mesh_file,
-        read_mesh_file_in, read_step_file, read_step_file_reporting,
+        TextOutlines, UnitBasis, UnitReading, UnitSource, bodies_transaction, drawing_transaction,
+        parse_dxf, parse_mesh, parse_mesh_in, parse_step, parse_svg, read_drawing, read_dxf,
+        read_mesh_file, read_mesh_file_in, read_step_file, read_step_file_reporting,
     },
     journal::JournalEntry,
     load::{

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use caditor_document::FeatureId;
 use caditor_file::{
     Drawing, DrawingOptions, DrawingUnit, MAX_DRAWING_CURVES, MAX_SCALE, MIN_SCALE, Settings,
+    UnitSource,
 };
 use caditor_geometry::Plane;
 use egui::{Id, Label, ScrollArea, Ui};
@@ -15,9 +16,14 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
+const REMEMBERED_UNIT: &str = "This file names no unit, so the unit and scale start as in the last \
+     import of a file that named none. Choose As the file says and a scale of 1 to read its numbers \
+     as millimetres.";
 const LAYER_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
 const RECENTRE_KEY: &str = "import.drawing.recentre";
 const PLANE_KEY: &str = "import.drawing.plane";
+const UNITLESS_UNIT_KEY: &str = "import.drawing.unitless.unit";
+const UNITLESS_SCALE_KEY: &str = "import.drawing.unitless.scale";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaneChoice {
@@ -69,10 +75,66 @@ pub struct Arrangement {
     pub plane: PlaneChoice,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnitlessStart {
+    pub unit: DrawingUnit,
+    pub scale: f64,
+}
+
+impl UnitlessStart {
+    const DEFAULT: Self = Self {
+        unit: DrawingUnit::AsInFile,
+        scale: 1.0,
+    };
+
+    fn of(options: &DrawingOptions) -> Option<Self> {
+        let chosen = Self {
+            unit: options.unit,
+            scale: options.scale,
+        };
+        (chosen != Self::DEFAULT && options.is_valid()).then_some(chosen)
+    }
+
+    fn from_settings(settings: &Settings) -> Option<Self> {
+        let unit = DrawingUnit::ALL
+            .into_iter()
+            .find(|unit| settings.text(UNITLESS_UNIT_KEY) == Some(unit_key(*unit)))?;
+        let scale = settings
+            .number(UNITLESS_SCALE_KEY)
+            .filter(|scale| (MIN_SCALE..=MAX_SCALE).contains(scale))
+            .unwrap_or(1.0);
+        Some(Self { unit, scale })
+    }
+
+    fn write(start: Option<Self>, settings: &mut Settings) {
+        match start {
+            Some(start) => {
+                settings.set_text(UNITLESS_UNIT_KEY, unit_key(start.unit));
+                settings.set_number(UNITLESS_SCALE_KEY, start.scale);
+            }
+            None => {
+                settings.remove(UNITLESS_UNIT_KEY);
+                settings.remove(UNITLESS_SCALE_KEY);
+            }
+        }
+    }
+}
+
+fn unit_key(unit: DrawingUnit) -> &'static str {
+    match unit {
+        DrawingUnit::AsInFile => "file",
+        DrawingUnit::Micrometres => "um",
+        DrawingUnit::Millimetres => "mm",
+        DrawingUnit::Centimetres => "cm",
+        DrawingUnit::Metres => "m",
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct StartingPlacement {
     pub recentre: bool,
     pub plane: PlaneChoice,
+    pub unitless: Option<UnitlessStart>,
 }
 
 impl StartingPlacement {
@@ -83,6 +145,7 @@ impl StartingPlacement {
                 .into_iter()
                 .find(|plane| settings.text(PLANE_KEY) == Some(plane.key()))
                 .unwrap_or_default(),
+            unitless: UnitlessStart::from_settings(settings),
         }
     }
 
@@ -97,11 +160,18 @@ impl StartingPlacement {
         } else {
             settings.set_text(PLANE_KEY, self.plane.key());
         }
+        UnitlessStart::write(self.unitless, settings);
     }
 
-    fn arrangement(self) -> Arrangement {
+    fn arrangement(self, source: UnitSource) -> Arrangement {
+        let start = match source {
+            UnitSource::Assumed => self.unitless.unwrap_or(UnitlessStart::DEFAULT),
+            UnitSource::Named => UnitlessStart::DEFAULT,
+        };
         Arrangement {
             options: DrawingOptions {
+                unit: start.unit,
+                scale: start.scale,
                 recentre: self.recentre,
                 ..DrawingOptions::default()
             },
@@ -128,6 +198,7 @@ pub struct Arranging {
     pub into: Option<FeatureId>,
     pub drawing: Drawing,
     pub arrangement: Arrangement,
+    remembered: Option<UnitlessStart>,
 }
 
 impl Arranging {
@@ -137,19 +208,36 @@ impl Arranging {
         drawing: Drawing,
         placement: StartingPlacement,
     ) -> Self {
+        let arrangement = placement.arrangement(drawing.unit_source);
+
         Self {
             path,
             into,
             drawing,
-            arrangement: placement.arrangement(),
+            arrangement,
+            remembered: placement.unitless,
         }
     }
 
     pub fn placement(&self) -> StartingPlacement {
+        let unitless = match self.drawing.unit_source {
+            UnitSource::Assumed => UnitlessStart::of(&self.arrangement.options),
+            UnitSource::Named => self.remembered,
+        };
         StartingPlacement {
             recentre: self.arrangement.options.recentre,
             plane: self.arrangement.plane,
+            unitless,
         }
+    }
+
+    fn starts_from_memory(&self) -> bool {
+        let options = &self.arrangement.options;
+
+        self.drawing.unit_source == UnitSource::Assumed
+            && self
+                .remembered
+                .is_some_and(|start| start.unit == options.unit && start.scale == options.scale)
     }
 
     pub fn perform(&mut self, command: ImportOptionsCommand) {
@@ -242,6 +330,12 @@ pub fn dialog(
 
             if let Some(unit) = preferences::choice(ui, &choices, options.unit) {
                 command = Some(ImportOptionsCommand::Unit(unit));
+            }
+
+            if arranging.starts_from_memory() {
+                widgets::callout(ui, Tone::Info, |ui| {
+                    ui.add(Label::new(REMEMBERED_UNIT).wrap());
+                });
             }
 
             export::heading(ui, "Scale");

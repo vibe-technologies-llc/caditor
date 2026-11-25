@@ -1,6 +1,7 @@
 use caditor_geometry::Vector2;
 
 use crate::import::{
+    UnitSource,
     svg::syntax::{Length, MILLIMETRES_PER_INCH, PIXELS_PER_INCH, Unit, numbers},
     xml::Node,
 };
@@ -61,6 +62,7 @@ pub(super) struct Sizing {
     pub millimetres: Vector2,
     pub viewport: Vector2,
     pub note: Option<String>,
+    pub unit_source: UnitSource,
 }
 
 impl Sizing {
@@ -102,6 +104,7 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
             millimetres: Vector2::new(MILLIMETRES_PER_PIXEL, -MILLIMETRES_PER_PIXEL),
             viewport,
             note: Some(note),
+            unit_source: UnitSource::Assumed,
         };
     };
     let millimetres =
@@ -124,13 +127,26 @@ pub(super) fn sizing(root: Node<'_, '_>) -> Sizing {
             note: Some(pixel_note(
                 "The drawing's size cannot be used, so its numbers were read as CSS pixels",
             )),
+            unit_source: UnitSource::Assumed,
         };
     }
     Sizing {
         millimetres: Vector2::new(factors.x, -factors.y),
         viewport,
         note: named.and_then(unit_note),
+        unit_source: if named.is_some_and(is_absolute) {
+            UnitSource::Named
+        } else {
+            UnitSource::Assumed
+        },
     }
+}
+
+fn is_absolute(unit: Unit) -> bool {
+    matches!(
+        unit,
+        Unit::Millimetres | Unit::Centimetres | Unit::Inches | Unit::Points | Unit::Picas
+    )
 }
 
 fn pixel_note(lead: &str) -> String {

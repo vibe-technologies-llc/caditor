@@ -491,9 +491,14 @@ paths:
   waits behind it. The dialog starts from the centring and plane the last confirmed import used
   (`StartingPlacement`, `Files::import_placement`, kept in the preferences under
   `import.drawing.recentre` and `import.drawing.plane` through
-  `PreferencesCommand::RememberImport`, read leniently). Unit and scale always start from the file:
-  a `Drawing` does not say whether its file named a unit, so a remembered override would silently
-  misread the next file that does.
+  `PreferencesCommand::RememberImport`, read leniently). A file that names its unit
+  (`Drawing::unit_source` is `Named`) always starts its unit and scale from the file. One that names
+  none (`Assumed`) starts from the unit and scale the last confirmed import of such a file used
+  (`StartingPlacement::unitless`, a `UnitlessStart`, keys `import.drawing.unitless.unit` and
+  `import.drawing.unitless.scale`, absent when that import left As the file says with a scale of 1,
+  an unreadable unit reads as none and an unreadable scale as 1), and an info callout under the
+  units says so while they are still those. Confirming an import of a file that names its unit
+  leaves the remembered unit alone.
 - A new STL or OBJ import whose read came back with a guessed unit (`UnitReading::is_guess`, a
   longest side that is implausible in millimetres, `file-import-export.md`) opens the unit offer
   (`import_unit.rs`, `Files::scaling`, `Scaling`) instead of placing the bodies: an info callout

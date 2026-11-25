@@ -20,7 +20,7 @@ use caditor_geometry::{Point2, Point3, Vector3};
 use crate::{
     import::{
         Drawing, ImportError, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES, MAX_EXPANDED_OBJECTS,
-        MAX_READ_CURVES,
+        MAX_READ_CURVES, UnitSource,
         dxf::{
             flatten::flatten,
             geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
@@ -70,7 +70,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
 
     let mut notes = Vec::new();
 
-    let scale = unit_note(file.units, &mut notes);
+    let (scale, unit_source) = unit_note(file.units, &mut notes);
     let shapes: Vec<Shape> = interpreter
         .shapes
         .iter()
@@ -85,6 +85,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
 
     drawing.layers = interpreter.layer_names.clone();
     drawing.unit_scale = scale;
+    drawing.unit_source = unit_source;
     match (interpreter.report(drawing), file.damage) {
         (Ok(mut drawing), Some(damage)) => {
             drawing.notes.push(damage_note(&damage));
@@ -1315,7 +1316,7 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
     })
 }
 
-fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
+fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> (f64, UnitSource) {
     let named = units.insertion.filter(|code| *code != UNITLESS);
 
     if named.is_none() && units.imperial {
@@ -1324,7 +1325,7 @@ fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
              were read as inches and converted to millimetres."
                 .to_owned(),
         );
-        return INCH;
+        return (INCH, UnitSource::Assumed);
     }
     match named.map(|code| (code, unit(code))) {
         Some((_, Some((scale, name)))) => {
@@ -1333,14 +1334,14 @@ fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
                     "The drawing is in {name}, so its lengths were converted to millimetres."
                 ));
             }
-            scale
+            (scale, UnitSource::Named)
         }
         Some((code, None)) => {
             notes.push(format!(
                 "The drawing names a unit caditor does not know (code {code}), so its numbers \
                  were read as millimetres."
             ));
-            1.0
+            (1.0, UnitSource::Assumed)
         }
         None => {
             notes.push(
@@ -1348,7 +1349,7 @@ fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
                  millimetres."
                     .to_owned(),
             );
-            1.0
+            (1.0, UnitSource::Assumed)
         }
     }
 }

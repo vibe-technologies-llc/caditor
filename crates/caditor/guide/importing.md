@@ -11,8 +11,11 @@ A drawing becomes sketch geometry: in the sketch being edited, else in a new ske
 file. Before it is added, a dialog asks the unit to read it in (as the file says, by default), a
 scale, whether to centre it on the origin, the plane for a new sketch and, for a drawing of several
 layers, which layers to take. It shows the size the drawing will have. The centring and the plane
-start as the last import left them, also after caditor is closed; the unit and scale start from
-the file each time, since they belong to the drawing. Dashed lines come in as
+start as the last import left them, also after caditor is closed. The unit and scale start from the
+file when it names its unit (a DXF with a known `$INSUNITS`, an SVG sized in mm, cm, in, pt or pc
+with a viewBox). A file that names none starts from the unit and scale you confirmed for the last
+such file, and the dialog says so; choose As the file says with a scale of 1 to read it as
+millimetres again. Dashed lines come in as
 construction geometry. A DXF spline given only by the points it passes through comes in as a
 [fit-point spline](spline) through those points, open or closed as the file says, so you can drag
 and constrain them.

@@ -146,12 +146,20 @@ impl DrawingCurve {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnitSource {
+    Named,
+    #[default]
+    Assumed,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drawing {
     pub curves: Vec<DrawingCurve>,
     pub construction: BTreeSet<usize>,
     pub notes: Vec<String>,
     pub unit_scale: f64,
+    pub unit_source: UnitSource,
     pub layers: Vec<String>,
     pub curve_layers: Vec<usize>,
 }
@@ -163,6 +171,7 @@ impl Default for Drawing {
             construction: BTreeSet::new(),
             notes: Vec::new(),
             unit_scale: 1.0,
+            unit_source: UnitSource::Assumed,
             layers: Vec::new(),
             curve_layers: Vec::new(),
         }

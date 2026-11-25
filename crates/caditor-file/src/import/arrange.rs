@@ -126,6 +126,7 @@ impl Drawing {
             construction: BTreeSet::new(),
             notes: self.notes.clone(),
             unit_scale: self.unit_scale,
+            unit_source: self.unit_source,
             layers: self.layers.clone(),
             curve_layers: Vec::new(),
         };
