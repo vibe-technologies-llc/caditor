@@ -342,22 +342,51 @@ paths:
   pair so the bounded face seeds the search.
 - `mass_properties` (`measure/mass.rs`) integrates area, volume and first and second moments
   exactly over each trimmed face: the divergence theorem gives a surface integral, and Green's
-  theorem in the face's uv domain a line integral along its coedges of a strip integral across u
-  from the middle of the u range (`∮ H dv`, so edges of constant v and pole lines contribute
-  nothing). Each boundary point is the edge's exact point projected onto the surface with the
-  pcurve as hint, its dv/dt from the surface's Jacobian. Both integrals are adaptive Gauss–Kronrod
-  (`quadrature.rs`, 15 points, bisecting until the 7-point error is within a relative tolerance of
-  its own magnitude or an absolute floor scaled to the body), broken at quarter turns, curve and
-  surface knots and where a boundary crosses a knot line, so each piece is smooth. Values are about
-  the centre of the box of edges, which keeps second moments from cancelling. A face that does not
-  converge within `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead
-  and is listed in `SolidMass::meshed_faces`. The boundary integrand (a strip integral times
-  dv/dt of the projected edge point) carries noise of about 1e-11 of its largest value, however
-  small it is where the boundary turns in v, so a piece is also accepted when its error is within
-  `BOUNDARY_NOISE` (1e-10) of the largest density seen so far times its length
-  (`Tolerance::noise`; strips have none). Without it a thin sphere lens (a sphere 1.6e-4 off
-  centre in a torus's inner equator) bisected to depth 30 at every such turn, spent the budget and
-  went to the mesh, which read its mass 8e-3 off in 474.
+  theorem in the face's uv domain a line integral along its coedges of a strip integral across one
+  parameter from the middle of its range (`∮ H dv` for strips across u, `−∮ G du` across v, so
+  edges along the strip's parameter contribute nothing). Each face strips across whichever
+  parameter costs less by an estimate (`strip_parameter`: each coedge that moves in the other
+  parameter, its curve's pieces times a strip's evaluations), never across v on a surface with
+  poles, whose loops close along the pole line without a coedge. A thread's flanks (16 rational
+  spans a turn along the helix, one across the ruling) and a turned-down shaft's crest band (u
+  unwrapped over 28 turns) strip across v, and a fitted pipe (four rational quarters round, 512
+  cubic spans a turn along the path) across its path, the section edges being its only coedges
+  moving round it. A coedge on an exact curve whose pcurve keeps the other parameter within
+  `LEVEL_SLACK` (1e-10 of its range) is skipped, contributing nothing, since projection noise
+  would otherwise spend a strip at each of its points; an intersection curve is never skipped,
+  its marched points lying about 1e-8 off the isoline its pcurve follows (a flank's crest edge,
+  whose area moves 3e-8 if it is). Each boundary point is the edge's exact point projected onto
+  the surface with the pcurve as hint, its rate the derivative of that projection (`along_rate`:
+  the Jacobian's normal equations less the edge's offset from the surface against the second
+  derivatives), so the integral follows the projected path itself rather than the tangent mapped
+  onto it; with the tangent alone an intersection curve 1e-8 off its faces moved a torus face's
+  volume 1.2e-6 in 286 between the two directions. Each loop is closed in uv: the step from one
+  coedge's projected end to the next one's start (about 1e-10 on a torus cut by its shifted copy)
+  adds the strip at its middle times the step (`gap_integral`), unless wider than `GAP_LIMIT` of
+  the domain (a period across a seam). With both, that face measures the same either way within
+  5e-11 of its volume, so neighbours may strip in different directions. Both integrals are
+  adaptive Gauss–Kronrod (`quadrature.rs`, 15 points, bisecting until the 7-point error is within
+  a relative tolerance of its own magnitude or an absolute floor scaled to the body), broken at
+  quarter turns, curve and surface knots and where a boundary crosses a knot line, so each piece is
+  smooth. A boundary running along a knot line within `KINK_SLACK` (a pipe's seam on its periodic
+  knot) crosses nothing, and breaks within `SLIVER` (1e-9 of the range) of an end or of each other
+  merge, so no piece is a rounding-sized sliver bisected to depth 30. A strip across a rational
+  spline halves each span first (the 7-point estimate on a rational quarter circle is 2e-11 off),
+  and one across a direction in which every component is at most cubic (a plane, a cylinder's or
+  extrusion's v) is two-point Gauss, exact. Values are about the centre of the box of edges, which
+  keeps second moments from cancelling. A face that does not converge within `FACE_EVALUATIONS`,
+  or meets a non-finite value, takes its mesh triangles instead and is listed in
+  `SolidMass::meshed_faces`. The boundary integrand (a strip integral times the rate of the
+  projected edge point) carries noise of about 1e-11 of its largest value, however small it is
+  where the boundary turns, so a piece is also accepted when its error is within `BOUNDARY_NOISE`
+  (1e-10) of the largest density seen so far times its length (`Tolerance::noise`; strips have
+  none). Without it a thin sphere lens (a sphere 1.6e-4 off centre in a torus's inner equator)
+  bisected to depth 30 at every such turn, spent the budget and went to the mesh, which read its
+  mass 8e-3 off in 474. Every evaluation is counted in the `tally`: `measure/swept_tests.rs` holds
+  a 1 mm round pipe along three helix turns to 1.5 million (about 1.4), along three turns of a flat
+  spiral to 3 million (2.8) and a threaded M4×20 shaft to 3.3 million (3.0), none meshed, the
+  pipes within 1e-6 of their analytic volumes (the path's own approximation) and 1e-10 of a tensor
+  Gauss rule over their faces' knot cells, the shaft within 1e-6 of the analytic groove.
   `mass_properties_tessellating` takes a sampling tolerance and tessellates only when some face does
   not converge (failure is `MeasureError::Meshing`). `face_area` is the same integral for one face
   (`None` when it gives up).

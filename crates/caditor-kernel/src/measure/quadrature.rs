@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crate::interval::Interval;
+use crate::{interval::Interval, tally};
 
 pub(crate) const COMPONENTS: usize = 11;
 pub(crate) type Values = [f64; COMPONENTS];
@@ -36,8 +36,11 @@ const GAUSS_WEIGHTS: [f64; 8] = [
     0.417_959_183_673_469_4,
 ];
 const MAX_DEPTH: usize = 30;
-const KRONROD_EVALUATIONS: usize = 15;
+pub(crate) const KRONROD_EVALUATIONS: usize = 15;
+pub(crate) const CUBIC_EVALUATIONS: usize = CUBIC_NODES.len();
 const MAX_STEPS: usize = 4096;
+const SLIVER: f64 = 1e-9;
+const CUBIC_NODES: [f64; 2] = [-0.577_350_269_189_625_8, 0.577_350_269_189_625_8];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Tolerance {
@@ -74,6 +77,8 @@ impl Budget {
 
     fn spend(&self, evaluations: usize) -> bool {
         let left = self.0.get();
+
+        tally::add(evaluations);
 
         self.0.set(left.saturating_sub(evaluations));
         left >= evaluations
@@ -201,13 +206,44 @@ pub(crate) fn integrate(
     Quadrature { values, converged }
 }
 
+pub(crate) fn integrate_cubic(
+    pieces: impl IntoIterator<Item = Interval>,
+    budget: &Budget,
+    mut integrand: impl FnMut(f64) -> Values,
+) -> Quadrature {
+    let mut values = [0.0; COMPONENTS];
+
+    for piece in pieces {
+        if !budget.spend(CUBIC_EVALUATIONS) {
+            return Quadrature {
+                values,
+                converged: false,
+            };
+        }
+
+        let half = 0.5 * piece.length();
+
+        for node in CUBIC_NODES {
+            add(&mut values, &integrand(piece.middle() + half * node), half);
+        }
+    }
+    Quadrature {
+        converged: values.iter().all(|value| value.is_finite()),
+        values,
+    }
+}
+
 pub(crate) fn pieces(range: Interval, breaks: impl IntoIterator<Item = f64>) -> Vec<Interval> {
+    let sliver = SLIVER * range.length();
     let mut ends: Vec<f64> = breaks
         .into_iter()
-        .filter(|parameter| *parameter > range.start() && *parameter < range.end())
+        .filter(|parameter| {
+            *parameter > range.start() + sliver && *parameter < range.end() - sliver
+        })
         .collect();
 
     ends.sort_by(f64::total_cmp);
+    ends.dedup_by(|later, kept| *later - *kept <= sliver);
     ends.insert(0, range.start());
     ends.push(range.end());
     ends.windows(2)

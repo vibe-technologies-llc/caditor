@@ -1159,8 +1159,8 @@ paths:
   (8) times the turn from the start, and the start and end caps 5 and 6.
 - Cost: an M4x20 shaft threaded its whole length takes about 0.7 to 0.9 s in release, an M8 bore
   12 mm deep about 0.35 s (`thread/tests.rs` prints the times); volumes agree with the analytic
-  groove volume within 1e-4. Measuring a threaded body's mass exactly (`mass_properties`) does not
-  converge on the flanks and falls back to the mesh after a long search (roadmap).
+  groove volume within 1e-4. Its exact mass (`mass_properties`) integrates every face, the flanks
+  and crest band stripping across v (`kernel.md`), within 2e-8 of the analytic groove.
 
 # Coils (`coil/`)
 

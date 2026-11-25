@@ -6,14 +6,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [medium · hard] A modelled thread is slow to cut and to measure: in release an M4×20 shaft
-  threaded its whole length takes 0.7 to 0.9 s (about a third classifying fragments by rays
-  through a hundred one-turn flank faces, a third imprinting, a fifth validating the volume) and an
-  M8 bore 12 mm deep 0.35 s. With the groove's far face exactly on the shaft (no 5 % reach) the
-  M4 took 0.5 s, the crest then being the groove's own helix rather than a marched one, but
-  coincident faces were left out until they are known to hold on every face kind. Measuring the
-  threaded M4's mass exactly (`mass_properties`) gave up on 59 of its 64 faces after about 100 s
-  and took them from the mesh: the flank integrals do not converge within `FACE_EVALUATIONS`.
+- [medium · hard] A modelled thread is slow to cut: in release an M4×20 shaft threaded its whole
+  length takes 0.7 to 0.9 s (about a third classifying fragments by rays through a hundred
+  one-turn flank faces, a third imprinting, a fifth validating the volume) and an M8 bore 12 mm
+  deep 0.35 s. With the groove's far face exactly on the shaft (no 5 % reach) the M4 took 0.5 s,
+  the crest then being the groove's own helix rather than a marched one, but coincident faces were
+  left out until they are known to hold on every face kind.
 - [medium · hard] A boolean still meshes, for validation, every face given a new loop, and makes
   passes over every face, edge and loop of the body that the tool leaves alone, though the other
   geometry work on them is carried, so a sequence of hole features stays quadratic: in release the
@@ -30,12 +28,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   300 separated blocks takes 2.6 ms (18.2 before the blocks it does not reach were left alone),
   mostly boxing, grouping and copying those blocks. A result of several shells, such as a block
   with a void inside, is still meshed whole for its volumes and placement.
-- [medium · hard] Measuring a pipe along a helix or flat spiral exactly is slow: in the
-  unoptimised test build a 1 mm round pipe along three turns of a helix (10 mm radius, 4 mm pitch)
-  takes 1.6 s to build and 215 s more for `mass_properties` at `MeshQuality::SMOOTH`
-  (`SolidResult::exact_mass`, which `list_bodies` reads), and along three turns of a flat spiral
-  (5 mm inner radius, 5 mm pitch) 4.2 s and 277 s, one to three faces given up and taken from the
-  mesh: the swept faces' integrals barely converge within `FACE_EVALUATIONS`.
 - [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
   the eight-edge rim of a pocket with rounded corners in a cylinder takes about 49 ms
   (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored; 57 ms on
@@ -50,6 +42,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Skipping the leaves of a branch already found needs that branch traced during subdivision,
   ahead of the hints and of the isolated-touch search, which today see every seed before
   anything is traced, so it was left for the 2 ms it would save at most.
+- [low · medium] Exact mass of a swept or threaded face still spends a 15-point rule each way per
+  piece: `measure/swept_tests.rs` measures a 1 mm round pipe along three turns of a 10 mm, 4 mm
+  pitch helix in about 1.4 million evaluations (0.3 s in the test build), along three turns of a
+  flat spiral in 2.8 million (0.6 s) and a threaded M4×20 shaft in 3.0 million, against 25, 20 and
+  25 million before, when three, one and one of their faces were given up to the mesh. The pipes
+  pay for the fit's 512 cubic spans a turn (1,024 for the spiral), crossed by a 15-point strip at
+  each node of the section edges; the shaft's 60 flanks are 2.6 million of it, their crest edges'
+  150 marched pieces a turn each taking a 15-point strip across the ruling. A Gauss rule of the
+  moments' polynomial degree along a non-rational direction, and a closed-form area across a
+  ruling (the normal is linear there, so every moment is a polynomial and the area the integral of
+  a quadratic's root), would cut these by about half and four times.
 - [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
   points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
   its triangles in twelve: each strip triangulates its core and a reach of about the widest empty

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, f64::consts::FRAC_PI_2};
 
-use caditor_geometry::{Aabb, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
 
 use super::{
     MeasureError,
@@ -10,7 +10,7 @@ use crate::{
     curve::Curve,
     interrupt,
     interval::Interval,
-    surface::{Surface, SurfaceDerivatives},
+    surface::{BSplineSurface, Surface, SurfaceDerivatives},
     tessellation::{MassProperties, Mesh, Moments, TessellationError},
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{Coedge, FaceId, Solid},
@@ -25,6 +25,9 @@ const LEVEL_RATE: f64 = 1e-15;
 const MAX_CROSSINGS: usize = 4096;
 const MAX_BISECTIONS: usize = 80;
 const BISECTION_EPSILON: f64 = 1e-15;
+const KINK_SLACK: f64 = 1e-9;
+const LEVEL_SLACK: f64 = 1e-10;
+const GAP_LIMIT: f64 = 1e-6;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SolidMass {
@@ -174,37 +177,50 @@ fn face_moments(
 ) -> Result<Option<Moments>, MeasureError> {
     let definition = solid.face(face).ok_or(MeasureError::MissingFace(face))?;
     let surface = definition.surface();
-    let mut coedges: Vec<&Coedge> = Vec::new();
+    let mut loops: Vec<Vec<&Coedge>> = Vec::new();
 
     for loop_id in definition.loops() {
         let face_loop = solid
             .face_loop(*loop_id)
             .ok_or(MeasureError::MissingFace(face))?;
-        for coedge in face_loop.coedges() {
-            coedges.push(
-                solid
-                    .coedge(*coedge)
-                    .ok_or(MeasureError::MissingFace(face))?,
-            );
-        }
+        let found = face_loop
+            .coedges()
+            .iter()
+            .map(|coedge| solid.coedge(*coedge).ok_or(MeasureError::MissingFace(face)))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        loops.push(found);
     }
+
+    let coedges: Vec<&Coedge> = loops.iter().flatten().copied().collect();
 
     let Some((u_range, v_range)) = uv_ranges(&coedges) else {
         return Ok(None);
     };
 
+    let across = strip_parameter(solid, surface, &coedges, (u_range, v_range));
+    let (strip_range, along_range) = match across {
+        Parameter::U => (u_range, v_range),
+        Parameter::V => (v_range, u_range),
+    };
+
     let domain = Domain {
         surface,
-        middle: u_range.middle(),
-        strip: frame.strip_tolerance(v_range),
+        across,
+        middle: strip_range.middle(),
+        strip: frame.strip_tolerance(along_range),
         u_kinks: surface_u_kinks(surface, u_range),
         v_kinks: surface_v_kinks(surface, v_range),
     };
     let budget = Budget::new(FACE_EVALUATIONS);
     let mut total = [0.0; COMPONENTS];
 
-    for coedge in coedges {
+    for coedge in &coedges {
         interrupt::check()?;
+
+        if is_level(solid, coedge, across.other(), along_range) {
+            continue;
+        }
 
         let found = boundary_integral(solid, &domain, coedge, frame, &budget)?;
 
@@ -213,15 +229,135 @@ fn face_moments(
         }
         quadrature::add(&mut total, &found.values, 1.0);
     }
+
+    let reach = GAP_LIMIT * u_range.length().max(v_range.length());
+
+    for face_loop in &loops {
+        for (from, to) in face_loop.iter().zip(face_loop.iter().cycle().skip(1)) {
+            let end = coedge_end(solid, surface, from, End::Last)
+                .ok_or(MeasureError::MissingEdge(from.edge()))?;
+            let start = coedge_end(solid, surface, to, End::First)
+                .ok_or(MeasureError::MissingEdge(to.edge()))?;
+
+            let found = gap_integral(&domain, (end, start), reach, frame.reference, &budget);
+
+            if !found.converged {
+                return Ok(None);
+            }
+            quadrature::add(&mut total, &found.values, 1.0);
+        }
+    }
     Ok(Some(moments_of(&total, definition.sense().sign())))
+}
+
+#[derive(Clone, Copy, Debug)]
+enum End {
+    First,
+    Last,
+}
+
+fn coedge_end(solid: &Solid, surface: &Surface, coedge: &Coedge, end: End) -> Option<Point2> {
+    let edge = solid.edge(coedge.edge())?;
+    let range = edge.interval();
+    let parameter = match (end, coedge.sense().is_same()) {
+        (End::First, true) | (End::Last, false) => range.start(),
+        (End::First, false) | (End::Last, true) => range.end(),
+    };
+
+    let point = edge.curve().point(parameter);
+    Some(surface.project(point, Some(coedge.pcurve().uv_at(parameter))))
+}
+
+fn gap_integral(
+    domain: &Domain<'_>,
+    (from, to): (Point2, Point2),
+    reach: f64,
+    reference: Point3,
+    budget: &Budget,
+) -> Quadrature {
+    let gap = to - from;
+
+    if gap == Vector2::ZERO || gap.abs().max_element() > reach {
+        return Quadrature {
+            values: [0.0; COMPONENTS],
+            converged: true,
+        };
+    }
+
+    let middle = from + 0.5 * gap;
+    let step = match domain.across {
+        Parameter::U => gap.y,
+        Parameter::V => -gap.x,
+    };
+    let found = strip(domain, middle, reference, budget);
+    Quadrature {
+        values: scaled(&found.values, step),
+        converged: found.converged,
+    }
 }
 
 struct Domain<'a> {
     surface: &'a Surface,
+    across: Parameter,
     middle: f64,
     strip: Tolerance,
     u_kinks: Vec<f64>,
     v_kinks: Vec<f64>,
+}
+
+fn strip_parameter(
+    solid: &Solid,
+    surface: &Surface,
+    coedges: &[&Coedge],
+    (u_range, v_range): (Interval, Interval),
+) -> Parameter {
+    if !surface.poles().is_empty() {
+        return Parameter::U;
+    }
+
+    let cost = |across: Parameter, range: Interval, along: Interval| {
+        let strip = strip_pieces(surface, across, range)
+            .len()
+            .saturating_mul(strip_evaluations(surface, across));
+
+        coedges
+            .iter()
+            .filter(|coedge| !is_level(solid, coedge, across.other(), along))
+            .map(|coedge| {
+                let pieces = solid.edge(coedge.edge()).map_or(1, |edge| {
+                    let range = edge.interval();
+                    quadrature::pieces(range, curve_breaks(edge.curve(), range)).len()
+                });
+                pieces.saturating_mul(1 + strip)
+            })
+            .fold(0_usize, usize::saturating_add)
+    };
+
+    if cost(Parameter::V, v_range, u_range) < cost(Parameter::U, u_range, v_range) {
+        Parameter::V
+    } else {
+        Parameter::U
+    }
+}
+
+fn is_level(solid: &Solid, coedge: &Coedge, along: Parameter, range: Interval) -> bool {
+    let exact = solid
+        .edge(coedge.edge())
+        .is_some_and(|edge| !matches!(edge.curve(), Curve::Intersection(_)));
+
+    if !exact {
+        return false;
+    }
+
+    let samples = coedge.pcurve().samples();
+    let Some(first) = samples.first().map(|sample| along.of(sample.uv)) else {
+        return true;
+    };
+    let slack = LEVEL_SLACK * range.length();
+
+    samples
+        .iter()
+        .all(|sample| (along.of(sample.uv) - first).abs() <= slack)
 }
 
 fn uv_ranges(coedges: &[&Coedge]) -> Option<(Interval, Interval)> {
@@ -284,7 +420,8 @@ fn boundary_integral(
         |parameter| {
             let (point, uv) = on_surface(parameter);
 
-            let Some(rate) = v_rate(&surface.evaluate(uv.x, uv.y), point.first) else {
+            let at = surface.evaluate(uv.x, uv.y);
+            let Some(rate) = along_rate(&at, (point.point, point.first), domain.across) else {
                 return [0.0; COMPONENTS];
             };
             let strip = strip(domain, uv, frame.reference, budget);
@@ -326,7 +463,12 @@ fn kink_crossings(domain: &Domain<'_>, coedge: &Coedge, uv_at: &dyn Fn(f64) -> P
                 if crossings.len() >= MAX_CROSSINGS {
                     return crossings;
                 }
-                if (from - kink) * (to - kink) < 0.0 {
+
+                let on_line = KINK_SLACK * (1.0 + kink.abs());
+
+                if (from - kink) * (to - kink) < 0.0
+                    && (from - kink).abs().max((to - kink).abs()) > on_line
+                {
                     let offset = |along: f64| parameter.of(uv_at(along)) - kink;
 
                     crossings.push(bisect(*start, *end, from - kink, offset));
@@ -350,6 +492,20 @@ impl Parameter {
             Self::V => uv.y,
         }
     }
+
+    fn other(self) -> Self {
+        match self {
+            Self::U => Self::V,
+            Self::V => Self::U,
+        }
+    }
+
+    fn with(self, uv: Point2, value: f64) -> Point2 {
+        match self {
+            Self::U => Point2::new(value, uv.y),
+            Self::V => Point2::new(uv.x, value),
+        }
+    }
 }
 
 fn bisect(start: f64, end: f64, start_offset: f64, offset: impl Fn(f64) -> f64) -> f64 {
@@ -370,8 +526,17 @@ fn bisect(start: f64, end: f64, start_offset: f64, offset: impl Fn(f64) -> f64) 
     0.5 * (low + high)
 }
 
-fn v_rate(at: &SurfaceDerivatives, tangent: Vector3) -> Option<f64> {
-    let (uu, uv, vv) = (at.du.dot(at.du), at.du.dot(at.dv), at.dv.dot(at.dv));
+fn along_rate(
+    at: &SurfaceDerivatives,
+    (point, tangent): (Point3, Vector3),
+    across: Parameter,
+) -> Option<f64> {
+    let offset = point - at.point;
+    let (uu, uv, vv) = (
+        at.du.dot(at.du) - offset.dot(at.duu),
+        at.du.dot(at.dv) - offset.dot(at.duv),
+        at.dv.dot(at.dv) - offset.dot(at.dvv),
+    );
 
     let determinant = uu * vv - uv * uv;
 
@@ -379,17 +544,29 @@ fn v_rate(at: &SurfaceDerivatives, tangent: Vector3) -> Option<f64> {
         return None;
     }
 
-    let rate = (uu * at.dv.dot(tangent) - uv * at.du.dot(tangent)) / determinant;
-    let level = (rate * vv.sqrt()).abs() <= LEVEL_RATE * tangent.length();
-    (rate.is_finite() && !level).then_some(rate)
+    let (along, speed) = match across {
+        Parameter::U => (
+            (uu * at.dv.dot(tangent) - uv * at.du.dot(tangent)) / determinant,
+            at.dv.length(),
+        ),
+        Parameter::V => (
+            (uv * at.dv.dot(tangent) - vv * at.du.dot(tangent)) / determinant,
+            at.du.length(),
+        ),
+    };
+
+    let level = (along * speed).abs() <= LEVEL_RATE * tangent.length();
+    (along.is_finite() && !level).then_some(along)
 }
 
 fn strip(domain: &Domain<'_>, uv: Point2, reference: Point3, budget: &Budget) -> Quadrature {
-    let (surface, middle) = (domain.surface, domain.middle);
-    let (range, sign) = if uv.x >= middle {
-        (Interval::new(middle, uv.x), 1.0)
+    let (surface, middle, across) = (domain.surface, domain.middle, domain.across);
+    let end = across.of(uv);
+
+    let (range, sign) = if end >= middle {
+        (Interval::new(middle, end), 1.0)
     } else {
-        (Interval::new(uv.x, middle), -1.0)
+        (Interval::new(end, middle), -1.0)
     };
     let Some(range) = range else {
         return Quadrature {
@@ -398,16 +575,77 @@ fn strip(domain: &Domain<'_>, uv: Point2, reference: Point3, budget: &Budget) ->
         };
     };
 
-    let found = quadrature::integrate(
-        quadrature::pieces(range, surface_u_breaks(surface, range)),
-        &domain.strip,
-        budget,
-        |u| density(&surface.evaluate(u, uv.y), reference),
-    );
+    let pieces = strip_pieces(surface, across, range);
+    let integrand = |parameter: f64| {
+        let at = across.with(uv, parameter);
+        density(&surface.evaluate(at.x, at.y), reference)
+    };
+
+    let found = if is_linear_across(surface, across) {
+        quadrature::integrate_cubic(pieces, budget, integrand)
+    } else {
+        quadrature::integrate(pieces, &domain.strip, budget, integrand)
+    };
     Quadrature {
         values: scaled(&found.values, sign),
         converged: found.converged,
     }
+}
+
+fn strip_pieces(surface: &Surface, across: Parameter, range: Interval) -> Vec<Interval> {
+    let breaks = match across {
+        Parameter::U => surface_u_breaks(surface, range),
+        Parameter::V => surface_v_breaks(surface, range),
+    };
+    let pieces = quadrature::pieces(range, breaks);
+
+    match surface {
+        Surface::BSpline(spline) if is_rational_across(spline, across) => pieces
+            .into_iter()
+            .flat_map(|piece| {
+                [
+                    Interval::new(piece.start(), piece.middle()),
+                    Interval::new(piece.middle(), piece.end()),
+                ]
+            })
+            .flatten()
+            .collect(),
+        _ => pieces,
+    }
+}
+
+fn is_rational_across(spline: &BSplineSurface, across: Parameter) -> bool {
+    let Some(weights) = spline.weights() else {
+        return false;
+    };
+    let columns = spline.columns().max(1);
+
+    match across {
+        Parameter::U => weights.chunks(columns).any(|row| {
+            row.windows(2)
+                .any(|pair| matches!(pair, [first, second] if first != second))
+        }),
+        Parameter::V => (0..columns).any(|column| {
+            let mut down = weights.iter().skip(column).step_by(columns);
+            down.next()
+                .is_some_and(|first| down.any(|weight| weight != first))
+        }),
+    }
+}
+
+fn strip_evaluations(surface: &Surface, across: Parameter) -> usize {
+    if is_linear_across(surface, across) {
+        quadrature::CUBIC_EVALUATIONS
+    } else {
+        quadrature::KRONROD_EVALUATIONS
+    }
+}
+
+fn is_linear_across(surface: &Surface, across: Parameter) -> bool {
+    matches!(
+        (surface, across),
+        (Surface::Plane(_), _) | (Surface::Cylinder(_) | Surface::Extrusion(_), Parameter::V)
+    )
 }
 
 fn density(at: &SurfaceDerivatives, reference: Point3) -> Values {

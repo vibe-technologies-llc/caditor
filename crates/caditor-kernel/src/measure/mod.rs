@@ -6,6 +6,8 @@ mod mass;
 mod mass_tests;
 mod quadrature;
 #[cfg(test)]
+mod swept_tests;
+#[cfg(test)]
 mod tests;
 
 use std::borrow::Cow;
