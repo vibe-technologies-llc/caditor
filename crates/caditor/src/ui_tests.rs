@@ -192,6 +192,7 @@ mod sketch_gears;
 mod sketch_handles;
 mod sketch_inference;
 mod sketch_keys;
+mod sketch_line_middles;
 mod sketch_modify;
 mod sketch_modify_status;
 mod sketch_pattern_copies;

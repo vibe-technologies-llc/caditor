@@ -1734,6 +1734,7 @@ impl ViewportState {
             .active()
             .is_some_and(|active| active.tool == Tool::Line);
         if drawing_lines
+            && self.drawing.chains_lines()
             && self.drawing.in_progress()
             && commands.take(Command::SketchTool(Tool::TangentArc))
         {
@@ -3572,6 +3573,7 @@ impl ViewportState {
                     last: Some(moving.anchor),
                     toward: None,
                     width: None,
+                    reach: typed_point::Reach::OneWay,
                 };
                 typed_point::parse(model, text, from).ok()
             });
@@ -5946,6 +5948,7 @@ impl ViewportState {
             last: self.drawing.last_placed(),
             toward: self.drawing.pointer_position(),
             width: self.drawing.width_target(),
+            reach: self.drawing.typed_reach(),
         };
 
         let Some(typed) = self.typed_point.show(
@@ -6371,6 +6374,7 @@ impl ViewportState {
                 last: Some(fresh.anchor),
                 toward: None,
                 width: None,
+                reach: typed_point::Reach::OneWay,
             };
             let target = typed_point::parse(model, &typed.text, from)?;
             Ok(fresh.to(target))
@@ -6430,6 +6434,7 @@ impl ViewportState {
             last: Some(moving.place.at),
             toward: None,
             width: None,
+            reach: typed_point::Reach::OneWay,
         };
         match typed_point::parse(model, &typed.text, from) {
             Ok(target) => actions.push(Action::Apply(moving.transaction(model, target))),
@@ -7893,6 +7898,7 @@ impl ViewportState {
         let mut keys = self
             .drawing
             .mode()
+            .filter(|mode| mode.run_again().is_some())
             .map(|mode| key_hints.mode(mode))
             .unwrap_or_default();
 

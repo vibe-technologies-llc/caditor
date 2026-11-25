@@ -1067,6 +1067,7 @@ impl Menus<'_> {
                 ui.separator();
                 submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
                     for tool in [
+                        Tool::Line,
                         Tool::Rectangle,
                         Tool::Circle,
                         Tool::Polygon,
@@ -1074,7 +1075,7 @@ impl Menus<'_> {
                         Tool::BlendCurve,
                         Tool::Offset,
                     ] {
-                        if tool != Tool::Rectangle {
+                        if tool != Tool::Line {
                             ui.separator();
                         }
                         self.items(ui, ShapeMode::of_tool(tool).map(Command::ShapeMode));

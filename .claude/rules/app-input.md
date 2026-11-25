@@ -605,8 +605,10 @@ paths:
   `<` (from the sketch's x axis; degrees unless a unit is named), `@` for an offset from the last
   placed point, and a lone length from the last point toward the pointer (or perpendicularly/radially
   for width-sized steps through `WidthTarget`: 3-point rectangle width, slot diameter `Ø`, arc-slot
-  width and ellipse minor radius `r`, matching the beside-pointer readout). The point must be within
-  `MAX_LENGTH` of the origin. Offset's distance, Sketch fillet's radius and Move reuse it as one
+  width and ellipse minor radius `r`, matching the beside-pointer readout). A length measured from
+  the last point (lone, `@length < angle`, held with `<`) goes half as far when `From::reach` is
+  `Reach::BothWays`, a line drawn from its middle, whose readout and dimension are the whole line's.
+  The point must be within `MAX_LENGTH` of the origin. Offset's distance, Sketch fillet's radius and Move reuse it as one
   length expression (`modifying::Value`, `app-sketching.md`). Outside a sketch it opens the same way
   over a hovered or held handle of the open feature (`ViewportState::type_handle`,
   `app-modelling.md`, Value handles). Its input shares `field::Assist` with value fields, so it

@@ -243,6 +243,18 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   "Snapping off" before the Alt hint. Ctrl wins over Alt (AltGr arrives as Ctrl+Alt on Windows). The
   pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot place a
   point at an enormous distance.
+- Line has two ways (`LineMode`): from one end (the default, chaining as below) and from its middle.
+  From its middle, the first click places the middle and the second an end; the other end is the
+  end mirrored through the middle (`Draft::line_from_middle`), placed free with no inferred
+  coincidence, and the middle stays a point held by `Midpoint` on the line (4 degrees of freedom).
+  The end snaps and is aligned from the middle as a line's end is from its start (horizontal,
+  vertical, parallel, perpendicular, tangent), but takes no equal length, since the length from the
+  middle is half the line's. It draws one line, no chain (no pending point, `Drawing::finishable`
+  refuses), and the tool keeps the way. A length typed from the middle (lone, `@length < angle` or
+  held with `<`) is the whole line's (`typed_point::Reach::BothWays`, from
+  `Drawing::typed_reach`), and its dimensions go on the line (`SizedTarget::LineFromMiddle`: a
+  `Distance` between the ends and the `Angle` from the x axis). The chain-only behaviour below
+  (`Drawing::chains_lines`: tangent arcs from the chain, resting, Stop here) belongs to the first way.
 - Lines and tangent arcs chain, each joined to the last end by `Coincident`, until Enter, Escape, a
   click on the last point, or a line closing on the chain's first point (`Drawing::finish` gives
   `Ended::Stopped`). Splines finish on Enter or a click on the last point and close (periodic,
@@ -286,8 +298,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   start, `Drawing::arc_from_press` takes it when the hover is the pending last point ending a line,
   arc or spline): the release places the arc's end, and a release back on the last point draws no arc
   and keeps the chain. The arc bends to the pointer's side of the line (`shapes::tangent_from`).
-  `Command::ChainArc` toggles `Arcing::Toggled`, and the Tangent arc command (T) with the Line tool
-  holding a point runs it instead of switching tools (`ViewportState::arc_on_tangent_arc_key`, before
+  `Command::ChainArc` toggles `Arcing::Toggled`, and the Tangent arc command (T) with a line chain
+  holding a point (`Drawing::chains_lines`) runs it instead of switching tools (`ViewportState::arc_on_tangent_arc_key`, before
   the sketch bar takes the command); `Drawing::chain_arc` gates it, refused with
   `ChainArcError::NothingToArcFrom`. A drawn arc, a dragged arc's release, taking back or stepping back return to
   lines.
@@ -324,8 +336,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 
 ## Ways of drawing a shape
 
-- Rectangle, circle, polygon and slot each keep one tool with several ways (`ShapeMode`), so the
-  ribbon and keymap stay small and a shape is found under its one key. Arcs stay separate tools under
+- Line, rectangle, circle, polygon and slot each keep one tool with several ways (`ShapeMode`), so
+  the ribbon and keymap stay small and a shape is found under its one key. Arcs stay separate tools under
   one Arc button, and Spline, Ellipse and Elliptical arc under one Curve button (`app-look.md`),
   since an ellipse is a curve of its own, not a way to draw another.
 - Spline has four ways (`SplineMode`), fit points first and the default (the curve passes each placed
@@ -334,11 +346,18 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Blend curve (`ShapeMode::Blend`, `ShapeModes::blend`: tangent G1 or curvature-continuous G2) and
   Offset (`ShapeMode::Offset`, `ShapeModes::offset`: three ways) keep theirs likewise; the modify
   tool reads the way each frame and its prompt leads with it.
-- Running a tool's command while it is active steps to its next way, round to the first; clicking
+- Running a tool's command while it is active steps to its next way, round to the first
+  (`ShapeMode::run_again`), except Line, whose L pressed again keeps its way, since pressing L to
+  carry on drawing connected lines is a habit stepping would break; clicking
   its ribbon button only chooses the tool (`sketch_toolbar::partnered_tool_button` for compact
   buttons, `off_ribbon_tool` for off-ribbon tools). Every way is also its own command
-  (`Command::ShapeMode`, id `sketch.<shape>.<way>`) in the palette, the arrow menu and Sketch ›
-  Ways to draw shapes.
+  (`Command::ShapeMode`, id `sketch.<shape>.<way>`) in the palette, the arrow menu, the Draw
+  group's menu and Sketch › Ways to draw shapes. Line's ways have no arrow beside its button
+  (`sketch_toolbar::WAYS_OFF_RIBBON`; `request_invoked_way` still takes their commands): one there
+  wraps the Modify group off the sketch bar's first row at the usual size
+  (`interface_fit::the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button`).
+  The canvas names the way with its key (`ShapeMode::hint`) only for a shape whose key steps, so
+  Line's short key list stays whole; its prompt says which way it is drawing.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
   sketches and documents; it is not a preference, as no tool state is.
 

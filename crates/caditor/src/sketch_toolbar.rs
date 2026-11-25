@@ -106,6 +106,7 @@ pub const OFF_RIBBON: [Tool; 5] = [
     Tool::TangentCircle,
     Tool::BlendCurve,
 ];
+pub const WAYS_OFF_RIBBON: [Tool; 1] = [Tool::Line];
 pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
 pub const CURVE_FROM_GEOMETRY_TOOLS: Partners = Partners {
     host: Tool::Offset,
@@ -1221,10 +1222,11 @@ impl Bar<'_, '_> {
         };
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
-        let hover = match (keys, mode) {
-            (Some(keys), Some(mode)) => format!(
+
+        let hover = match (keys, mode.and_then(ShapeMode::run_again)) {
+            (Some(keys), Some(next)) => format!(
                 "{description} ({keys})\n{keys} again: {}",
-                mode.next().label().to_lowercase()
+                next.label().to_lowercase()
             ),
             (Some(keys), None) => format!("{description} ({keys})"),
             (None, _) => description.to_owned(),
@@ -1242,26 +1244,38 @@ impl Bar<'_, '_> {
             ui.add(button).on_hover_text(hover)
         };
 
-        match mode.filter(|_| invoked && active) {
-            Some(mode) => self.request.mode = Some(mode.next()),
+        match mode
+            .filter(|_| invoked && active)
+            .and_then(ShapeMode::run_again)
+        {
+            Some(next) => self.request.mode = Some(next),
             None if response.clicked() || invoked => self.request.tool = Some(tool),
             None => {}
         }
         response
     }
 
-    fn off_ribbon_tool(&mut self, tool: Tool) {
-        let invoked = self.commands.available(Command::SketchTool(tool));
-
+    fn request_invoked_way(&mut self, tool: Tool) {
         for mode in ShapeMode::of_tool(tool) {
             if self.commands.available(Command::ShapeMode(mode)) {
                 self.request.mode = Some(mode);
             }
         }
+    }
+
+    fn off_ribbon_tool(&mut self, tool: Tool) {
+        let invoked = self.commands.available(Command::SketchTool(tool));
+
+        self.request_invoked_way(tool);
 
         let active = self.active.tool == tool;
-        match self.modes.of(tool).filter(|_| invoked && active) {
-            Some(mode) => self.request.mode = Some(mode.next()),
+        match self
+            .modes
+            .of(tool)
+            .filter(|_| invoked && active)
+            .and_then(ShapeMode::run_again)
+        {
+            Some(next) => self.request.mode = Some(next),
             None if invoked => self.request.tool = Some(tool),
             None => {}
         }
@@ -1270,11 +1284,7 @@ impl Bar<'_, '_> {
     fn mode_menu(&mut self, ui: &mut Ui, current: ShapeMode, button: Rect) -> Rect {
         let tool = current.tool();
 
-        for mode in ShapeMode::of_tool(tool) {
-            if self.commands.available(Command::ShapeMode(mode)) {
-                self.request.mode = Some(mode);
-            }
-        }
+        self.request_invoked_way(tool);
 
         let name = modes_label(tool);
         let contents = ways_listed(tool);
@@ -1324,10 +1334,11 @@ impl Bar<'_, '_> {
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
         let keys = self.commands.keys(command);
-        let hover = match (keys, mode) {
-            (Some(keys), Some(mode)) => format!(
+
+        let hover = match (keys, mode.and_then(ShapeMode::run_again)) {
+            (Some(keys), Some(next)) => format!(
                 "{description} ({keys})\n{keys} again: {}",
-                mode.next().label().to_lowercase()
+                next.label().to_lowercase()
             ),
             (Some(keys), None) => format!("{description} ({keys})"),
             (None, _) => description.to_owned(),
@@ -1336,13 +1347,12 @@ impl Bar<'_, '_> {
         let help = Ok::<_, std::convert::Infallible>(hover);
         let response = explained(ui.add(button), tool.label(), &help);
 
-        for way in ShapeMode::of_tool(tool) {
-            if self.commands.available(Command::ShapeMode(way)) {
-                self.request.mode = Some(way);
-            }
-        }
-        match mode.filter(|_| invoked && active) {
-            Some(mode) => self.request.mode = Some(mode.next()),
+        self.request_invoked_way(tool);
+        match mode
+            .filter(|_| invoked && active)
+            .and_then(ShapeMode::run_again)
+        {
+            Some(next) => self.request.mode = Some(next),
             None if response.clicked() || invoked => self.request.tool = Some(tool),
             None => {}
         }
@@ -1452,6 +1462,10 @@ impl Bar<'_, '_> {
 
         let button = self.tool_button(ui, tool, tool.label()).rect;
         match self.modes.of(tool) {
+            Some(_) if WAYS_OFF_RIBBON.contains(&tool) => {
+                self.request_invoked_way(tool);
+                button
+            }
             Some(mode) => button.union(self.mode_menu(ui, mode, button)),
             None => button,
         }

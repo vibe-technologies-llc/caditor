@@ -115,11 +115,28 @@ impl WidthTarget {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reach {
+    #[default]
+    OneWay,
+    BothWays,
+}
+
+impl Reach {
+    fn share(self) -> f64 {
+        match self {
+            Self::OneWay => 1.0,
+            Self::BothWays => 0.5,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct From {
     pub last: Option<Point2>,
     pub toward: Option<Point2>,
     pub width: Option<WidthTarget>,
+    pub reach: Reach,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -672,6 +689,7 @@ fn offset(
     model: &Model,
     text: &str,
     from: From,
+    share: f64,
 ) -> Result<(Vector2, Vec<TypedValue>), TypedPointError> {
     let coordinates = coordinates(text);
     let polar = polar(text);
@@ -685,7 +703,7 @@ fn offset(
             let length = typed_value(model, length, DISTANCE, Measured::Length)?;
             let angle = typed_value(model, angle, DIRECTION, Measured::Angle)?;
 
-            let offset = Vector2::from_angle(angle.value.to_radians()) * length.value;
+            let offset = Vector2::from_angle(angle.value.to_radians()) * length.value * share;
             let typed = if length.value < 0.0 {
                 vec![length]
             } else {
@@ -702,7 +720,7 @@ fn offset(
                 .toward
                 .and_then(|toward| (toward - last).try_normalize())
                 .ok_or(TypedPointError::NoDirection)?;
-            Ok((direction * length.value, vec![length]))
+            Ok((direction * length.value * share, vec![length]))
         }
         _ => Err(TypedPointError::Forms),
     }
@@ -804,7 +822,7 @@ pub fn length_lock(
                     return Err(TypedPointError::LengthTooLong { limit: MAX_LENGTH });
                 }
                 Ok(LengthLock {
-                    length: length.value,
+                    length: length.value * from.reach.share(),
                     dimension: length.dimension(Some(last)),
                 })
             }),
@@ -826,8 +844,12 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Typ
         let point = width.place(from.toward, length.value)?;
         (point, Some(width.origin()), vec![length])
     } else {
-        let (offset, typed) = offset(model, text, from)?;
         let measured_from = if relative || alone { from.last } else { None };
+        let share = match measured_from {
+            Some(_) => from.reach.share(),
+            None => 1.0,
+        };
+        let (offset, typed) = offset(model, text, from, share)?;
         (
             measured_from.unwrap_or(Point2::ZERO) + offset,
             measured_from,
@@ -905,6 +927,7 @@ mod tests {
             last: Some(last),
             toward: None,
             width: None,
+            reach: Reach::OneWay,
         };
 
         let absolute = heading(&model, "<30", from).and_then(Result::ok);
@@ -933,6 +956,7 @@ mod tests {
             last: Some(last),
             toward: None,
             width: None,
+            reach: Reach::OneWay,
         };
 
         let held = length_lock(&model, "12 <", from).and_then(Result::ok);
@@ -955,6 +979,39 @@ mod tests {
         for text in ["<30", "10 < 30", "10, 20", "5", "1, 2 <"] {
             assert!(length_lock(&model, text, from).is_none(), "{text}");
         }
+    }
+
+    #[test]
+    fn a_length_reaching_both_ways_goes_half_as_far_but_points_stay_where_typed() {
+        let model = empty_model();
+        let last = Point2::new(5.0, 5.0);
+        let from = From {
+            last: Some(last),
+            toward: Some(Point2::new(5.0, 50.0)),
+            width: None,
+            reach: Reach::BothWays,
+        };
+
+        let placed = |text: &str| parse(&model, text, from).ok();
+
+        let held = length_lock(&model, "12 <", from).and_then(Result::ok);
+        let alone = parse_placed(&model, "40", from).ok();
+
+        assert_eq!(placed("40"), Some(Point2::new(5.0, 25.0)));
+        assert_eq!(placed("@30 < 0"), Some(Point2::new(20.0, 5.0)));
+        assert_eq!(placed("@4, 3"), Some(Point2::new(9.0, 8.0)));
+        assert_eq!(placed("30 < 0"), Some(Point2::new(30.0, 0.0)));
+        assert_eq!(placed("4, 3"), Some(Point2::new(4.0, 3.0)));
+        assert_eq!(held.map(|lock| lock.length), Some(6.0));
+        assert_eq!(
+            alone
+                .map(|placed| placed.dimensions)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|dimension| (dimension.measured, dimension.from, dimension.value))
+                .collect::<Vec<_>>(),
+            vec![(Measured::Length, Some(last), Expression::Number(40.0))]
+        );
     }
 
     #[test]

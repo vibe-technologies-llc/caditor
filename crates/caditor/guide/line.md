@@ -22,3 +22,20 @@ makes the next segment a tangent arc and back. See [arcs](arcs).
 
 Type `40 < 30` for a line 40 long at 30 degrees, or `@40, 0` for one 40 to the right. See
 [sketches](sketches) for typed points and [snapping](snapping).
+
+## Ways of drawing
+
+The line tool has two ways of drawing, both in the menu of the sketch bar's Draw group, in Sketch ›
+Drawing tools › Ways to draw shapes and in the command palette:
+
+- {command:sketch.line.end}, the usual way: connected lines, as above.
+- {command:sketch.line.middle}: click the middle of the line, then one end. The line runs as far
+  again on the other side, and a point at its middle stays held there by a Midpoint constraint, so
+  you can snap to it, constrain it and dimension it like any point. The end you click snaps and
+  turns horizontal, vertical, parallel or perpendicular as above; each line stands alone, and the
+  next click starts another. A length you type, such as `40` or `@40 < 30`, is the whole line's,
+  and is kept as a dimension of its length.
+
+Unlike the other shapes, pressing L again while the tool is active keeps its way rather than
+stepping to the next; choose the way from one of those menus or the palette. The way last used is
+remembered while caditor runs.

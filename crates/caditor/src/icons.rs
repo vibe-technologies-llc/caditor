@@ -14,8 +14,8 @@ use crate::{
     section::SectionCommand,
     selection::Pickable,
     shape_modes::{
-        BlendMode, CircleMode, OffsetMode, PolygonMode, RectangleMode, ShapeMode, SlotMode,
-        SplineMode,
+        BlendMode, CircleMode, LineMode, OffsetMode, PolygonMode, RectangleMode, ShapeMode,
+        SlotMode, SplineMode,
     },
     sketch_tools::ConstraintTool,
 };
@@ -535,6 +535,8 @@ pub fn tool(tool: Tool) -> &'static str {
 
 pub fn shape_mode(mode: ShapeMode) -> &'static str {
     match mode {
+        ShapeMode::Line(LineMode::End) => tool(Tool::Line),
+        ShapeMode::Line(LineMode::Middle) => phosphor::ARROWS_HORIZONTAL,
         ShapeMode::Rectangle(RectangleMode::Corners) => tool(Tool::Rectangle),
         ShapeMode::Rectangle(RectangleMode::Center) => phosphor::ARROWS_OUT,
         ShapeMode::Rectangle(RectangleMode::ThreePoints) => phosphor::DIAMOND,

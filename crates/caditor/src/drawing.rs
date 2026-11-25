@@ -23,14 +23,15 @@ use crate::{
     model::Model,
     projecting,
     shape_modes::{
-        CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode, SplineMode,
+        CircleMode, LineMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode,
+        SplineMode,
     },
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
     symmetric_drawing,
     tracking::{self, Acquired, ShownOutlines, Tracked, Tracks},
-    typed_point::{Measured, Placed, TypedDimension, WidthTarget},
+    typed_point::{Measured, Placed, Reach, TypedDimension, WidthTarget},
     units::Units,
 };
 
@@ -97,6 +98,7 @@ const CONIC_KEYS: Keys = &[
     ),
     ("Esc", "cancel the conic", Rank::Main),
 ];
+const CANCEL_LINE: Keys = &[("Esc", "cancel the line", Rank::Main)];
 const CANCEL_RECTANGLE: Keys = &[("Esc", "cancel the rectangle", Rank::Main)];
 const CANCEL_CIRCLE: Keys = &[("Esc", "cancel the circle", Rank::Main)];
 const CANCEL_SLOT: Keys = &[("Esc", "cancel the slot", Rank::Main)];
@@ -220,6 +222,7 @@ impl Reason for ShapeProgressError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     Line,
+    LineMiddle,
     Rectangle,
     RectangleSide,
     RectangleWidth,
@@ -252,6 +255,7 @@ impl Refusal {
     pub fn reason(self) -> &'static str {
         match self {
             Self::Line => "A line needs its end away from its start",
+            Self::LineMiddle => "A line needs its end away from its middle",
             Self::Rectangle => "A rectangle needs its corners apart in both directions",
             Self::RectangleSide => "A rectangle needs the two ends of its first side apart",
             Self::RectangleWidth => "A rectangle needs a width: click away from its first side",
@@ -318,7 +322,7 @@ pub enum Ended {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Point,
-    Line,
+    Line(LineMode),
     Rectangle(RectangleMode),
     Circle(CircleMode),
     Arc,
@@ -335,6 +339,7 @@ enum Shape {
 impl Shape {
     fn drawn(mode: ShapeMode) -> Option<Self> {
         match mode {
+            ShapeMode::Line(mode) => Some(Self::Line(mode)),
             ShapeMode::Rectangle(mode) => Some(Self::Rectangle(mode)),
             ShapeMode::Circle(mode) => Some(Self::Circle(mode)),
             ShapeMode::Polygon(mode) => Some(Self::Polygon(mode)),
@@ -346,11 +351,13 @@ impl Shape {
 
     fn of(tool: Tool, modes: ShapeModes) -> Option<Self> {
         match tool {
-            Tool::Rectangle | Tool::Circle | Tool::Polygon | Tool::Slot | Tool::Spline => {
-                modes.of(tool).and_then(Self::drawn)
-            }
+            Tool::Line
+            | Tool::Rectangle
+            | Tool::Circle
+            | Tool::Polygon
+            | Tool::Slot
+            | Tool::Spline => modes.of(tool).and_then(Self::drawn),
             Tool::Point => Some(Self::Point),
-            Tool::Line => Some(Self::Line),
             Tool::Arc => Some(Self::Arc),
             Tool::ThreePointArc => Some(Self::ThreePointArc),
             Tool::TangentArc => Some(Self::TangentArc),
@@ -378,13 +385,13 @@ impl Shape {
 
     fn mode(self) -> Option<ShapeMode> {
         match self {
+            Self::Line(mode) => Some(ShapeMode::Line(mode)),
             Self::Rectangle(mode) => Some(ShapeMode::Rectangle(mode)),
             Self::Circle(mode) => Some(ShapeMode::Circle(mode)),
             Self::Polygon(mode) => Some(ShapeMode::Polygon(mode)),
             Self::Slot(mode) => Some(ShapeMode::Slot(mode)),
             Self::Spline(mode) => Some(ShapeMode::Spline(mode)),
             Self::Point
-            | Self::Line
             | Self::Arc
             | Self::ThreePointArc
             | Self::TangentArc
@@ -397,7 +404,7 @@ impl Shape {
     fn name(self) -> &'static str {
         match self {
             Self::Point => "point",
-            Self::Line => "line",
+            Self::Line(_) => "line",
             Self::Rectangle(_) => "rectangle",
             Self::Circle(_) => "circle",
             Self::Arc => "arc",
@@ -418,7 +425,7 @@ impl Shape {
             Self::Arc | Self::Slot(SlotMode::Arc) => Some(2),
             Self::EllipticalArc => Some(3),
             Self::Point
-            | Self::Line
+            | Self::Line(_)
             | Self::Rectangle(_)
             | Self::Circle(_)
             | Self::ThreePointArc
@@ -439,7 +446,7 @@ impl Shape {
             Self::Ellipse => placed == 2,
             Self::EllipticalArc => placed >= 2,
             Self::Point
-            | Self::Line
+            | Self::Line(_)
             | Self::Rectangle(RectangleMode::Corners | RectangleMode::Center)
             | Self::Circle(_)
             | Self::Arc
@@ -454,7 +461,7 @@ impl Shape {
     fn starts_its_line(self) -> bool {
         matches!(
             self,
-            Self::Line
+            Self::Line(LineMode::End)
                 | Self::Rectangle(RectangleMode::ThreePoints)
                 | Self::Polygon(PolygonMode::Side)
         )
@@ -462,7 +469,7 @@ impl Shape {
 
     fn aligns_second_point(self) -> bool {
         match self {
-            Self::Line
+            Self::Line(_)
             | Self::Rectangle(RectangleMode::ThreePoints)
             | Self::Slot(SlotMode::Ends | SlotMode::Center)
             | Self::Polygon(PolygonMode::Side) => true,
@@ -503,7 +510,7 @@ impl FirstPoint {
             | Shape::Polygon(PolygonMode::Side) => Some(Self::Corner),
             Shape::Circle(CircleMode::TwoPoints | CircleMode::ThreePoints) => Some(Self::OnCircle),
             Shape::Point
-            | Shape::Line
+            | Shape::Line(_)
             | Shape::ThreePointArc
             | Shape::TangentArc
             | Shape::Slot(SlotMode::Ends)
@@ -1042,7 +1049,7 @@ impl Drawing {
 
     fn current(&self) -> Option<(FeatureId, Shape)> {
         self.context.map(|(feature, shape)| match shape {
-            Shape::Line if self.arcing.is_some() => (feature, Shape::TangentArc),
+            Shape::Line(LineMode::End) if self.arcing.is_some() => (feature, Shape::TangentArc),
             shape => (feature, shape),
         })
     }
@@ -1051,8 +1058,12 @@ impl Drawing {
         self.arcing.is_some()
     }
 
+    pub fn chains_lines(&self) -> bool {
+        matches!(self.context, Some((_, Shape::Line(LineMode::End))))
+    }
+
     pub fn chain_arc(&self) -> Result<(), ChainArcError> {
-        if !matches!(self.context, Some((_, Shape::Line))) {
+        if !self.chains_lines() {
             return Err(ChainArcError::NotDrawingLines);
         }
         match self.placed.as_slice() {
@@ -1219,7 +1230,10 @@ impl Drawing {
     }
 
     fn drawing_lines(&self) -> bool {
-        matches!(self.context, Some((_, Shape::Line | Shape::TangentArc)))
+        matches!(
+            self.context,
+            Some((_, Shape::Line(LineMode::End) | Shape::TangentArc))
+        )
     }
 
     pub fn can_take_back(&self) -> Result<(), ShapeProgressError> {
@@ -1259,10 +1273,10 @@ impl Drawing {
         }
         if let [start] = self.placed.as_slice() {
             let tangent = match (from, to) {
-                (Shape::Line, Shape::TangentArc) => {
+                (Shape::Line(LineMode::End), Shape::TangentArc) => {
                     Some(Some(continuing(sketch?, point_target(start.snap)?)?))
                 }
-                (Shape::TangentArc, Shape::Line) => Some(None),
+                (Shape::TangentArc, Shape::Line(LineMode::End)) => Some(None),
                 _ => None,
             };
             if let Some(tangent) = tangent {
@@ -1664,7 +1678,12 @@ impl Drawing {
                 Some(format!("{}   {sides} sides", length(delta.length())))
             }
             Shape::Rectangle(RectangleMode::ThreePoints) => Some(length(delta.length())),
-            Shape::Line => Some(leg(first.position)),
+            Shape::Line(LineMode::End) => Some(leg(first.position)),
+            Shape::Line(LineMode::Middle) => Some(format!(
+                "{}   {}",
+                length(2.0 * delta.length()),
+                unit.angle_readout(delta.y.atan2(delta.x).to_degrees())
+            )),
             Shape::Rectangle(RectangleMode::Corners) => Some(format!(
                 "{} × {}",
                 length(delta.x.abs()),
@@ -1683,6 +1702,13 @@ impl Drawing {
                 unit.angle_readout(delta.y.atan2(delta.x).to_degrees())
             )),
             _ => None,
+        }
+    }
+
+    pub fn typed_reach(&self) -> Reach {
+        match (self.current(), self.placed.as_slice()) {
+            (Some((_, Shape::Line(LineMode::Middle))), [_]) => Reach::BothWays,
+            _ => Reach::OneWay,
         }
     }
 
@@ -2280,7 +2306,7 @@ impl Drawing {
             return Ok(match shape {
                 Shape::Spline(_) => self.finish_spline(model, self.closes_at(index)),
                 Shape::Point
-                | Shape::Line
+                | Shape::Line(_)
                 | Shape::Rectangle(_)
                 | Shape::Circle(_)
                 | Shape::Arc
@@ -2355,13 +2381,15 @@ impl Drawing {
                 draft.point(placement);
                 draft
             }),
-            (Shape::Line, &[start]) => {
+            (Shape::Line(LineMode::End), &[start]) => {
                 apart(start, Refusal::Line)?;
 
                 let Some(mut draft) = draft(shape.name()) else {
                     return Ok(None);
                 };
-                let (first, end) = draft.line(start, placement);
+                let DrawnCurve {
+                    start: first, end, ..
+                } = draft.line(start, placement);
 
                 if self.chain_start.is_empty() {
                     self.chain_start.push(first);
@@ -2385,6 +2413,13 @@ impl Drawing {
                     )];
                 }
                 return Ok(Some(draft.finish(&std::mem::take(&mut self.typed))));
+            }
+            (Shape::Line(LineMode::Middle), &[middle]) => {
+                apart(middle, Refusal::LineMiddle)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.line_from_middle(middle, placement);
+                    draft
+                })
             }
             (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
                 if (placement.position - corner.position).abs().min_element() < DEGENERATE_LENGTH {
@@ -2661,7 +2696,7 @@ impl Drawing {
                 })
             }
             (
-                Shape::Line
+                Shape::Line(_)
                 | Shape::Rectangle(_)
                 | Shape::Circle(_)
                 | Shape::Arc
@@ -2713,7 +2748,7 @@ impl Drawing {
     pub fn finishable(&self) -> Result<(), ShapeProgressError> {
         self.started()?;
         match self.context.map(|(_, shape)| shape) {
-            Some(Shape::Line | Shape::TangentArc | Shape::Spline(_)) => Ok(()),
+            Some(Shape::Line(LineMode::End) | Shape::TangentArc | Shape::Spline(_)) => Ok(()),
             _ => Err(ShapeProgressError::OnlyChainsFinish),
         }
     }
@@ -2725,7 +2760,7 @@ impl Drawing {
             return None;
         }
         match shape {
-            Shape::Line | Shape::TangentArc => {
+            Shape::Line(LineMode::End) | Shape::TangentArc => {
                 self.cancel();
                 Some(Ended::Stopped)
             }
@@ -2743,6 +2778,7 @@ impl Drawing {
                     .map(|drawn| Ended::Drawn(self.symmetric(model, feature, drawn)))
             }
             Shape::Point
+            | Shape::Line(LineMode::Middle)
             | Shape::Rectangle(_)
             | Shape::Circle(_)
             | Shape::Arc
@@ -2825,7 +2861,13 @@ impl Drawing {
         };
 
         match (shape, placed.as_slice()) {
-            (Shape::Line, &[start]) => preview.curves.push(vec![start, cursor]),
+            (Shape::Line(LineMode::End), &[start]) => preview.curves.push(vec![start, cursor]),
+            (Shape::Line(LineMode::Middle), &[middle]) => {
+                let mirrored = shapes::mirrored(cursor, middle);
+
+                preview.curves.push(vec![mirrored, cursor]);
+                preview.points = vec![mirrored, middle, cursor];
+            }
             (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
                 preview
                     .curves
@@ -3143,8 +3185,14 @@ impl Drawing {
         let polygon_prompt = |text: String, keys| Some(Prompt { text, keys });
         match (shape, self.placed.len()) {
             (Shape::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
-            (Shape::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
-            (Shape::Line, _) => prompt(LINE_CHAIN_PROMPT, LINE_CHAIN_KEYS),
+            (Shape::Line(LineMode::End), 0) => {
+                prompt("Click the start of the line", BACK_TO_SELECT)
+            }
+            (Shape::Line(LineMode::End), _) => prompt(LINE_CHAIN_PROMPT, LINE_CHAIN_KEYS),
+            (Shape::Line(LineMode::Middle), 0) => {
+                prompt("Click the middle of the line", BACK_TO_SELECT)
+            }
+            (Shape::Line(LineMode::Middle), _) => prompt("Click one end of the line", CANCEL_LINE),
             (Shape::Rectangle(RectangleMode::Corners), 0) => {
                 prompt("Click the rectangle's first corner", BACK_TO_SELECT)
             }
@@ -3332,7 +3380,7 @@ impl Drawing {
                 .or_else(|| self.bodies.edge(screen, pointer, accept, self.inferred)),
         };
         let touching = match (shape, self.placed.as_slice()) {
-            (Shape::Line, &[start]) if self.inferred.allows(Inference::Tangent) => {
+            (Shape::Line(_), &[start]) if self.inferred.allows(Inference::Tangent) => {
                 snap::tangents_from(sketch, screen, pointer, start.position)
             }
             (Shape::Circle(CircleMode::Center), &[center])
@@ -3414,7 +3462,7 @@ impl Drawing {
             };
         };
         let continued = match shape {
-            Shape::Line => point_target(start.snap),
+            Shape::Line(LineMode::End) => point_target(start.snap),
             _ => None,
         };
         let rounded = if shape.starts_its_line() {
@@ -3459,7 +3507,7 @@ impl Drawing {
             },
         };
 
-        if shape == Shape::Line && self.inferred.allows(Inference::EqualLength) {
+        if shape == Shape::Line(LineMode::End) && self.inferred.allows(Inference::EqualLength) {
             as_long_as_nearby(placement, start.position, screen, pointer, &nearby)
         } else {
             placement
@@ -3507,7 +3555,7 @@ impl Drawing {
 
     fn pending(&self, shape: Shape) -> Vec<(usize, Point2)> {
         match shape {
-            Shape::Line | Shape::TangentArc => self
+            Shape::Line(LineMode::End) | Shape::TangentArc => self
                 .placed
                 .first()
                 .map(|start| (0, start.position))
@@ -3526,6 +3574,7 @@ impl Drawing {
                 last.into_iter().chain(first).collect()
             }
             Shape::Point
+            | Shape::Line(LineMode::Middle)
             | Shape::Rectangle(_)
             | Shape::Circle(_)
             | Shape::Arc
@@ -3904,6 +3953,7 @@ fn placed_first(corners: &[Point2], placed: &[Placement]) -> Vec<Placement> {
         .collect()
 }
 
+#[derive(Clone, Copy)]
 enum SizedTarget {
     Radius {
         at: Point2,
@@ -3922,6 +3972,11 @@ enum SizedTarget {
         from: EntityId,
         to: EntityId,
     },
+    LineFromMiddle {
+        at: Point2,
+        middle: Point2,
+        line: DrawnCurve,
+    },
 }
 
 impl SizedTarget {
@@ -3930,16 +3985,52 @@ impl SizedTarget {
             Self::Radius { at, .. }
             | Self::Diameter { at, .. }
             | Self::MinorRadius { at, .. }
-            | Self::Distance { at, .. } => at,
+            | Self::Distance { at, .. }
+            | Self::LineFromMiddle { at, .. } => at,
         }
     }
 
-    fn constraint(&self, value: Expression) -> Constraint {
-        match *self {
-            Self::Radius { entity, .. } => Constraint::Radius { entity, value },
-            Self::Diameter { entity, .. } => Constraint::Diameter { entity, value },
-            Self::MinorRadius { ellipse, .. } => Constraint::MinorRadius { ellipse, value },
-            Self::Distance { from, to, .. } => Constraint::Distance { from, to, value },
+    fn constraint(&self, dimension: &TypedDimension) -> Option<Constraint> {
+        let value = dimension.value.clone();
+        match (*self, dimension.measured) {
+            (Self::Radius { entity, .. }, Measured::Length) => {
+                Some(Constraint::Radius { entity, value })
+            }
+            (Self::Diameter { entity, .. }, Measured::Length) => {
+                Some(Constraint::Diameter { entity, value })
+            }
+            (Self::MinorRadius { ellipse, .. }, Measured::Length) => {
+                Some(Constraint::MinorRadius { ellipse, value })
+            }
+            (Self::Distance { from, to, .. }, Measured::Length) => {
+                Some(Constraint::Distance { from, to, value })
+            }
+            (Self::LineFromMiddle { middle, line, .. }, measured)
+                if dimension.from == Some(middle) =>
+            {
+                match measured {
+                    Measured::Length => Some(Constraint::Distance {
+                        from: line.start,
+                        to: line.end,
+                        value,
+                    }),
+                    Measured::Angle => Some(Constraint::Angle {
+                        from: EntityId::HORIZONTAL_AXIS,
+                        to: line.curve,
+                        reversed: false,
+                        value,
+                    }),
+                    Measured::Across | Measured::Up => None,
+                }
+            }
+            (
+                Self::Radius { .. }
+                | Self::Diameter { .. }
+                | Self::MinorRadius { .. }
+                | Self::Distance { .. }
+                | Self::LineFromMiddle { .. },
+                _,
+            ) => None,
         }
     }
 }
@@ -4008,8 +4099,7 @@ impl<'a> Draft<'a> {
             .flat_map(|target| {
                 mark.dimensions
                     .iter()
-                    .filter(|dimension| dimension.measured == Measured::Length)
-                    .map(|dimension| target.constraint(dimension.value.clone()))
+                    .filter_map(|dimension| target.constraint(dimension))
             })
             .collect();
 
@@ -4233,7 +4323,7 @@ impl<'a> Draft<'a> {
         }
     }
 
-    fn line(&mut self, start: Placement, end: Placement) -> (EntityId, EntityId) {
+    fn line(&mut self, start: Placement, end: Placement) -> DrawnCurve {
         let start = self.point(start);
         let end_point = self.point(end);
 
@@ -4251,7 +4341,28 @@ impl<'a> Draft<'a> {
         if let Some(reference) = end.equal_to {
             self.constrain(Constraint::Equal(line, reference));
         }
-        (start, end_point)
+        DrawnCurve {
+            curve: line,
+            start,
+            end: end_point,
+        }
+    }
+
+    fn line_from_middle(&mut self, middle: Placement, end: Placement) {
+        let mirrored = shapes::mirrored(end.position, middle.position);
+
+        let line = self.line(Placement::free(mirrored), end);
+        let point = self.point(middle);
+
+        self.constrain(Constraint::Midpoint {
+            point,
+            curve: line.curve,
+        });
+        self.sized.push(SizedTarget::LineFromMiddle {
+            at: end.position,
+            middle: middle.position,
+            line,
+        });
     }
 
     fn joined_outline(&mut self, corners: &[Placement]) -> Vec<DrawnCurve> {
@@ -5084,7 +5195,7 @@ mod tests {
             caditor_document::FeatureKind::from(sketch.clone()),
         );
         let mut drawing = Drawing {
-            context: Some((feature, Shape::Line)),
+            context: Some((feature, Shape::Line(LineMode::End))),
             placed: vec![Placement::free(Point2::new(10.0, 10.0))],
             ..Drawing::default()
         };
@@ -5119,7 +5230,7 @@ mod tests {
             caditor_document::FeatureKind::from(sketch.clone()),
         );
         Drawing {
-            context: Some((feature, Shape::Line)),
+            context: Some((feature, Shape::Line(LineMode::End))),
             placed: vec![start],
             ..Drawing::default()
         }

@@ -3,6 +3,13 @@ use caditor_sketch::{Caps, Continuity, SplineKind};
 use crate::editing::Tool;
 
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LineMode {
+    #[default]
+    End,
+    Middle,
+}
+
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RectangleMode {
     #[default]
     Corners,
@@ -98,6 +105,7 @@ impl OffsetMode {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ShapeMode {
+    Line(LineMode),
     Rectangle(RectangleMode),
     Circle(CircleMode),
     Polygon(PolygonMode),
@@ -108,7 +116,9 @@ pub enum ShapeMode {
 }
 
 impl ShapeMode {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 23] = [
+        Self::Line(LineMode::End),
+        Self::Line(LineMode::Middle),
         Self::Rectangle(RectangleMode::Corners),
         Self::Rectangle(RectangleMode::Center),
         Self::Rectangle(RectangleMode::ThreePoints),
@@ -140,6 +150,7 @@ impl ShapeMode {
 
     pub fn tool(self) -> Tool {
         match self {
+            Self::Line(_) => Tool::Line,
             Self::Rectangle(_) => Tool::Rectangle,
             Self::Circle(_) => Tool::Circle,
             Self::Polygon(_) => Tool::Polygon,
@@ -152,6 +163,10 @@ impl ShapeMode {
 
     pub fn next(self) -> Self {
         match self {
+            Self::Line(mode) => Self::Line(match mode {
+                LineMode::End => LineMode::Middle,
+                LineMode::Middle => LineMode::End,
+            }),
             Self::Rectangle(mode) => Self::Rectangle(match mode {
                 RectangleMode::Corners => RectangleMode::Center,
                 RectangleMode::Center => RectangleMode::ThreePoints,
@@ -190,8 +205,23 @@ impl ShapeMode {
         }
     }
 
+    pub fn run_again(self) -> Option<Self> {
+        match self {
+            Self::Line(_) => None,
+            Self::Rectangle(_)
+            | Self::Circle(_)
+            | Self::Polygon(_)
+            | Self::Slot(_)
+            | Self::Spline(_)
+            | Self::Blend(_)
+            | Self::Offset(_) => Some(self.next()),
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
+            Self::Line(LineMode::End) => "From one end",
+            Self::Line(LineMode::Middle) => "From its middle",
             Self::Rectangle(RectangleMode::Corners) => "From two corners",
             Self::Rectangle(RectangleMode::Center) => "From its centre",
             Self::Rectangle(RectangleMode::ThreePoints) => "From three points",
@@ -238,6 +268,10 @@ impl ShapeMode {
 
     pub fn description(self) -> &'static str {
         match self {
+            Self::Line(LineMode::End) => "Draw connected lines, one click per corner",
+            Self::Line(LineMode::Middle) => {
+                "Draw a line from its middle and one end, kept centred on a point at its middle"
+            }
             Self::Rectangle(RectangleMode::Corners) => "Draw a rectangle from two opposite corners",
             Self::Rectangle(RectangleMode::Center) => {
                 "Draw a rectangle from its centre and a corner, kept centred on it"
@@ -309,6 +343,8 @@ impl ShapeMode {
 
     pub fn id(self) -> &'static str {
         match self {
+            Self::Line(LineMode::End) => "sketch.line.end",
+            Self::Line(LineMode::Middle) => "sketch.line.middle",
             Self::Rectangle(RectangleMode::Corners) => "sketch.rectangle.corners",
             Self::Rectangle(RectangleMode::Center) => "sketch.rectangle.center",
             Self::Rectangle(RectangleMode::ThreePoints) => "sketch.rectangle.three_points",
@@ -335,8 +371,8 @@ impl ShapeMode {
 
     pub fn hint(self, keys: Option<&str>) -> String {
         let named = self.named();
-        match keys {
-            Some(keys) => format!("{named}   {keys}: {}", decapitalized(self.next().label())),
+        match keys.zip(self.run_again()) {
+            Some((keys, next)) => format!("{named}   {keys}: {}", decapitalized(next.label())),
             None => named,
         }
     }
@@ -344,6 +380,7 @@ impl ShapeMode {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShapeModes {
+    line: LineMode,
     rectangle: RectangleMode,
     circle: CircleMode,
     polygon: PolygonMode,
@@ -356,6 +393,7 @@ pub struct ShapeModes {
 impl ShapeModes {
     pub fn of(&self, tool: Tool) -> Option<ShapeMode> {
         match tool {
+            Tool::Line => Some(ShapeMode::Line(self.line)),
             Tool::Rectangle => Some(ShapeMode::Rectangle(self.rectangle)),
             Tool::Circle => Some(ShapeMode::Circle(self.circle)),
             Tool::Polygon => Some(ShapeMode::Polygon(self.polygon)),
@@ -365,7 +403,6 @@ impl ShapeModes {
             Tool::Offset => Some(ShapeMode::Offset(self.offset)),
             Tool::Select
             | Tool::Point
-            | Tool::Line
             | Tool::Arc
             | Tool::ThreePointArc
             | Tool::TangentArc
@@ -398,6 +435,7 @@ impl ShapeModes {
 
     pub fn set(&mut self, mode: ShapeMode) {
         match mode {
+            ShapeMode::Line(mode) => self.line = mode,
             ShapeMode::Rectangle(mode) => self.rectangle = mode,
             ShapeMode::Circle(mode) => self.circle = mode,
             ShapeMode::Polygon(mode) => self.polygon = mode,
@@ -422,6 +460,7 @@ mod tests {
     use super::*;
     use crate::variants::all_variants;
 
+    all_variants!(LineMode: End, Middle);
     all_variants!(RectangleMode: Corners, Center, ThreePoints);
     all_variants!(CircleMode: Center, TwoPoints, ThreePoints);
     all_variants!(PolygonMode: Corner, SideMiddle, Side);
@@ -432,9 +471,10 @@ mod tests {
 
     #[test]
     fn every_way_of_drawing_a_shape_is_listed() {
-        let listed: Vec<ShapeMode> = RectangleMode::ALL
+        let listed: Vec<ShapeMode> = LineMode::ALL
             .into_iter()
-            .map(ShapeMode::Rectangle)
+            .map(ShapeMode::Line)
+            .chain(RectangleMode::ALL.into_iter().map(ShapeMode::Rectangle))
             .chain(CircleMode::ALL.into_iter().map(ShapeMode::Circle))
             .chain(PolygonMode::ALL.into_iter().map(ShapeMode::Polygon))
             .chain(SlotMode::ALL.into_iter().map(ShapeMode::Slot))
@@ -484,7 +524,8 @@ mod tests {
             modes.of(Tool::Rectangle),
             Some(ShapeMode::Rectangle(RectangleMode::Corners))
         );
-        assert_eq!(modes.of(Tool::Line), None);
+        assert_eq!(modes.of(Tool::Line), Some(ShapeMode::Line(LineMode::End)));
+        assert_eq!(modes.of(Tool::Point), None);
     }
 
     #[test]
@@ -539,5 +580,23 @@ mod tests {
         modes.set(one_side.next().next());
 
         assert_eq!(modes.offset(), OffsetMode::BothFlat);
+    }
+
+    #[test]
+    fn a_line_is_drawn_from_one_end_unless_chosen_from_its_middle_and_its_key_never_steps() {
+        let end = ShapeModes::default().of(Tool::Line).unwrap();
+        let middle = end.next();
+
+        assert_eq!(end, ShapeMode::Line(LineMode::End));
+        assert_eq!(middle, ShapeMode::Line(LineMode::Middle));
+        assert_eq!(middle.next(), end);
+        assert_eq!(middle.title(), "Draw line from its middle");
+        assert_eq!(end.run_again(), None);
+        assert_eq!(end.hint(Some("L")), "Line from one end");
+        assert_eq!(middle.hint(Some("L")), "Line from its middle");
+        assert_eq!(
+            ShapeMode::Rectangle(RectangleMode::Corners).run_again(),
+            Some(ShapeMode::Rectangle(RectangleMode::Center))
+        );
     }
 }
