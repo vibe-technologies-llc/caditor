@@ -30,7 +30,7 @@ use crate::{
         list_names,
     },
     drawings::{
-        Drawing, Drawings, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS,
+        Drawing, Drawings, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DEVIATION,
         MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS,
         MAX_NOTE_CHARS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS,
     },
@@ -557,13 +557,25 @@ pub enum EditError {
     )]
     ViewPlaceOutOfRange { view: String },
     #[error(
-        "A drawing holds at most {MAX_ANNOTATIONS} dimensions and notes, and '{name}' would have {annotations}. Delete some first."
+        "A drawing holds at most {MAX_ANNOTATIONS} dimensions, notes, centre marks and callouts together, and '{name}' would have {annotations}. Delete some first."
     )]
     DrawingTooManyAnnotations { name: String, annotations: usize },
-    #[error("Two dimensions or notes of one drawing have the number {0}")]
+    #[error("Two annotations of one drawing have the number {0}")]
     AnnotationIdRepeated(u64),
-    #[error("That dimension or note is no longer on the drawing")]
+    #[error("That annotation is no longer on the drawing")]
     MissingAnnotation,
+    #[error(
+        "A tolerance's deviations are numbers of at most {MAX_DEVIATION} mm either way, and a plus or minus one is above zero"
+    )]
+    ToleranceOutOfRange,
+    #[error("A tolerance's upper deviation must be above its lower one")]
+    ToleranceReversed,
+    #[error("An ISO 286 fit tolerances a size, not an angle")]
+    FitOnAngle,
+    #[error(
+        "A callout stands at most {MAX_VIEW_PLACE} mm from the middle of the sheet's view area"
+    )]
+    CalloutPlaceOutOfRange,
     #[error(
         "A dimension stands within {MAX_DETAIL_EXTENT} mm of its view's origin, with its value moved at most {MAX_VIEW_PLACE} mm along its line"
     )]
@@ -2056,9 +2068,13 @@ impl Document {
         for body in drawings.bodies() {
             check_storable(body.maker().raw())?;
         }
+        for feature in drawings.callout_features() {
+            check_storable(feature.maker().raw())?;
+        }
 
         let beyond = drawings
             .bodies()
+            .chain(drawings.callout_features())
             .map(|body| body.maker().raw().saturating_add(1))
             .max()
             .unwrap_or(0);

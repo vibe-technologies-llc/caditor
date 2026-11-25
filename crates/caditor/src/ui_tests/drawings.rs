@@ -22,7 +22,7 @@ use crate::{
     sheet_tools::{DIMENSION_TOOL, NOTE_FIELD, PLACE_DIMENSION, PLACE_NOTE, SECOND_EDGE},
 };
 
-fn wait_for_views(harness: &mut Harness) {
+pub(super) fn wait_for_views(harness: &mut Harness) {
     harness.wait_until("the drawing's views are worked out", |harness| {
         harness.workspace.drawings.is_ready() && !harness.shows(WORKING)
     });
@@ -525,7 +525,7 @@ fn drawn_plate_in_view() -> Harness {
     harness
 }
 
-fn plan(harness: &Harness) -> SheetPlan {
+pub(super) fn plan(harness: &Harness) -> SheetPlan {
     harness
         .workspace
         .drawings
@@ -537,7 +537,7 @@ fn centre_of(harness: &Harness, view: DrawnView) -> Point2 {
     plan(harness).placed(view).unwrap().extent.center()
 }
 
-fn on_screen(harness: &Harness, point: Point2) -> Pos2 {
+pub(super) fn on_screen(harness: &Harness, point: Point2) -> Pos2 {
     harness
         .workspace
         .drawings
@@ -585,7 +585,7 @@ fn scroll_to_the_preview(harness: &mut Harness) {
     harness.settle();
 }
 
-fn press_with(harness: &mut Harness, at: Pos2, button: PointerButton) {
+pub(super) fn press_with(harness: &mut Harness, at: Pos2, button: PointerButton) {
     harness.events.push(Event::PointerMoved(at));
     harness.frame();
     for pressed in [true, false] {
@@ -861,7 +861,7 @@ fn a_view_is_dragged_in_the_panel_preview_too() {
     assert!(centre_of(&harness, isometric).x < before.x);
 }
 
-fn top_edge_middle(harness: &Harness) -> Point2 {
+pub(super) fn top_edge_middle(harness: &Harness) -> Point2 {
     let front = plan(harness)
         .placed(DrawnView::Standard(StandardView::Front))
         .unwrap()
@@ -869,13 +869,13 @@ fn top_edge_middle(harness: &Harness) -> Point2 {
     Point2::new(front.center().x, front.max().y)
 }
 
-fn click_sheet(harness: &mut Harness, at: Point2) {
+pub(super) fn click_sheet(harness: &mut Harness, at: Point2) {
     let on = on_screen(harness, at);
 
     press_with(harness, on, PointerButton::Primary);
 }
 
-fn drawn(harness: &Harness) -> caditor_document::Drawing {
+pub(super) fn drawn(harness: &Harness) -> caditor_document::Drawing {
     harness.document().drawings().drawings[0].clone()
 }
 
@@ -924,9 +924,9 @@ fn a_dimension_is_added_by_two_edge_clicks_and_a_place_then_nudged_deleted_and_u
             ..
         }
     ));
-    assert_eq!(laid.text.content, "40");
+    assert_eq!(laid.texts[0].content, "40");
     assert_eq!(laid.problem, None);
-    assert!(laid.text.at.y > edge.y);
+    assert!(laid.texts[0].at.y > edge.y);
     assert_eq!(
         harness.workspace.drawings.canvas().picked_annotation(),
         Some(Annotation::Dimension(id))
@@ -938,7 +938,7 @@ fn a_dimension_is_added_by_two_edge_clicks_and_a_place_then_nudged_deleted_and_u
     assert!(harness.workspace.drawings.canvas().tool().is_none());
     assert!(harness.workspace.drawings.sheet_in_view());
 
-    let at = on_screen(&harness, laid.text.at);
+    let at = on_screen(&harness, laid.texts[0].at);
 
     press_with(&mut harness, at, PointerButton::Primary);
 
@@ -1025,6 +1025,7 @@ fn a_dimension_whose_edge_is_gone_says_why_in_the_panel_and_is_deleted_there() {
                 place: Point2::new(5.0, 5.0),
                 decimals: 2,
                 text_offset: 0.0,
+                tolerance: None,
             });
         })
         .unwrap();
@@ -1039,7 +1040,7 @@ fn a_dimension_whose_edge_is_gone_says_why_in_the_panel_and_is_deleted_there() {
         .unwrap();
 
     assert!(laid.problem.is_some());
-    assert_eq!(laid.text.content, "\u{2300}?");
+    assert_eq!(laid.texts[0].content, "\u{2300}?");
 
     let over_the_panel = harness.position_of(SHEET_IN_VIEW_NOTE);
 

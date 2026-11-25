@@ -1,18 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
-    AnnotationId, DEFAULT_DIMENSION_DECIMALS, DetailParent, DetailScale, DetailView,
-    DimensionDirection, DimensionMeasure, Document, Drawing, DrawingDimension, DrawingId,
-    DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint, EdgeSpot, FIRST_UNSTORABLE_ID,
-    FeatureId, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DIMENSION_DECIMALS,
-    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_SECTION_OFFSET,
-    MAX_SECTION_VIEWS, MAX_TEXT_OFFSET, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, NoteLeader, Projection,
-    ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView,
+    AnnotationId, CentreMark, CentreTarget, DEFAULT_DIMENSION_DECIMALS, DetailParent, DetailScale,
+    DetailView, DimensionDirection, DimensionMeasure, DimensionTolerance, Document, Drawing,
+    DrawingCallout, DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings, DrawnView,
+    EdgePoint, EdgeSpot, FIRST_UNSTORABLE_ID, FeatureId, IsoFit, MAX_ANNOTATIONS,
+    MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES,
+    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS,
+    MAX_TEXT_OFFSET, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, NoteLeader, Projection, ScaleRatio,
+    SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize, StandardView,
     VIEW_LETTERS, drawing_name, note_text,
 };
 use caditor_expression::{EvalError, Expression, ParameterId};
 use caditor_geometry::Point2;
-use caditor_kernel::EdgeName;
+use caditor_kernel::{EdgeName, FaceName};
 use serde::{Deserialize, Serialize};
 
 use crate::format::{Lenient, hex, restore_digest};
@@ -58,6 +59,10 @@ pub(crate) struct DrawingRecord {
     pub dimensions: Vec<Lenient<DimensionRecord>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<Lenient<NoteRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub centres: Vec<Lenient<CentreRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub callouts: Vec<Lenient<CalloutRecord>>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub next_annotation: u64,
 }
@@ -84,6 +89,50 @@ pub(crate) struct DimensionRecord {
     pub decimals: u8,
     #[serde(default, skip_serializing_if = "is_nothing")]
     pub text_offset: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<Lenient<ToleranceRecord>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ToleranceRecord {
+    Symmetric(f64),
+    Deviations {
+        upper: f64,
+        lower: f64,
+    },
+    Limits {
+        upper: f64,
+        lower: f64,
+    },
+    Fit {
+        fit: String,
+        #[serde(default)]
+        deviations: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct CentreRecord {
+    pub id: u64,
+    pub view: Lenient<ViewKeyRecord>,
+    pub target: Lenient<CentreTargetRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CentreTargetRecord {
+    Circle(String),
+    Cylinder(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub(crate) struct CalloutRecord {
+    pub id: u64,
+    pub view: Lenient<ViewKeyRecord>,
+    pub feature: u64,
+    pub edge: String,
+    pub at: [f64; 2],
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -159,6 +208,20 @@ fn measure_record(measure: &DimensionMeasure) -> MeasureRecord {
     }
 }
 
+fn tolerance_record(tolerance: DimensionTolerance) -> ToleranceRecord {
+    match tolerance {
+        DimensionTolerance::Symmetric(deviation) => ToleranceRecord::Symmetric(deviation),
+        DimensionTolerance::Deviations { upper, lower } => {
+            ToleranceRecord::Deviations { upper, lower }
+        }
+        DimensionTolerance::Limits { upper, lower } => ToleranceRecord::Limits { upper, lower },
+        DimensionTolerance::Fit { fit, deviations } => ToleranceRecord::Fit {
+            fit: fit.code(),
+            deviations,
+        },
+    }
+}
+
 fn dimension_record(dimension: &DrawingDimension) -> DimensionRecord {
     DimensionRecord {
         id: dimension.id.raw(),
@@ -167,6 +230,30 @@ fn dimension_record(dimension: &DrawingDimension) -> DimensionRecord {
         place: [dimension.place.x, dimension.place.y],
         decimals: dimension.decimals,
         text_offset: dimension.text_offset,
+        tolerance: dimension
+            .tolerance
+            .map(|tolerance| Lenient::Read(tolerance_record(tolerance))),
+    }
+}
+
+fn centre_record(centre: &CentreMark) -> CentreRecord {
+    CentreRecord {
+        id: centre.id.raw(),
+        view: Lenient::Read(view_key_record(centre.view)),
+        target: Lenient::Read(match centre.target {
+            CentreTarget::Circle(edge) => CentreTargetRecord::Circle(hex(edge.digest())),
+            CentreTarget::Cylinder(face) => CentreTargetRecord::Cylinder(hex(face.digest())),
+        }),
+    }
+}
+
+fn callout_record(callout: &DrawingCallout) -> CalloutRecord {
+    CalloutRecord {
+        id: callout.id.raw(),
+        view: Lenient::Read(view_key_record(callout.view)),
+        feature: callout.feature.raw(),
+        edge: hex(callout.edge.digest()),
+        at: [callout.at.x, callout.at.y],
     }
 }
 
@@ -366,6 +453,16 @@ fn drawing_record(drawing: &Drawing) -> DrawingRecord {
             .notes
             .iter()
             .map(|note| Lenient::Read(note_record(note)))
+            .collect(),
+        centres: drawing
+            .centres
+            .iter()
+            .map(|centre| Lenient::Read(centre_record(centre)))
+            .collect(),
+        callouts: drawing
+            .callouts
+            .iter()
+            .map(|callout| Lenient::Read(callout_record(callout)))
             .collect(),
         next_annotation: drawing.next_annotation,
     }
@@ -909,13 +1006,99 @@ fn restored_dimension(
     }
 
     let view = restored_view_key(&record.view)?;
+    let measure = restored_measure(&record.measure, name, issues)?;
+    let tolerance = record
+        .tolerance
+        .as_ref()
+        .and_then(|tolerance| restored_tolerance(tolerance, &measure, name, issues));
     Some(DrawingDimension {
         id: AnnotationId::from_raw(record.id),
         view,
-        measure: restored_measure(&record.measure, name, issues)?,
+        measure,
         place,
         decimals: record.decimals.min(MAX_DIMENSION_DECIMALS),
         text_offset: record.text_offset,
+        tolerance,
+    })
+}
+
+fn restored_tolerance(
+    record: &Lenient<ToleranceRecord>,
+    measure: &DimensionMeasure,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Option<DimensionTolerance> {
+    let restored = match record {
+        Lenient::Read(ToleranceRecord::Symmetric(deviation)) => {
+            Some(DimensionTolerance::Symmetric(*deviation))
+        }
+        Lenient::Read(ToleranceRecord::Deviations { upper, lower }) => {
+            Some(DimensionTolerance::Deviations {
+                upper: *upper,
+                lower: *lower,
+            })
+        }
+        Lenient::Read(ToleranceRecord::Limits { upper, lower }) => {
+            Some(DimensionTolerance::Limits {
+                upper: *upper,
+                lower: *lower,
+            })
+        }
+        Lenient::Read(ToleranceRecord::Fit { fit, deviations }) => {
+            IsoFit::from_code(fit).map(|fit| DimensionTolerance::Fit {
+                fit,
+                deviations: *deviations,
+            })
+        }
+        Lenient::Unreadable(_) => None,
+    }
+    .filter(|tolerance| tolerance.is_usable_on(measure));
+
+    if restored.is_none() {
+        issues.push(format!(
+            "The tolerance of a dimension of the drawing “{name}” could not be read, so the \
+             dimension stands without it."
+        ));
+    }
+    restored
+}
+
+fn restored_centre(record: &CentreRecord) -> Option<CentreMark> {
+    let target = match &record.target {
+        Lenient::Read(CentreTargetRecord::Circle(edge)) => {
+            CentreTarget::Circle(restored_edge(edge)?)
+        }
+        Lenient::Read(CentreTargetRecord::Cylinder(face)) => {
+            CentreTarget::Cylinder(FaceName::from_digest(restore_digest(face)?))
+        }
+        Lenient::Unreadable(_) => return None,
+    };
+    Some(CentreMark {
+        id: AnnotationId::from_raw(record.id),
+        view: restored_view_key(&record.view)?,
+        target,
+    })
+}
+
+fn restored_callout(record: &CalloutRecord) -> Option<DrawingCallout> {
+    let [x, y] = record.at;
+
+    let at = Point2::new(x, y);
+
+    let usable = at.is_finite()
+        && x.abs() <= MAX_VIEW_PLACE
+        && y.abs() <= MAX_VIEW_PLACE
+        && record.feature < FIRST_UNSTORABLE_ID;
+
+    if !usable {
+        return None;
+    }
+    Some(DrawingCallout {
+        id: AnnotationId::from_raw(record.id),
+        view: restored_view_key(&record.view)?,
+        feature: FeatureId::from_raw(record.feature),
+        edge: restored_edge(&record.edge)?,
+        at,
     })
 }
 
@@ -983,66 +1166,97 @@ fn left_out(issues: &mut Vec<String>, lost: usize, what: (&str, &str), name: &st
     }
 }
 
-fn restored_annotations(
-    dimensions: &[Lenient<DimensionRecord>],
-    notes: &[Lenient<NoteRecord>],
-    drawing: &mut Drawing,
-    issues: &mut Vec<String>,
-) {
-    let name = drawing.name.clone();
-    let mut taken = BTreeSet::new();
-    let mut lost = 0_usize;
-    let mut beyond = false;
+struct Taken {
+    ids: BTreeSet<AnnotationId>,
+    beyond: bool,
+}
 
-    for record in dimensions {
-        let Lenient::Read(record) = record else {
-            lost += 1;
-            continue;
-        };
+impl Taken {
+    fn kept<T, R>(
+        &mut self,
+        records: &[Lenient<T>],
+        mut restored: impl FnMut(&T) -> Option<(AnnotationId, R)>,
+    ) -> (Vec<R>, usize) {
+        let mut kept = Vec::new();
+        let mut lost = 0_usize;
 
-        if taken.len() >= MAX_ANNOTATIONS {
-            beyond = true;
-            break;
-        }
-        match restored_dimension(record, &name, issues) {
-            Some(dimension) if taken.insert(dimension.id) => {
-                if record.decimals > MAX_DIMENSION_DECIMALS {
-                    issues.push(format!(
-                        "A dimension of the drawing “{name}” asked for more than \
-                         {MAX_DIMENSION_DECIMALS} decimals, so it shows {MAX_DIMENSION_DECIMALS}."
-                    ));
-                }
-                drawing.dimensions.push(dimension);
+        for record in records {
+            let Lenient::Read(record) = record else {
+                lost += 1;
+                continue;
+            };
+
+            if self.ids.len() >= MAX_ANNOTATIONS {
+                self.beyond = true;
+                break;
             }
-            _ => lost += 1,
+            match restored(record) {
+                Some((id, annotation)) if self.ids.insert(id) => kept.push(annotation),
+                _ => lost += 1,
+            }
         }
+        (kept, lost)
     }
-    left_out(issues, lost, ("dimension", "dimensions"), &name);
+}
 
-    let mut lost_notes = 0_usize;
+fn restored_annotations(record: &DrawingRecord, drawing: &mut Drawing, issues: &mut Vec<String>) {
+    let name = drawing.name.clone();
+    let mut taken = Taken {
+        ids: BTreeSet::new(),
+        beyond: false,
+    };
+    let mut reported = Vec::new();
 
-    for record in notes {
-        let Lenient::Read(record) = record else {
-            lost_notes += 1;
-            continue;
-        };
+    let (dimensions, lost) = taken.kept(&record.dimensions, |record| {
+        let dimension = restored_dimension(record, &name, &mut reported)?;
 
-        if taken.len() >= MAX_ANNOTATIONS {
-            beyond = true;
-            break;
+        if record.decimals > MAX_DIMENSION_DECIMALS {
+            reported.push(format!(
+                "A dimension of the drawing “{name}” asked for more than \
+                 {MAX_DIMENSION_DECIMALS} decimals, so it shows {MAX_DIMENSION_DECIMALS}."
+            ));
         }
-        match restored_note(record, issues, &name) {
-            Some(note) if taken.insert(note.id) => drawing.notes.push(note),
-            _ => lost_notes += 1,
-        }
-    }
-    left_out(issues, lost_notes, ("note", "notes"), &name);
-    if beyond {
-        issues.push(format!(
-            "A drawing holds at most {MAX_ANNOTATIONS} dimensions and notes, so the rest of \
-             those of “{name}” were left out."
+        Some((dimension.id, dimension))
+    });
+
+    drawing.dimensions = dimensions;
+    left_out(&mut reported, lost, ("dimension", "dimensions"), &name);
+
+    let (notes, lost) = taken.kept(&record.notes, |record| {
+        let note = restored_note(record, &mut reported, &name)?;
+        Some((note.id, note))
+    });
+
+    drawing.notes = notes;
+    left_out(&mut reported, lost, ("note", "notes"), &name);
+
+    let (centres, lost) = taken.kept(&record.centres, |record| {
+        let centre = restored_centre(record)?;
+        Some((centre.id, centre))
+    });
+
+    drawing.centres = centres;
+    left_out(
+        &mut reported,
+        lost,
+        ("centre mark or centreline", "centre marks and centrelines"),
+        &name,
+    );
+
+    let (callouts, lost) = taken.kept(&record.callouts, |record| {
+        let callout = restored_callout(record)?;
+        Some((callout.id, callout))
+    });
+
+    drawing.callouts = callouts;
+    left_out(&mut reported, lost, ("callout", "callouts"), &name);
+    if taken.beyond {
+        reported.push(format!(
+            "A drawing holds at most {MAX_ANNOTATIONS} annotations, so the rest of those of \
+             “{name}” were left out."
         ));
     }
+    issues.append(&mut reported);
 }
 
 pub(crate) fn restore_drawings(
@@ -1117,12 +1331,14 @@ pub(crate) fn restore_drawings(
             positions: BTreeMap::new(),
             dimensions: Vec::new(),
             notes: Vec::new(),
+            centres: Vec::new(),
+            callouts: Vec::new(),
             next_annotation: 0,
             name,
         };
 
         restored.positions = restored_positions(&drawing.positions, &restored, issues);
-        restored_annotations(&drawing.dimensions, &drawing.notes, &mut restored, issues);
+        restored_annotations(&drawing, &mut restored, issues);
         restored.next_annotation = drawing
             .next_annotation
             .max(restored.first_free_annotation());

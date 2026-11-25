@@ -14,16 +14,23 @@ use caditor_sketch::annotation::{
 use thiserror::Error;
 
 use crate::{
+    drawing_callouts::{CalloutTexts, sheet_callout},
+    drawing_centres::sheet_centre,
     drawing_sheet::{PlacedView, SheetMark, SheetPlan, SheetText, TextAnchor, text_width},
     drawing_views::ViewLines,
     drawings::{
-        Annotation, DetailParent, DimensionDirection, DimensionMeasure, Drawing, DrawingDimension,
-        DrawingNote, DrawnView, EdgePoint, EdgeSpot, StandardView,
+        Annotation, DetailParent, DimensionDirection, DimensionMeasure, DimensionTolerance,
+        Drawing, DrawingDimension, DrawingNote, DrawnView, EdgePoint, EdgeSpot, StandardView,
     },
 };
 
 pub const DIMENSION_TEXT_HEIGHT: f64 = 3.5;
 pub const NOTE_TEXT_HEIGHT: f64 = 3.5;
+pub const DEVIATION_TEXT_HEIGHT: f64 = 2.5;
+pub const MINUS_SIGN: char = '\u{2212}';
+pub const PLUS_MINUS_SIGN: char = '\u{b1}';
+const DEVIATION_DECIMALS: usize = 4;
+const STACK_GAP: f64 = 0.5;
 const DEGENERATE: f64 = 1e-9;
 const PARALLEL_SINE: f64 = 1e-6;
 const ROUND_SHARE: f64 = 1e-6;
@@ -54,6 +61,14 @@ pub enum AnnotationProblem {
     NoAngle,
     #[error("what it measures has shrunk to nothing")]
     Degenerate,
+    #[error("the outline it marks is no longer in this view")]
+    OutlineGone,
+    #[error("the face it marks no longer shows as a cylinder seen from the side in this view")]
+    NotCylinder,
+    #[error("the hole or thread it reads is no longer in the model")]
+    FeatureGone,
+    #[error("a size of the hole or thread it reads could not be worked out")]
+    CalloutValue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -410,14 +425,14 @@ pub struct EdgePick {
 
 pub type DrawnLines<'a> = BTreeMap<DrawnView, &'a ViewLines>;
 
-pub fn pick_edge(
+pub(crate) fn nearest_piece(
     plan: &SheetPlan,
     lines: &DrawnLines<'_>,
     hidden: bool,
-    point: Point2,
-    reach: f64,
-) -> Option<EdgePick> {
-    let mut best: Option<(f64, EdgePick)> = None;
+    (point, reach): (Point2, f64),
+    wanted: impl Fn(&ViewSource) -> bool,
+) -> Option<(DrawnView, ViewSource, Point2)> {
+    let mut best: Option<(f64, (DrawnView, ViewSource, Point2))> = None;
 
     for placed in &plan.views {
         if !placed.extent.expanded(reach).contains(point) {
@@ -431,9 +446,9 @@ pub fn pick_edge(
         let local = (point - placed.origin) / scale;
 
         for piece in view_lines.drawn_pieces(hidden) {
-            let ViewSource::Edge { name, .. } = piece.source else {
+            if !wanted(&piece.source) {
                 continue;
-            };
+            }
 
             let on = piece
                 .curve
@@ -441,18 +456,31 @@ pub fn pick_edge(
             let distance = on.distance(local) * scale;
 
             if distance <= reach && best.is_none_or(|(nearest, _)| distance < nearest) {
-                best = Some((
-                    distance,
-                    EdgePick {
-                        view: placed.view,
-                        edge: name,
-                        at: on,
-                    },
-                ));
+                best = Some((distance, (placed.view, piece.source, on)));
             }
         }
     }
-    best.map(|(_, pick)| pick)
+    best.map(|(_, found)| found)
+}
+
+pub fn pick_edge(
+    plan: &SheetPlan,
+    lines: &DrawnLines<'_>,
+    hidden: bool,
+    point: Point2,
+    reach: f64,
+) -> Option<EdgePick> {
+    let (view, source, at) = nearest_piece(plan, lines, hidden, (point, reach), |source| {
+        matches!(source, ViewSource::Edge { .. })
+    })?;
+    let ViewSource::Edge { name, .. } = source else {
+        return None;
+    };
+    Some(EdgePick {
+        view,
+        edge: name,
+        at,
+    })
 }
 
 pub fn dimension_from_picks(
@@ -565,51 +593,79 @@ pub enum SheetMeasure {
 pub struct SheetAnnotation {
     pub annotation: Annotation,
     pub marks: Vec<SheetMark>,
-    pub text: SheetText,
+    pub texts: Vec<SheetText>,
     pub measure: Option<SheetMeasure>,
     pub problem: Option<AnnotationProblem>,
 }
 
+pub fn text_corners(text: &SheetText) -> [Point2; 4] {
+    let along = Vector2::from_angle(text.angle);
+    let up = along.perp();
+    let width = text_width(&text.content, text.height);
+
+    let (low, high) = match text.anchor {
+        TextAnchor::Middle => (
+            text.at - along * (width / 2.0) - up * (text.height / 2.0),
+            text.at + along * (width / 2.0) + up * (text.height / 2.0),
+        ),
+        TextAnchor::Start => (text.at, text.at + along * width + up * text.height),
+    };
+
+    let across = (high - low).dot(along);
+
+    [low, low + along * across, high, high - along * across]
+}
+
+fn text_distance(text: &SheetText, point: Point2) -> f64 {
+    let [low, _, high, _] = text_corners(text);
+    let along = Vector2::from_angle(text.angle);
+    let up = along.perp();
+
+    let centre = (low + high) / 2.0;
+    let half = Vector2::new(
+        (high - low).dot(along).abs() / 2.0,
+        (high - low).dot(up).abs() / 2.0,
+    );
+    let offset = point - centre;
+
+    Vector2::new(
+        (offset.dot(along).abs() - half.x).max(0.0),
+        (offset.dot(up).abs() - half.y).max(0.0),
+    )
+    .length()
+}
+
 impl SheetAnnotation {
-    fn text_frame(&self) -> (Vector2, Vector2, f64) {
-        let along = Vector2::from_angle(self.text.angle);
-        (
-            along,
-            along.perp(),
-            text_width(&self.text.content, self.text.height),
-        )
+    pub fn text(&self) -> Option<&SheetText> {
+        self.texts.first()
     }
 
-    pub fn text_corners(&self) -> [Point2; 4] {
-        let (along, up, width) = self.text_frame();
-        let (half_width, half_height) = (width / 2.0, self.text.height / 2.0);
-
-        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-            .map(|(x, y)| self.text.at + along * (x * half_width) + up * (y * half_height))
+    pub fn content(&self) -> String {
+        self.texts
+            .iter()
+            .map(|text| text.content.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     pub fn distance_to(&self, point: Point2) -> f64 {
-        let (along, up, width) = self.text_frame();
-        let offset = point - self.text.at;
-
-        let outside = Vector2::new(
-            (offset.dot(along).abs() - width / 2.0).max(0.0),
-            (offset.dot(up).abs() - self.text.height / 2.0).max(0.0),
-        );
+        let texts = self.texts.iter().map(|text| text_distance(text, point));
 
         self.marks
             .iter()
             .map(|mark| mark_distance(mark, point))
-            .fold(outside.length(), f64::min)
+            .chain(texts)
+            .fold(f64::INFINITY, f64::min)
     }
 
-    pub fn bounds(&self) -> Aabb2 {
+    pub fn bounds(&self) -> Option<Aabb2> {
         let points = self
-            .text_corners()
-            .into_iter()
+            .texts
+            .iter()
+            .flat_map(text_corners)
             .chain(self.marks.iter().flat_map(mark_points));
 
-        Aabb2::from_points(points).unwrap_or_else(|| Aabb2::from_point(self.text.at))
+        Aabb2::from_points(points)
     }
 }
 
@@ -617,7 +673,7 @@ fn segment_distance(from: Point2, to: Point2, point: Point2) -> f64 {
     clamped_on((from, to), point).distance(point)
 }
 
-fn arc_point(center: Point2, radius: f64, angle: f64) -> Point2 {
+pub(crate) fn arc_point(center: Point2, radius: f64, angle: f64) -> Point2 {
     center + Vector2::from_angle(angle) * radius
 }
 
@@ -672,7 +728,7 @@ fn mark_points(mark: &SheetMark) -> Vec<Point2> {
     }
 }
 
-fn lines_of(pairs: impl IntoIterator<Item = (Point2, Point2)>) -> Vec<SheetMark> {
+pub(crate) fn lines_of(pairs: impl IntoIterator<Item = (Point2, Point2)>) -> Vec<SheetMark> {
     pairs
         .into_iter()
         .map(|(from, to)| SheetMark::Line(from, to))
@@ -680,31 +736,164 @@ fn lines_of(pairs: impl IntoIterator<Item = (Point2, Point2)>) -> Vec<SheetMark>
 }
 
 fn dimension_text(at: Point2, angle: f64, content: String) -> SheetText {
+    sheet_text(at, DIMENSION_TEXT_HEIGHT, angle, content)
+}
+
+fn sheet_text(at: Point2, height: f64, angle: f64, content: String) -> SheetText {
     SheetText {
         at,
-        height: DIMENSION_TEXT_HEIGHT,
+        height,
         content,
         anchor: TextAnchor::Middle,
         angle,
     }
 }
 
-fn value_text(measure: &DimensionMeasure, value: Option<f64>, decimals: u8) -> String {
-    let number = value.map_or_else(
-        || UNKNOWN_VALUE.to_owned(),
-        |value| format_decimals(value, usize::from(decimals)),
-    );
+fn affixes(measure: &DimensionMeasure) -> (String, String) {
     match measure {
-        DimensionMeasure::Linear { .. } | DimensionMeasure::Parallel { .. } => number,
-        DimensionMeasure::Radius(_) => format!("{RADIUS_PREFIX}{number}"),
-        DimensionMeasure::Diameter(_) => format!("{DIAMETER_SIGN}{number}"),
-        DimensionMeasure::Angle { .. } => format!("{number}{DEGREE_SIGN}"),
+        DimensionMeasure::Linear { .. } | DimensionMeasure::Parallel { .. } => {
+            (String::new(), String::new())
+        }
+        DimensionMeasure::Radius(_) => (RADIUS_PREFIX.to_string(), String::new()),
+        DimensionMeasure::Diameter(_) => (DIAMETER_SIGN.to_string(), String::new()),
+        DimensionMeasure::Angle { .. } => (String::new(), DEGREE_SIGN.to_string()),
+    }
+}
+
+pub fn deviation_text(deviation: f64, suffix: &str) -> String {
+    let magnitude = format_decimals(deviation.abs(), DEVIATION_DECIMALS);
+
+    if magnitude == "0" {
+        return "0".to_owned();
+    }
+
+    let sign = if deviation > 0.0 { '+' } else { MINUS_SIGN };
+    format!("{sign}{magnitude}{suffix}")
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ValueLines {
+    One(String),
+    Stacked {
+        main: String,
+        upper: String,
+        lower: String,
+    },
+    Limits {
+        upper: String,
+        lower: String,
+    },
+}
+
+pub fn value_lines(
+    measure: &DimensionMeasure,
+    value: Option<f64>,
+    decimals: u8,
+    tolerance: Option<DimensionTolerance>,
+) -> ValueLines {
+    let (prefix, suffix) = affixes(measure);
+    let written = |value: f64, decimals: usize| {
+        format!("{prefix}{}{suffix}", format_decimals(value, decimals))
+    };
+    let Some(value) = value else {
+        return ValueLines::One(format!("{prefix}{UNKNOWN_VALUE}{suffix}"));
+    };
+
+    let main = written(value, usize::from(decimals));
+
+    match tolerance {
+        None => ValueLines::One(main),
+        Some(DimensionTolerance::Symmetric(deviation)) => ValueLines::One(format!(
+            "{main} {PLUS_MINUS_SIGN}{}{suffix}",
+            format_decimals(deviation, DEVIATION_DECIMALS)
+        )),
+        Some(DimensionTolerance::Deviations { upper, lower }) => ValueLines::Stacked {
+            main,
+            upper: deviation_text(upper, &suffix),
+            lower: deviation_text(lower, &suffix),
+        },
+        Some(DimensionTolerance::Limits { upper, lower }) => {
+            let places = usize::from(decimals).max(DEVIATION_DECIMALS);
+            ValueLines::Limits {
+                upper: written(value + upper, places),
+                lower: written(value + lower, places),
+            }
+        }
+        Some(DimensionTolerance::Fit { fit, deviations }) => {
+            let main = format!("{main} {}", fit.code());
+
+            match fit.deviations(value).filter(|_| deviations) {
+                Some((upper, lower)) => ValueLines::Stacked {
+                    main,
+                    upper: deviation_text(upper, &suffix),
+                    lower: deviation_text(lower, &suffix),
+                },
+                None => ValueLines::One(main),
+            }
+        }
+    }
+}
+
+impl ValueLines {
+    fn width(&self) -> f64 {
+        let height = DIMENSION_TEXT_HEIGHT;
+        match self {
+            Self::One(main) => text_width(main, height),
+            Self::Stacked { main, upper, lower } => {
+                text_width(main, height)
+                    + STACK_GAP
+                    + text_width(upper, DEVIATION_TEXT_HEIGHT)
+                        .max(text_width(lower, DEVIATION_TEXT_HEIGHT))
+            }
+            Self::Limits { upper, lower } => {
+                text_width(upper, height).max(text_width(lower, height))
+            }
+        }
+    }
+
+    fn texts(&self, at: Point2, angle: f64) -> Vec<SheetText> {
+        let height = DIMENSION_TEXT_HEIGHT;
+        let along = Vector2::from_angle(angle);
+        let up = along.perp();
+
+        match self {
+            Self::One(main) => vec![dimension_text(at, angle, main.clone())],
+            Self::Stacked { main, upper, lower } => {
+                let main_width = text_width(main, height);
+                let left = at - along * (self.width() / 2.0);
+
+                let stack_left = left + along * (main_width + STACK_GAP);
+                let small = DEVIATION_TEXT_HEIGHT;
+                let lower_middle = up * ((small - height) / 2.0);
+
+                let upper_middle = lower_middle + up * (small + STACK_GAP);
+                let stacked = |content: &String, lifted: Vector2| {
+                    let half = text_width(content, small) / 2.0;
+                    sheet_text(
+                        stack_left + along * half + lifted,
+                        small,
+                        angle,
+                        content.clone(),
+                    )
+                };
+
+                vec![
+                    dimension_text(left + along * (main_width / 2.0), angle, main.clone()),
+                    stacked(upper, upper_middle),
+                    stacked(lower, lower_middle),
+                ]
+            }
+            Self::Limits { upper, lower } => vec![
+                dimension_text(at + up * (height + STACK_GAP), angle, upper.clone()),
+                dimension_text(at, angle, lower.clone()),
+            ],
+        }
     }
 }
 
 struct Laid {
     marks: Vec<SheetMark>,
-    text: SheetText,
+    texts: Vec<SheetText>,
     measure: SheetMeasure,
 }
 
@@ -712,7 +901,7 @@ fn linear_on_sheet(
     (first, second): (Point2, Point2),
     along: Vector2,
     place: Point2,
-    content: String,
+    value: &ValueLines,
     text_offset: f64,
 ) -> Option<Laid> {
     let height = DIMENSION_TEXT_HEIGHT;
@@ -745,7 +934,7 @@ fn linear_on_sheet(
         (start + end) / 2.0 + text_along * text_offset + text_along.perp() * TEXT_LIFT * height;
     Some(Laid {
         marks,
-        text: dimension_text(at, angle, content),
+        texts: value.texts(at, angle),
         measure: SheetMeasure::Linear {
             first,
             second,
@@ -759,7 +948,7 @@ fn radial_on_sheet(
     (centre, radius): (Point2, f64),
     diameter: bool,
     place: Point2,
-    content: String,
+    value: &ValueLines,
     text_offset: f64,
 ) -> Laid {
     let height = DIMENSION_TEXT_HEIGHT;
@@ -772,7 +961,7 @@ fn radial_on_sheet(
         .max(radius + LEADER_OVERSHOOT * height);
 
     let reach = centre + toward * out;
-    let width = text_width(&content, height);
+    let width = value.width();
 
     let at = reach + toward * (LEADER_TEXT_GAP * height + width / 2.0 + text_offset);
 
@@ -798,7 +987,7 @@ fn radial_on_sheet(
     marks.extend(lines_of(arrowhead(on_curve, toward, height)));
     Laid {
         marks,
-        text: dimension_text(at, 0.0, content),
+        texts: value.texts(at, 0.0),
         measure,
     }
 }
@@ -808,7 +997,7 @@ fn angle_on_sheet(
     (first, second): (AngleRay, AngleRay),
     sweep: f64,
     place: Point2,
-    content: String,
+    value: &ValueLines,
     text_offset: f64,
 ) -> Laid {
     let height = DIMENSION_TEXT_HEIGHT;
@@ -856,10 +1045,9 @@ fn angle_on_sheet(
     )));
     Laid {
         marks,
-        text: dimension_text(
+        texts: value.texts(
             arc_point(vertex, radius + TEXT_LIFT * height, middle),
             readable_angle(middle - FRAC_PI_2),
-            content,
         ),
         measure: SheetMeasure::Angular {
             vertex,
@@ -918,10 +1106,11 @@ fn laid_dimension(
     geometry: DimensionGeometry,
     placed: &PlacedView,
 ) -> Option<Laid> {
-    let content = value_text(
+    let value = value_lines(
         &dimension.measure,
         Some(geometry.value()),
         dimension.decimals,
+        dimension.tolerance,
     );
     let place = placed.on_sheet(dimension.place);
     let offset = dimension.text_offset;
@@ -932,7 +1121,7 @@ fn laid_dimension(
             second,
             along,
             ..
-        } => linear_on_sheet((first, second), along, place, content, offset),
+        } => linear_on_sheet((first, second), along, place, &value, offset),
         DimensionGeometry::Radial {
             centre,
             radius,
@@ -941,7 +1130,7 @@ fn laid_dimension(
             (centre, radius),
             diameter,
             place,
-            content,
+            &value,
             offset,
         )),
         DimensionGeometry::Angle {
@@ -954,7 +1143,7 @@ fn laid_dimension(
             (first, second),
             sweep,
             place,
-            content,
+            &value,
             offset,
         )),
     }
@@ -966,7 +1155,11 @@ fn broken_dimension(
     problem: AnnotationProblem,
 ) -> SheetAnnotation {
     let at = placed.on_sheet(dimension.place);
-    let content = value_text(&dimension.measure, None, dimension.decimals);
+    let content = match value_lines(&dimension.measure, None, dimension.decimals, None) {
+        ValueLines::One(content) => content,
+        ValueLines::Stacked { main, .. } => main,
+        ValueLines::Limits { lower, .. } => lower,
+    };
     let reach = Vector2::new(
         text_width(&content, DIMENSION_TEXT_HEIGHT) / 2.0 + BROKEN_REACH * DIMENSION_TEXT_HEIGHT,
         0.0,
@@ -974,11 +1167,11 @@ fn broken_dimension(
     SheetAnnotation {
         annotation: Annotation::Dimension(dimension.id),
         marks: vec![SheetMark::Line(at - reach, at + reach)],
-        text: dimension_text(
+        texts: vec![dimension_text(
             at + Vector2::new(0.0, TEXT_LIFT * DIMENSION_TEXT_HEIGHT),
             0.0,
             content,
-        ),
+        )],
         measure: None,
         problem: Some(problem),
     }
@@ -1021,7 +1214,7 @@ fn sheet_dimension(
         Ok(laid) => SheetAnnotation {
             annotation: Annotation::Dimension(dimension.id),
             marks: laid.marks,
-            text: laid.text,
+            texts: laid.texts,
             measure: Some(laid.measure),
             problem: None,
         },
@@ -1086,24 +1279,41 @@ fn sheet_note(note: &DrawingNote, plan: &SheetPlan, lines: &DrawnLines<'_>) -> S
     SheetAnnotation {
         annotation: Annotation::Note(note.id),
         marks,
-        text,
+        texts: vec![text],
         measure: None,
         problem,
     }
 }
 
 impl SheetPlan {
-    pub fn annotate(&mut self, drawing: &Drawing, lines: &DrawnLines<'_>) {
-        let dimensions = drawing
+    pub fn annotate(&mut self, drawing: &Drawing, lines: &DrawnLines<'_>, callouts: &CalloutTexts) {
+        let centres: Vec<SheetAnnotation> = drawing
+            .centres
+            .iter()
+            .filter_map(|centre| sheet_centre(drawing, centre, self, lines))
+            .collect();
+        let dimensions: Vec<SheetAnnotation> = drawing
             .dimensions
             .iter()
-            .filter_map(|dimension| sheet_dimension(drawing, dimension, self, lines));
-        let notes = drawing
+            .filter_map(|dimension| sheet_dimension(drawing, dimension, self, lines))
+            .collect();
+        let notes: Vec<SheetAnnotation> = drawing
             .notes
             .iter()
-            .map(|note| sheet_note(note, self, lines));
+            .map(|note| sheet_note(note, self, lines))
+            .collect();
+        let laid_callouts: Vec<SheetAnnotation> = drawing
+            .callouts
+            .iter()
+            .map(|callout| sheet_callout(drawing, callout, self, lines, callouts))
+            .collect();
 
-        self.annotations = dimensions.chain(notes).collect();
+        self.annotations = centres
+            .into_iter()
+            .chain(dimensions)
+            .chain(notes)
+            .chain(laid_callouts)
+            .collect();
     }
 
     pub fn annotation(&self, annotation: Annotation) -> Option<&SheetAnnotation> {
@@ -1147,6 +1357,17 @@ impl SheetPlan {
                     note.at = moved;
                 }
             }
+            Annotation::Callout(id) => {
+                let Some(callout) = drawing.callout(id) else {
+                    return;
+                };
+                let moved = note_place(self, note_on_sheet(self, callout.at) + by);
+
+                if let Some(callout) = drawing.callout_mut(id) {
+                    callout.at = moved;
+                }
+            }
+            Annotation::Centre(_) => {}
         }
     }
 }

@@ -194,10 +194,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   auxiliary views square to an inclined face, broken views shortening a long part, cropped views,
   several sheets per drawing, a revision table, a title block whose cells the user lays out, and
   section hatching chosen per material (today one 45° pattern, alternating direction per cut body).
-- [medium · hard] Annotations beyond plain dimensions and notes: centre marks and centrelines on
-  holes and round edges, hole and thread callouts read from the hole and thread features, ordinate
-  and baseline dimensions, tolerances (plus and minus, limits, ISO 286 fits), geometric tolerances
-  with datum features (ISO 1101), surface texture symbols (ISO 21920) and weld symbols (ISO 2553).
+- [medium · hard] Annotations beyond dimensions, notes, centre marks, callouts and tolerances:
+  ordinate and baseline dimensions, geometric tolerances with datum features (ISO 1101), surface
+  texture symbols (ISO 21920) and weld symbols (ISO 2553).
 - [low · medium] Drawing dimensions refer to edges only (`drawings.md`): the outline a curved face
   shows in a view (a cylinder seen from the side) is named by its face and drawn twice, so a
   diameter across it cannot be taken there; a dimension's value and arrows do not move outside

@@ -16,8 +16,11 @@ mod dependencies;
 mod describe;
 mod document;
 mod draft;
+mod drawing_callouts;
+mod drawing_centres;
 mod drawing_details;
 mod drawing_dimensions;
+mod drawing_fits;
 mod drawing_sections;
 mod drawing_sheet;
 mod drawing_views;
@@ -145,13 +148,24 @@ pub use crate::{
         RollbackBar, TreeRow,
     },
     draft::{Draft, FaceAngle, default_neutral, flipped_toward},
+    drawing_callouts::{
+        CALLOUT_TEXT_HEIGHT, CalloutLine, CalloutPiece, CalloutRefusal, CalloutSymbol,
+        CalloutTexts, callout_feature, callout_lines, callout_texts,
+    },
+    drawing_centres::{
+        CENTRE_OVERSHOOT, CentreGeometry, centre_geometry, centre_problem, centre_target_at,
+        centre_targets, new_centres, pick_centre,
+    },
     drawing_details::detail_view,
     drawing_dimensions::{
-        AngleRay, AnnotationProblem, DIMENSION_TEXT_HEIGHT, DimensionGeometry, DimensionRefusal,
-        DrawnLines, EdgePick, NOTE_TEXT_HEIGHT, SeenEdge, SheetAnnotation, SheetMeasure,
+        AngleRay, AnnotationProblem, DEVIATION_TEXT_HEIGHT, DIMENSION_TEXT_HEIGHT,
+        DimensionGeometry, DimensionRefusal, DrawnLines, EdgePick, MINUS_SIGN, NOTE_TEXT_HEIGHT,
+        PLUS_MINUS_SIGN, SeenEdge, SheetAnnotation, SheetMeasure, ValueLines, deviation_text,
         dimension_from_picks, dimension_geometry, dimension_problem, is_measured_view,
-        measured_lines_of, note_on_sheet, note_place, pick_edge, seen_edge, view_place,
+        measured_lines_of, note_on_sheet, note_place, pick_edge, seen_edge, text_corners,
+        value_lines, view_place,
     },
+    drawing_fits::{FIT_GRADES, FitLetter, IsoFit, MAX_FIT_SIZE},
     drawing_sections::{
         HATCH_ANGLES, HATCH_SPACING, ResolvedPlace, cutting_plane, drawn_hatching, hatch_lines,
         section_view,
@@ -165,10 +179,11 @@ pub use crate::{
         drawn_bodies,
     },
     drawings::{
-        Annotation, AnnotationId, DEFAULT_DIMENSION_DECIMALS, DetailParent, DetailScale,
-        DetailView, DimensionDirection, DimensionMeasure, Drawing, DrawingDimension, DrawingId,
-        DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint, EdgeSpot, MAX_ANNOTATIONS,
-        MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES,
+        Annotation, AnnotationId, CentreMark, CentreTarget, DEFAULT_DIMENSION_DECIMALS,
+        DetailParent, DetailScale, DetailView, DimensionDirection, DimensionMeasure,
+        DimensionTolerance, Drawing, DrawingCallout, DrawingDimension, DrawingId, DrawingNote,
+        DrawingScale, Drawings, DrawnView, EdgePoint, EdgeSpot, MAX_ANNOTATIONS, MAX_DETAIL_EXTENT,
+        MAX_DETAIL_VIEWS, MAX_DEVIATION, MAX_DIMENSION_DECIMALS, MAX_DRAWING_BODIES,
         MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_SCALE_TERM, MAX_SECTION_OFFSET,
         MAX_SECTION_VIEWS, MAX_TEXT_OFFSET, MAX_VIEW_PLACE, MIN_DETAIL_RADIUS, NoteLeader,
         Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation,
@@ -336,7 +351,13 @@ mod delete_face_tests;
 #[cfg(test)]
 mod draft_tests;
 #[cfg(test)]
+mod drawing_callouts_tests;
+#[cfg(test)]
+mod drawing_centres_tests;
+#[cfg(test)]
 mod drawing_dimensions_tests;
+#[cfg(test)]
+mod drawing_fits_tests;
 #[cfg(test)]
 mod drawings_tests;
 #[cfg(test)]

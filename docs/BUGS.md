@@ -224,6 +224,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
+## Drawings
+
+- [medium · easy] PDF sheets leave the diameter sign out of a dimension's value (`⌀20` prints as
+  `20`): PDF text is drawn from the bundled Inter's outlines, and Inter has no U+2300, so
+  `caditor-lettering` reports it missing and draws nothing. SVG names a font and DXF writes `%%c`,
+  so both keep it. Callouts draw their ⌀, ↧, ⌴ and ⌵ as lines (`drawing_callouts.rs`); a value's
+  sign could be drawn the same way, or lettering given its own outline for it.
+
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view

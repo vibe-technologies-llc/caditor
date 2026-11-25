@@ -18,7 +18,8 @@ use crate::{
     icons,
     model::{Action, Model, Notice},
     sheet_tools::{
-        self, Clicked, DELETE_DIMENSION, DELETE_NOTE, DIMENSION_TOOL, MOVE_DIMENSION, MOVE_NOTE,
+        self, CALLOUT_TOOL, CENTRE_MARKS, CENTRE_TOOL, Clicked, DELETE_CALLOUT, DELETE_CENTRE_MARK,
+        DELETE_DIMENSION, DELETE_NOTE, DIMENSION_TOOL, MOVE_CALLOUT, MOVE_DIMENSION, MOVE_NOTE,
         NOTE_TOOL, SheetTool, ToolContext, ToolRow,
     },
     sheet_views::SheetViews,
@@ -46,6 +47,15 @@ pub const MOVE_DOWN: &str = "Move the picked view down";
 pub const DIMENSION_HOVER: &str = "Add a dimension: a length, distance, radius, diameter or angle \
                                    measured from the edges of a view";
 pub const NOTE_HOVER: &str = "Add a note on the sheet, with a leader to an edge if you like";
+pub const CENTRE_HOVER: &str = "Add a centre mark to a circle seen round, or a centreline to a \
+                                cylinder seen from the side, one click each";
+pub const CENTRE_MARKS_HOVER: &str = "Mark the centre of every circle seen round and the axis of \
+                                      every cylinder seen from the side in the picked view";
+pub const CALLOUT_HOVER: &str = "Call out a hole or a thread: its size, depth, counterbore or \
+                                 countersink and thread, read from the feature so it follows \
+                                 every edit";
+pub const PICK_VIEW_FIRST: &str = "Click a view on the sheet to pick it first";
+pub const CENTRE_STAYS: &str = "A centre mark stays on what it marks; it does not move";
 pub const PICK_FIRST: &str = "Click a view, dimension or note on the sheet to pick it first";
 pub const ONLY_UP_AND_DOWN: &str =
     "The top view moves only up and down, in line with the front view";
@@ -180,11 +190,18 @@ impl Grip {
             Self::Rim(_) => RESIZE_CIRCLE,
             Self::Annotation(Annotation::Dimension(_)) => MOVE_DIMENSION,
             Self::Annotation(Annotation::Note(_)) => MOVE_NOTE,
+            Self::Annotation(Annotation::Callout(_)) => MOVE_CALLOUT,
+            Self::Annotation(Annotation::Centre(_)) => CENTRE_STAYS,
         }
+    }
+
+    fn moves(self) -> bool {
+        !matches!(self, Self::Annotation(Annotation::Centre(_)))
     }
 
     fn cursor(self, held: bool) -> CursorIcon {
         match (self, held) {
+            (Self::Annotation(Annotation::Centre(_)), _) => CursorIcon::PointingHand,
             (Self::Rim(_), _) => CursorIcon::ResizeNwSe,
             (_, true) => CursorIcon::Grabbing,
             (_, false) => CursorIcon::Grab,
@@ -222,7 +239,6 @@ impl SheetCanvas {
         self.focus_pending = true;
     }
 
-    #[cfg(test)]
     pub fn picked(&self) -> Option<DrawnView> {
         self.picked
     }
@@ -437,6 +453,8 @@ pub fn delete_annotation(
     let label = match annotation {
         Annotation::Dimension(_) => DELETE_DIMENSION,
         Annotation::Note(_) => DELETE_NOTE,
+        Annotation::Centre(_) => DELETE_CENTRE_MARK,
+        Annotation::Callout(_) => DELETE_CALLOUT,
     };
 
     apply_or_say(
@@ -490,6 +508,7 @@ fn move_buttons(
         .picked_annotation
         .filter(|annotation| context.plan.annotation(*annotation).is_some());
 
+    let fixed = annotation.is_some_and(|annotation| !Grip::Annotation(annotation).moves());
     let movement = match annotation {
         Some(_) => Some(ViewMovement::Free),
         None => picked.map(|view| context.plan.movement(view)),
@@ -503,6 +522,7 @@ fn move_buttons(
 
     for (glyph, name, by) in buttons {
         let refusal = match movement {
+            _ if fixed => Some(CENTRE_STAYS),
             None => Some(PICK_FIRST),
             Some(ViewMovement::Up) if by.x != 0.0 => Some(ONLY_UP_AND_DOWN),
             Some(ViewMovement::Across) if by.y != 0.0 => Some(ONLY_ACROSS),
@@ -542,13 +562,25 @@ pub fn toolbar(
             SheetTool::dimension(),
         ),
         (icons::SHEET_NOTE, NOTE_TOOL, NOTE_HOVER, SheetTool::note()),
+        (
+            icons::SHEET_CENTRE_MARK,
+            CENTRE_TOOL,
+            CENTRE_HOVER,
+            SheetTool::Centre,
+        ),
+        (
+            icons::SHEET_CALLOUT,
+            CALLOUT_TOOL,
+            CALLOUT_HOVER,
+            SheetTool::callout(),
+        ),
     ];
 
     for (glyph, name, hover, started) in tools {
         let active = canvas
             .tool
             .as_ref()
-            .is_some_and(|tool| tool.is_dimension() == started.is_dimension());
+            .is_some_and(|tool| tool.same_kind(&started));
 
         if widgets::icon_button_for(ui, glyph, hover, name).clicked() {
             if active {
@@ -557,6 +589,26 @@ pub fn toolbar(
                 canvas.start_tool(started);
             }
         }
+    }
+
+    let picked = canvas
+        .picked
+        .filter(|view| context.plan.placed(*view).is_some());
+    let marked = ui
+        .add_enabled_ui(picked.is_some(), |ui| {
+            widgets::icon_button_for(
+                ui,
+                icons::SHEET_CENTRE_MARKS,
+                CENTRE_MARKS_HOVER,
+                CENTRE_MARKS,
+            )
+        })
+        .inner
+        .on_disabled_hover_text(PICK_VIEW_FIRST)
+        .clicked();
+
+    if marked && let Some(view) = picked {
+        sheet_tools::add_centre_marks(context.model, context.drawing, context.views, view, actions);
     }
 
     let camera = &mut canvas.camera;
@@ -773,6 +825,16 @@ impl Paint<'_> {
             .collect()
     }
 
+    fn chained(&self, points: &[Pos2], stroke: Stroke) {
+        let scale = self.mapping.scale;
+        let dashes = CHAIN_DASHES.map(|length| (length * scale).max(1.0));
+        let gaps = CHAIN_GAPS.map(|length| (length * scale).max(1.0));
+
+        self.painter.extend(Shape::dashed_line_with_offset(
+            points, stroke, &dashes, &gaps, 0.0,
+        ));
+    }
+
     fn annotation(&self, laid: &SheetAnnotation) {
         let lost = laid.problem.is_some();
         let colour = if lost {
@@ -781,6 +843,7 @@ impl Paint<'_> {
             self.tokens.text
         };
         let stroke = Stroke::new(THIN_WIDTH, colour);
+        let centre = matches!(laid.annotation, Annotation::Centre(_));
 
         for mark in &laid.marks {
             let points = self.mark_points(mark);
@@ -788,15 +851,21 @@ impl Paint<'_> {
             if lost {
                 self.painter
                     .extend(Shape::dashed_line(&points, stroke, BROKEN_DASH, BROKEN_GAP));
+            } else if centre {
+                self.chained(&points, stroke);
             } else {
                 self.painter.add(Shape::line(points, stroke));
             }
         }
-        self.text(&laid.text, colour);
+        for text in &laid.texts {
+            self.text(text, colour);
+        }
     }
 
     fn annotation_outline(&self, laid: &SheetAnnotation, picked: bool) {
-        let bounds = laid.bounds();
+        let Some(bounds) = laid.bounds() else {
+            return;
+        };
 
         self.outline_rect(
             Rect::from_two_pos(
@@ -1038,7 +1107,12 @@ fn shown_with_tool(
                 }),
             });
         }
-        SheetTool::Note { .. } => return None,
+        SheetTool::Callout { .. } => {
+            let draft = sheet_tools::draft_callout(tool, &tool_context(context), pointer?)?;
+
+            shown.callouts.push(draft);
+        }
+        SheetTool::Note { .. } | SheetTool::Centre => return None,
     }
     Some(shown)
 }
@@ -1120,16 +1194,7 @@ pub fn canvas(
 
     let scale = fit * canvas.camera.zoom;
     let mapping = canvas.camera.mapping(rect, plan, scale);
-    let placing = canvas.tool.as_ref().is_some_and(|tool| {
-        matches!(
-            tool,
-            SheetTool::Dimension {
-                first: Some(_),
-                second: Some(_),
-                ..
-            }
-        )
-    });
+    let placing = canvas.tool.as_ref().is_some_and(SheetTool::places);
 
     if response.drag_started() {
         let from = ui
@@ -1137,7 +1202,8 @@ pub fn canvas(
             .map(|pressed| mapping.sheet(pressed));
 
         canvas.drag = from.filter(|_| !placing).and_then(|from| {
-            let grip = grip_at(context.drawing, plan, from, mapping.reach())?;
+            let grip = grip_at(context.drawing, plan, from, mapping.reach())
+                .filter(|grip| grip.moves())?;
             Some(SheetDrag {
                 grip,
                 from,
@@ -1200,6 +1266,7 @@ pub fn canvas(
     }
     if let Some(by) = nudged(ui, &response) {
         match (canvas.picked_annotation, canvas.picked) {
+            (Some(annotation), _) if !Grip::Annotation(annotation).moves() => {}
             (Some(annotation), _) => annotation_moved_by(context, annotation, by, actions),
             (None, Some(view)) => moved_by(context, view, by, actions),
             (None, None) => {}
@@ -1226,12 +1293,7 @@ pub fn canvas(
             .map_or(Cow::Borrowed(context.drawing), Cow::Owned),
     };
     let shown_plan = match shown_drawing {
-        Cow::Owned(_) => Cow::Owned(plan_of(
-            context.model.document(),
-            &context.model.display_name(),
-            &shown_drawing,
-            context.views,
-        )),
+        Cow::Owned(_) => Cow::Owned(plan_of(context.model, &shown_drawing, context.views)),
         Cow::Borrowed(_) => Cow::Borrowed(plan),
     };
     let painter = ui.painter_at(rect);

@@ -94,6 +94,9 @@ const MODEL_BODIES: [&[Command]; 3] = [
         Command::NewDrawing,
         Command::DrawingDimension,
         Command::DrawingNote,
+        Command::DrawingCentreMarks,
+        Command::DrawingCentreMark,
+        Command::DrawingCallout,
         Command::ExportDrawingSheet,
     ],
     &[

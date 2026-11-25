@@ -7,6 +7,12 @@ paths:
   - "crates/caditor-document/src/drawing_details.rs"
   - "crates/caditor-document/src/drawing_dimensions.rs"
   - "crates/caditor-document/src/drawing_dimensions_tests.rs"
+  - "crates/caditor-document/src/drawing_centres.rs"
+  - "crates/caditor-document/src/drawing_centres_tests.rs"
+  - "crates/caditor-document/src/drawing_callouts.rs"
+  - "crates/caditor-document/src/drawing_callouts_tests.rs"
+  - "crates/caditor-document/src/drawing_fits.rs"
+  - "crates/caditor-document/src/drawing_fits_tests.rs"
   - "crates/caditor-document/src/drawing_sheet.rs"
   - "crates/caditor-file/src/drawings.rs"
   - "crates/caditor-file/src/tests/drawings.rs"
@@ -18,13 +24,15 @@ paths:
   - "crates/caditor/src/sheet_export.rs"
   - "crates/caditor/src/sheet_tools.rs"
   - "crates/caditor/src/ui_tests/drawings.rs"
+  - "crates/caditor/src/ui_tests/drawing_marks.rs"
   - "crates/caditor/guide/drawings.md"
 ---
 
 # Technical drawings
 
 A drawing lays out standard views, section views and detail views of the model's bodies on an ISO sheet with a
-frame and a title block, with dimensions measured from the model and notes, and exports it as PDF, SVG or DXF. It is model content, worked out from the kernel's hidden
+frame and a title block, with dimensions measured from the model (toleranced if wanted), notes,
+centre marks and centrelines, and hole and thread callouts, and exports it as PDF, SVG or DXF. It is model content, worked out from the kernel's hidden
 lines, never a picture of the 3D view.
 
 ## In the document (`drawings.rs`)
@@ -107,6 +115,30 @@ lines, never a picture of the 3D view.
   follows edits as features do. A dimension whose view is gone is kept, not dropped: it shows as
   lost. A note is `text`, `at` (sheet millimetres from the view area's middle, like a position) and
   an optional `NoteLeader` (a view and an `EdgeName`).
+- A dimension's optional `tolerance` (`DimensionTolerance`): `Symmetric` (±, above zero),
+  `Deviations` or `Limits` (an upper and a lower deviation, upper above lower), or `Fit` (an
+  `IsoFit` and whether its deviations are written). Deviations are plain millimetres (degrees on an
+  angle) of at most `MAX_DEVIATION` either way, not expressions and not scaled by
+  `Document::scaled`, since a tolerance is a manufacturing limit, not model geometry. A fit on an
+  angle is refused (`FitOnAngle`); `is_usable_on` is the same check for the file reader.
+- `centres` (`CentreMark`) and `callouts` (`DrawingCallout`) share the annotation counter and
+  `MAX_ANNOTATIONS` (`annotation_count`). A centre mark is a view and a `CentreTarget`: `Circle`
+  (an `EdgeName` seen round: a centre mark) or `Cylinder` (a `FaceName` whose silhouettes are two
+  parallel lines: a centreline). It has no place of its own; it stands where its target is. A
+  callout is a view, the `FeatureId` of the hole or thread it reads (stored and counted like a
+  drawing's bodies in `set_drawings`), the `EdgeName` its leader points at and `at` (sheet
+  millimetres like a note, `CalloutPlaceOutOfRange` past `MAX_VIEW_PLACE`).
+
+## ISO 286 fits (`drawing_fits.rs`)
+
+- `IsoFit` is a `FitLetter` (hole H; shafts f, g, h, js, k, n, p) and a grade in `FIT_GRADES`
+  (IT5 to IT11), written and read as its code ("H7", "js6"). `deviations(size)` gives the upper
+  and lower deviation in millimetres from ISO 286-1's tables, kept small and exact: the standard
+  tolerance grades and the fundamental deviations of those letters over the thirteen main size
+  ranges up to `MAX_FIT_SIZE` (500 mm), a size on a step belonging to the range it ends (rounded to
+  a millionth first, so measuring noise keeps it there). js is ±IT/2 with odd values of IT7 to IT11
+  rounded down to even, as ISO 286-2 tabulates; k is raised only for IT4 to IT7. Sizes past the
+  table, or not above zero, have none. The tests hold it to published ISO 286-2 values.
 
 ## Views (`drawing_views.rs`)
 
@@ -156,9 +188,56 @@ lines, never a picture of the 3D view.
   out is left off until they are. A note stands at its place; a leader runs from a shoulder beside
   the text to the middle of its edge with an arrowhead, or is left out with the problem when the
   edge is gone.
+- A tolerance is laid out with the value (`value_lines`, `ValueLines`): plus or minus and a fit
+  without deviations on the value's line (`20 ±0.1`, `⌀10 H7`); deviations stacked beside it at
+  `DEVIATION_TEXT_HEIGHT` (2.5 mm), the lower one's foot on the value's, the upper above, the group
+  centred where the value alone would stand; limits as two full lines, the lower where the value
+  would be. `deviation_text` writes a deviation signed (`+0.015`, `−0.01` with a real minus) to four
+  decimals at most, and nothing as `0`. A fit whose size is past the table is written alone.
+- `SheetAnnotation` holds several `texts` (`text()` is the first, `content()` all joined): bounds,
+  `distance_to` and `text_corners` cover every one, at either anchor; an annotation with no marks
+  and no text has no bounds and is never picked.
 - `moved_annotation` moves a dimension's place by a sheet vector over its view's scale and a note
-  by the vector, clamped into the view area like positions; `annotation_at` finds the nearest
-  within reach (text box or any mark).
+  or callout by the vector, clamped into the view area like positions; a centre mark does not move.
+  `annotation_at` finds the nearest within reach (text box or any mark).
+
+## Centre marks (`drawing_centres.rs`)
+
+- `centre_geometry` reads a target on the view's measured lines (a detail's parent's, like a
+  dimension): a circle is `seen_edge` round (`NotRound` otherwise); a cylinder gathers the
+  silhouette pieces of its `FaceName` (`OutlineGone` with none, `EdgeAmbiguous` from two faces),
+  which must be straight, parallel to a sine of 1e-6 and lie on exactly two lines (`NotCylinder`
+  otherwise), the axis running midway over their joint extent. A centre mark is two lines through
+  the centre along the sheet's axes reaching `CENTRE_OVERSHOOT` (2 mm) past the rim, a centreline
+  the axis reaching that past each end, both drawn as long-dash-dot chain lines. A lost one is
+  kept, laid out with no marks and its problem, so it is not drawn and the panel names it.
+- `centre_targets` finds every whole circle seen round (one per centre, the largest, so a hole's
+  two ends or a counterbore share one mark) and every cylinder seen from the side (one per axis,
+  the longest); `new_centres` leaves out what the view already marks. `pick_centre` picks the
+  nearest edge or silhouette (`nearest_piece`, which `pick_edge` also uses) and makes it a target
+  with `centre_target_at`.
+
+## Callouts (`drawing_callouts.rs`)
+
+- `callout_feature` finds what an edge belongs to in the drawn bodies: a Thread whose face
+  resolves to one of the edge's faces first, else the hole whose feature made one of them (the
+  original of a patterned copy); anything else is `CalloutRefusal::NotAHole`.
+- `callout_lines` reads the feature now, with the evaluation's parameter values, into
+  `CalloutLine`s of text and `CalloutSymbol`s (⌀, ↧ depth, ⌴ counterbore, ⌵ countersink): a tapped
+  hole's thread designation and depth first (its own depth, else the hole's), then the bore
+  (`⌀d ↧depth`, the depth only when blind; a slot as width × overall length), then a line per
+  counterbore or step (`⌴⌀d ↧depth`) or the countersink (`⌵⌀d × angle°`); a thread's designation
+  and depth. Holes sized by circles take their circle's diameter (and scale the heads like the
+  feature); when the circles differ the hole's point is found from the edge's face origin
+  (`Hole::point_of`). A feature gone is `FeatureGone`, an expression that does not evaluate
+  `CalloutValue`. `callout_texts` reads every callout of a drawing; the app passes them to
+  `SheetPlan::annotate`, so the plan follows hole edits each time it is laid out.
+- A callout is laid out as lines of `CALLOUT_TEXT_HEIGHT` text centred on `at`, symbols drawn as
+  marks in the text's place (Inter has none of these glyphs, and marks come out the same in every
+  format), and a leader from a shoulder beside the first line to its edge: on a circle seen round
+  it ends on the rim pointing at the centre, else at the edge's nearest point. A lost feature or
+  edge makes it `?` with the problem and no leader; a view still being worked out leaves only the
+  leader off.
 
 ## Details (`drawing_details.rs`)
 
@@ -285,6 +364,17 @@ lines, never a picture of the 3D view.
   a view the drawing lacks is kept, shown lost. `next_annotation` becomes at least the first free
   id. The corpus holds `model-1/dimensions-and-notes.caditor` and
   `journal-1/dimensions-and-notes.journal`.
+- A dimension's `tolerance` is a field written only when it has one (`symmetric` with a number,
+  `deviations` or `limits` with `upper` and `lower`, or `fit` with its code and `deviations`), and
+  each drawing's `centres` (`id`, `view`, `target` as `circle` or `cylinder` with a hex name) and
+  `callouts` (`id`, `view`, `feature`, `edge` as hex, `at`) are fields written only when it has
+  any, each `Lenient`, so drawings from before them read without them and an older reader drops
+  them (losing only these annotations). Loading drops a tolerance that does not read or would be
+  refused, with a report, keeping its dimension; and leaves out, with one report per drawing and
+  kind, a centre mark or callout unreadable, with a repeated id (shared with dimensions and notes),
+  an unknown view or target, an unreadable name, a feature id past the storable ones or a place
+  out of range. The corpus holds `model-1/centre-marks-callouts-and-tolerances.caditor` and
+  `journal-1/centre-marks-callouts-and-tolerances.journal`.
 - Each drawing's `sections` is a field written only when it has any, each section `Lenient`, so
   drawings stored before section views read with none and an older reader drops them (losing only
   the section views; nothing computed depends on them). Loading repairs a section as
@@ -299,9 +389,13 @@ lines, never a picture of the 3D view.
   (`drawn_hatching`, clipped to a detail's circle) on `Layer::Hatching`, cutting chain lines on `Layer::Cutting` with their thick ends on `Visible`,
   frame, marks (arrows included) and title block on `Layer::Frame`, and the plan's annotations on
   `Layer::Annotation` ("Annotations", 0.25 mm): a dimension as one `Shape::Dimension` (a DXF
-  `DIMENSION` with its own block; marks and value in SVG and PDF), a note as its lines and text. A
-  lost dimension is left out and a lost leader not drawn, both counted in
-  `SheetExported::left_out` beside `dimensions` and `notes`, which the export notice reports. Lines, circles, arcs and ellipses stay exact; other curves become
+  `DIMENSION` with its own block; marks and value in SVG and PDF, a tolerance's further texts in
+  `Dimension::more`, drawn in the block, and the DXF text override all of them joined), a note or
+  callout as its lines and texts, and centre marks and centrelines on `Layer::Centre` ("Centre
+  lines", 0.25 mm long-dash-dot like cutting lines, `DASHDOT` in DXF). A lost dimension, centre
+  mark or callout is left out and a lost leader not drawn, each counted in
+  `SheetExported::left_out` beside `dimensions`, `notes`, `centres` and `callouts`, which the export
+  notice reports. Lines, circles, arcs and ellipses stay exact; other curves become
   polylines within the sheet chord and are counted in `SheetExported::approximated`. Written
   atomically. `SheetFormat::of` picks by extension (PDF by default).
 - SVG is the page itself (`width`/`height` in mm, viewBox the sheet), strokes per layer (0.5 mm
@@ -377,11 +471,26 @@ lines, never a picture of the 3D view.
   deletes it (Delete dimension, Delete note). Plain Delete is otherwise Delete selection's, so the
   app lets the focused canvas claim it before dispatching commands (`DrawingsTool::claim_delete`).
   Lost annotations are drawn dashed in `error`, the rest in `text`; values turn with their line.
-- The panel's Dimensions and notes rows (after Layout) name each dimension ("Dimension 1: 40
+- The panel's Annotations rows (after Layout) name each dimension ("Dimension 1: 40
   horizontal distance in the front view", numbered by id plus one, so names never repeat) with
   Re-attach and Delete, an error callout saying what it lost, and Measures (direction, or radius
-  and diameter), Decimals and Value along (`text_offset`); each note with Change the text (a field
-  like Rename), Remove the leader and Delete, and a warning when its leader lost its edge.
+  and diameter), Tolerance (a combo of No tolerance, Plus or minus, Deviations, Limits and, but on
+  an angle, ISO 286 fit; then Deviation, Upper and Lower deviation value fields, or Fit and Grade
+  combos and Show the deviations), Decimals and Value along (`text_offset`), with a muted line
+  giving a fit's deviations at the size measured or a warning past the table; each note with
+  Change the text (a field like Rename), Remove the leader and Delete, and a warning when its
+  leader lost its edge; each centre mark or centreline ("Centre mark 3 of a circle in the top
+  view") and callout ("Callout 4 of Hole 1 in the top view", its words on hover) with Delete and
+  an error callout when lost. Angles take no tolerance in the panel, since its fields are lengths.
+- Centre marks and callouts (`sheet_tools.rs`): Add a centre mark or centreline and Add a callout
+  to a hole (toolbar buttons and the commands of those names) start `SheetTool::Centre` (one click
+  on a circle or a cylinder's outline adds one, refused in words on anything else or on what is
+  already marked, the tool kept) and `SheetTool::Callout` (a click on an edge, checked with
+  `callout_feature`, then a click where the text stands, previewed at the pointer). Add centre
+  marks to this view (toolbar button and command `DrawingCentreMarks`) adds `new_centres` of the
+  picked view in one Add centre marks change; it is refused without a picked view
+  (`SheetRefusal::NoViewPicked`) and says so when nothing is left to mark. A picked centre mark is
+  deleted like any annotation but never dragged or nudged (its move buttons say why).
 - Keyboard: a click picks the view under it and focuses the sheet. With the sheet focused and a
   view picked, the arrow keys move that view `NUDGE` (1 mm on the sheet; `FAR_NUDGE`, 10 mm, with
   Shift), each press one undoable change through `SheetPlan::moved` (so a top or side view keeps

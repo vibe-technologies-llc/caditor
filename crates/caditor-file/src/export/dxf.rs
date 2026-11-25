@@ -118,7 +118,9 @@ impl Writer {
                 Layer::Hatching | Layer::Annotation => {
                     Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(THIN_WEIGHT)))
                 }
-                Layer::Cutting => Some((*layer, BY_INDEX_BLACK, DASH_DOT, Some(THIN_WEIGHT))),
+                Layer::Cutting | Layer::Centre => {
+                    Some((*layer, BY_INDEX_BLACK, DASH_DOT, Some(THIN_WEIGHT)))
+                }
                 Layer::Frame => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(FRAME_WEIGHT))),
                 _ => None,
             })
@@ -202,7 +204,7 @@ impl Writer {
         self.pair(8, layer.name());
         if layer.is_dashed() {
             self.pair(6, DASHED);
-        } else if layer == Layer::Cutting {
+        } else if matches!(layer, Layer::Cutting | Layer::Centre) {
             self.pair(6, DASH_DOT);
         }
     }
@@ -272,6 +274,9 @@ impl Writer {
                 self.shape(Layer::Sketch, mark);
             }
             self.label(Layer::Sketch, &dimension.text);
+            for more in &dimension.more {
+                self.label(Layer::Sketch, more);
+            }
             self.pair(0, "ENDBLK");
             self.pair(8, Layer::Sketch.name());
         }
@@ -302,7 +307,7 @@ impl Writer {
         self.location(10, definition);
         self.location(11, dimension.text.at);
         self.pair(70, kind | OWN_BLOCK | PLACED_TEXT);
-        self.pair(1, escaped(&dimension.text.content));
+        self.pair(1, escaped(&dimension.written()));
         self.pair(3, DIMENSION_STYLE);
         match dimension.measure {
             Measure::Linear {

@@ -332,6 +332,7 @@ impl Style {
             },
             marks,
             text,
+            more: Vec::new(),
         })
     }
 
@@ -375,6 +376,7 @@ impl Style {
             measure,
             marks,
             text,
+            more: Vec::new(),
         }
     }
 
@@ -472,6 +474,7 @@ impl Style {
                 middle - FRAC_PI_2,
                 content,
             ),
+            more: Vec::new(),
         }
     }
 }

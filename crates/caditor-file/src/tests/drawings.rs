@@ -1,13 +1,14 @@
 use std::{collections::BTreeSet, fs};
 
 use caditor_document::{
-    AnnotationId, DetailParent, DetailScale, DetailView, DimensionDirection, DimensionMeasure,
-    Drawing, DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings, DrawnView,
-    EdgePoint, EdgeSpot, NoteLeader, Projection, ScaleRatio, SectionPlace, SectionPlane,
-    SectionView, SheetOrientation, SheetSize, StandardView,
+    AnnotationId, CentreMark, CentreTarget, DetailParent, DetailScale, DetailView,
+    DimensionDirection, DimensionMeasure, DimensionTolerance, Drawing, DrawingCallout,
+    DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint,
+    EdgeSpot, IsoFit, NoteLeader, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
+    SheetOrientation, SheetSize, StandardView,
 };
 use caditor_geometry::Point2;
-use caditor_kernel::EdgeName;
+use caditor_kernel::{EdgeName, FaceName};
 
 use super::*;
 
@@ -125,6 +126,7 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
                 place: Point2::new(5.0, 22.5),
                 decimals: 1,
                 text_offset: 0.0,
+                tolerance: None,
             },
             DrawingDimension {
                 id: AnnotationId::from_raw(2),
@@ -136,6 +138,7 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
                 place: Point2::new(-8.0, 0.0),
                 decimals: 2,
                 text_offset: 4.5,
+                tolerance: None,
             },
             DrawingDimension {
                 id: AnnotationId::from_raw(3),
@@ -144,6 +147,7 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
                 place: Point2::new(14.0, -1.0),
                 decimals: 3,
                 text_offset: 0.0,
+                tolerance: None,
             },
             DrawingDimension {
                 id: AnnotationId::from_raw(4),
@@ -152,6 +156,7 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
                 place: Point2::new(3.0, 3.0),
                 decimals: 0,
                 text_offset: 0.0,
+                tolerance: None,
             },
             DrawingDimension {
                 id: AnnotationId::from_raw(5),
@@ -163,6 +168,7 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
                 place: Point2::new(1.0, 1.0),
                 decimals: 2,
                 text_offset: -2.0,
+                tolerance: None,
             },
         ];
         workshop.notes = vec![
@@ -185,6 +191,64 @@ pub(super) fn annotated_drawings_of(base: FeatureId) -> Drawings {
         workshop.next_annotation = 9;
     }
     drawings
+}
+
+pub(super) fn marked_drawings_of(base: FeatureId) -> Drawings {
+    let mut drawings = annotated_drawings_of(base);
+
+    if let Some(workshop) = drawings.drawings.first_mut() {
+        let tolerances = [
+            DimensionTolerance::Symmetric(0.1),
+            DimensionTolerance::Deviations {
+                upper: 0.02,
+                lower: -0.01,
+            },
+            DimensionTolerance::Fit {
+                fit: IsoFit::from_code("H7").unwrap(),
+                deviations: true,
+            },
+            DimensionTolerance::Limits {
+                upper: 0.5,
+                lower: 0.0,
+            },
+        ];
+
+        for (dimension, tolerance) in workshop.dimensions.iter_mut().zip(tolerances) {
+            dimension.tolerance = Some(tolerance);
+        }
+        workshop.centres = vec![
+            CentreMark {
+                id: AnnotationId::from_raw(7),
+                view: DrawnView::Standard(StandardView::Front),
+                target: CentreTarget::Circle(EdgeName::from_digest(0xf1)),
+            },
+            CentreMark {
+                id: AnnotationId::from_raw(8),
+                view: DrawnView::Detail('B'),
+                target: CentreTarget::Cylinder(FaceName::from_digest(0xf2)),
+            },
+        ];
+        workshop.callouts = vec![DrawingCallout {
+            id: AnnotationId::from_raw(9),
+            view: DrawnView::Standard(StandardView::Left),
+            feature: base,
+            edge: EdgeName::from_digest(0xf3),
+            at: Point2::new(-60.0, 30.5),
+        }];
+        workshop.next_annotation = 12;
+    }
+    drawings
+}
+
+pub(super) fn with_marks() -> (Document, Transaction) {
+    let (document, base, _) = solid_model();
+    let change = Transaction::single(
+        "Centre marks, callouts and tolerances",
+        Edit::SetDrawings {
+            drawings: Box::new(marked_drawings_of(base)),
+        },
+    );
+    (document, change)
 }
 
 pub(super) fn with_annotations() -> (Document, Transaction) {
@@ -781,4 +845,120 @@ fn dimensions_and_notes_that_cannot_be_read_are_left_out_and_reported() {
     ));
     assert!(issues_mention(&loaded, "asked for more than 4 decimals"));
     assert!(issues_mention(&loaded, "stands without it"));
+}
+
+#[test]
+fn centre_marks_callouts_and_tolerances_survive_saving_and_the_journal() {
+    let (mut document, change) = with_marks();
+
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let workshop = &loaded.document.drawings().drawings[0];
+
+    assert!(
+        text.contains(r#""tolerance":{"fit":{"deviations":true,"fit":"H7"}}"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#""target":{"cylinder":"000000000000000000000000000000f2"}"#),
+        "{text}"
+    );
+    assert!(text.contains(r#""callouts":[{"at":[-60.0,30.5]"#), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        workshop
+            .dimensions
+            .iter()
+            .filter(|dimension| dimension.tolerance.is_some())
+            .count(),
+        4
+    );
+    assert_eq!(workshop.centres.len(), 2);
+    assert_eq!(workshop.callouts.len(), 1);
+    assert_eq!(workshop.next_annotation, 12);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn drawings_saved_before_centre_marks_callouts_and_tolerances_load_without_them() {
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+    let bytes = fs::read(corpus.join("model-1/dimensions-and-notes.caditor")).unwrap();
+    let loaded = decode(&bytes).unwrap();
+    let journal = fs::read(corpus.join("journal-1/dimensions-and-notes.journal")).unwrap();
+    let contents = journal::decode_journal(&journal).unwrap();
+    let replayed = journal::replay(contents.base, contents.entries);
+
+    let unmarked = |drawings: &Drawings| {
+        drawings.drawings.iter().all(|drawing| {
+            drawing.centres.is_empty()
+                && drawing.callouts.is_empty()
+                && drawing
+                    .dimensions
+                    .iter()
+                    .all(|dimension| dimension.tolerance.is_none())
+        })
+    };
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document.drawings().drawings[0].dimensions.len(), 5);
+    assert!(unmarked(loaded.document.drawings()));
+    assert_eq!(contents.issues, Vec::<String>::new());
+    assert_eq!(
+        replayed.editor.document().drawings().drawings[0]
+            .dimensions
+            .len(),
+        5
+    );
+    assert!(unmarked(replayed.editor.document().drawings()));
+}
+
+#[test]
+fn centre_marks_callouts_and_tolerances_that_cannot_be_read_are_left_out_and_reported() {
+    let (document, base, _) = solid_model();
+    let body = base.raw();
+    let drawings = format!(
+        r#"{{"drawings":{{"drawings":[{{"id":1,"name":"Shop","views":["front"],"dimensions":[{{"id":1,"view":{{"standard":"front"}},"measure":{{"radius":"ab"}},"place":[1.0,2.0],"tolerance":{{"fit":{{"fit":"Q9"}}}}}},{{"id":2,"view":{{"standard":"front"}},"measure":{{"angle":{{"first":"1","second":"2"}}}},"place":[1.0,2.0],"tolerance":{{"fit":{{"fit":"H7"}}}}}},{{"id":3,"view":{{"standard":"front"}},"measure":{{"radius":"ab"}},"place":[1.0,2.0],"tolerance":{{"deviations":{{"upper":-1.0,"lower":1.0}}}}}},{{"id":4,"view":{{"standard":"front"}},"measure":{{"radius":"ab"}},"place":[1.0,2.0],"tolerance":{{"symmetric":0.05}}}}],"centres":[{{"id":5,"view":{{"standard":"front"}},"target":{{"circle":"f1"}}}},{{"id":5,"view":{{"standard":"front"}},"target":{{"circle":"f2"}}}},{{"id":6,"view":{{"standard":"front"}},"target":{{"ring":"f2"}}}},7],"callouts":[{{"id":8,"view":{{"standard":"front"}},"feature":{body},"edge":"f3","at":[1.0,1.0]}},{{"id":9,"view":{{"standard":"front"}},"feature":{body},"edge":"f3","at":[9000.0,1.0]}},{{"id":10,"view":{{"standard":"front"}},"feature":18446744073709551615,"edge":"f3","at":[1.0,1.0]}}]}}],"next_id":2}}}}"#
+    );
+    let text = format!(
+        "{}
+{drawings}",
+        encode(&document).unwrap()
+    );
+
+    let loaded = decode_text(&text);
+    let shop = &loaded.document.drawings().drawings[0];
+    let tolerances: Vec<Option<DimensionTolerance>> = shop
+        .dimensions
+        .iter()
+        .map(|dimension| dimension.tolerance)
+        .collect();
+
+    assert_eq!(
+        tolerances,
+        [None, None, None, Some(DimensionTolerance::Symmetric(0.05))]
+    );
+    assert_eq!(shop.centres.len(), 1);
+    assert_eq!(shop.callouts.len(), 1);
+    assert_eq!(shop.callouts[0].feature, base);
+    assert_eq!(shop.next_annotation, 9);
+    assert!(issues_mention(
+        &loaded,
+        "The tolerance of a dimension of the drawing “Shop” could not be read"
+    ));
+    assert!(issues_mention(
+        &loaded,
+        "3 centre marks and centrelines of the drawing “Shop” could not be read"
+    ));
+    assert!(issues_mention(
+        &loaded,
+        "2 callouts of the drawing “Shop” could not be read"
+    ));
 }

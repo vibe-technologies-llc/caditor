@@ -82,6 +82,7 @@ mod dimension_labels;
 mod display_styles;
 mod draft;
 mod drawing_import;
+mod drawing_marks;
 mod drawings;
 mod emboss;
 mod exporting;

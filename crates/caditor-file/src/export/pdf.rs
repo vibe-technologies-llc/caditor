@@ -191,7 +191,10 @@ fn stroked(text: &mut String, shape: &Shape) -> Result<(), ExportError> {
             for mark in &dimension.marks {
                 stroked(text, mark)?;
             }
-            letters(text, &dimension.text)
+            for label in std::iter::once(&dimension.text).chain(&dimension.more) {
+                letters(text, label)?;
+            }
+            Ok(())
         }
         _ => Ok(()),
     }
@@ -202,7 +205,7 @@ fn layer_style(layer: Layer) -> (f64, &'static [f64]) {
         Layer::Visible => (VISIBLE_WIDTH, &[]),
         Layer::Hidden => (HIDDEN_WIDTH, &[HIDDEN_DASH, HIDDEN_GAP]),
         Layer::Hatching | Layer::Annotation => (THIN_WIDTH, &[]),
-        Layer::Cutting => (THIN_WIDTH, &CHAIN),
+        Layer::Cutting | Layer::Centre => (THIN_WIDTH, &CHAIN),
         Layer::Frame => (FRAME_WIDTH, &[]),
         Layer::Construction => (HAIRLINE, &[CONSTRUCTION_DASH, CONSTRUCTION_GAP]),
         Layer::Sketch | Layer::Outline | Layer::Holes | Layer::Dimensions | Layer::Labels => {

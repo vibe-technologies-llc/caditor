@@ -201,6 +201,9 @@ pub enum Command {
     SheetInView,
     DrawingDimension,
     DrawingNote,
+    DrawingCentreMarks,
+    DrawingCentreMark,
+    DrawingCallout,
     FitView,
     ZoomToBox,
     PreviousView,
@@ -962,6 +965,9 @@ plain_commands! {
     SheetInView,
     DrawingDimension,
     DrawingNote,
+    DrawingCentreMarks,
+    DrawingCentreMark,
+    DrawingCallout,
     FinishSketch,
     CancelSketch,
     ReverseArc,
@@ -1303,6 +1309,9 @@ impl Command {
             Self::SheetInView => "view.drawing_sheet",
             Self::DrawingDimension => "model.drawing_dimension",
             Self::DrawingNote => "model.drawing_note",
+            Self::DrawingCentreMarks => "model.drawing_centre_marks",
+            Self::DrawingCentreMark => "model.drawing_centre_mark",
+            Self::DrawingCallout => "model.drawing_callout",
             Self::FitView => "view.fit",
             Self::ZoomToBox => "view.zoom_box",
             Self::PreviousView => "view.previous",
@@ -1656,6 +1665,9 @@ impl Command {
             Self::SheetInView => "Drawing sheet in the view",
             Self::DrawingDimension => "Dimension the drawing",
             Self::DrawingNote => "Add a note to the drawing",
+            Self::DrawingCentreMarks => "Add centre marks to this view",
+            Self::DrawingCentreMark => "Add a centre mark or centreline",
+            Self::DrawingCallout => "Add a callout to a hole",
             Self::FitView => "Fit view",
             Self::ZoomToBox => "Zoom to box",
             Self::PreviousView => "Go back to the previous view",
@@ -2056,7 +2068,37 @@ impl Command {
                 "text",
                 "label",
                 "leader",
-                "callout",
+                "annotate",
+            ],
+            Self::DrawingCentreMarks => &[
+                "technical drawing",
+                "sheet",
+                "center mark",
+                "centerline",
+                "centreline",
+                "axis",
+                "hole",
+                "annotate",
+            ],
+            Self::DrawingCentreMark => &[
+                "technical drawing",
+                "sheet",
+                "center mark",
+                "centerline",
+                "axis",
+                "circle",
+                "cylinder",
+                "annotate",
+            ],
+            Self::DrawingCallout => &[
+                "technical drawing",
+                "sheet",
+                "hole callout",
+                "thread",
+                "tapped",
+                "counterbore",
+                "countersink",
+                "depth",
                 "annotate",
             ],
             Self::SheetInView => &[
@@ -2335,6 +2377,9 @@ impl Command {
             | Self::NewDrawing
             | Self::DrawingDimension
             | Self::DrawingNote
+            | Self::DrawingCentreMarks
+            | Self::DrawingCentreMark
+            | Self::DrawingCallout
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
@@ -2628,6 +2673,9 @@ impl Command {
             | Self::NewDrawing
             | Self::DrawingDimension
             | Self::DrawingNote
+            | Self::DrawingCentreMarks
+            | Self::DrawingCentreMark
+            | Self::DrawingCallout
             | Self::ModelProperties
             | Self::ExportSketch
             | Self::ExportFace

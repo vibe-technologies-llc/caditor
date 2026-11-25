@@ -76,6 +76,7 @@ fn dimension(id: u64, measure: DimensionMeasure, place: Point2) -> DrawingDimens
         place,
         decimals: DEFAULT_DIMENSION_DECIMALS,
         text_offset: 0.0,
+        tolerance: None,
     }
 }
 
@@ -88,7 +89,7 @@ fn annotated(drawing: &Drawing, lines: &ViewLines) -> SheetPlan {
     let mut plan = lay_out_sheet(drawing, &TitleFields::default(), &extents, &BTreeMap::new());
     let drawn = DrawnLines::from([(front(StandardView::Front), lines)]);
 
-    plan.annotate(drawing, &drawn);
+    plan.annotate(drawing, &drawn, &CalloutTexts::new());
     plan
 }
 
@@ -433,10 +434,10 @@ fn a_dimension_whose_edge_is_gone_is_kept_drawn_dashed_and_says_why() {
 
     assert_eq!(plan.annotations.len(), 2);
     assert_eq!(lost.problem, Some(AnnotationProblem::EdgeGone));
-    assert_eq!(lost.text.content, "⌀?");
+    assert_eq!(lost.texts[0].content, "⌀?");
     assert_eq!(lost.measure, None);
     assert_eq!(kept.problem, None);
-    assert_eq!(kept.text.content, "20");
+    assert_eq!(kept.texts[0].content, "20");
     assert_eq!(
         dimension_problem(&drawing, &drawing.dimensions[1], &drawn),
         Some(Err(AnnotationProblem::EdgeGone))
@@ -472,15 +473,15 @@ fn a_linear_dimension_is_laid_out_with_gapped_extension_lines_arrows_and_its_val
         panic!("the first mark is an extension line");
     };
 
-    assert_eq!(laid.text.content, "20");
-    assert_eq!(laid.text.angle, 0.0);
-    assert!(laid.text.at.y > line_at);
+    assert_eq!(laid.texts[0].content, "20");
+    assert_eq!(laid.texts[0].angle, 0.0);
+    assert!(laid.texts[0].at.y > line_at);
     assert!(near(gap_end.y - corner.y, 0.5 * DIMENSION_TEXT_HEIGHT));
     assert!(near(overshoot_end.y - line_at, 0.5 * DIMENSION_TEXT_HEIGHT));
     assert!(matches!(laid.measure, Some(SheetMeasure::Linear { .. })));
     assert_eq!(laid.marks.len(), 2 + 1 + 4);
     assert_eq!(
-        plan.annotation_at(laid.text.at, 0.1),
+        plan.annotation_at(laid.texts[0].at, 0.1),
         Some(Annotation::Dimension(AnnotationId::from_raw(0)))
     );
 }
@@ -596,7 +597,7 @@ fn a_note_points_its_leader_at_its_edge_and_says_when_the_edge_is_gone() {
         SheetMark::Line(_, to) if (*to - tip).length() < 1e-6
     )));
     assert_eq!(
-        pointed.text.at,
+        pointed.texts[0].at,
         note_on_sheet(&plan, Point2::new(60.0, 40.0))
     );
     assert_eq!(lost.problem, Some(AnnotationProblem::EdgeGone));
@@ -669,4 +670,202 @@ fn moving_a_dimension_or_note_keeps_it_by_its_view_and_scaling_the_model_carries
     assert!(near(kept.dimensions[0].place.x, 20.0));
     assert!(near(kept.dimensions[0].place.y, 18.0));
     assert_eq!(kept.notes[0].at, Point2::ZERO);
+}
+
+fn written(lines: &ValueLines) -> Vec<String> {
+    match lines {
+        ValueLines::One(main) => vec![main.clone()],
+        ValueLines::Stacked { main, upper, lower } => {
+            vec![main.clone(), upper.clone(), lower.clone()]
+        }
+        ValueLines::Limits { upper, lower } => vec![upper.clone(), lower.clone()],
+    }
+}
+
+fn toleranced(
+    measure: &DimensionMeasure,
+    value: f64,
+    tolerance: DimensionTolerance,
+) -> Vec<String> {
+    written(&value_lines(measure, Some(value), 2, Some(tolerance)))
+}
+
+#[test]
+fn tolerances_write_plus_or_minus_deviations_limits_and_iso_fits() {
+    let straight = length_of(EdgeName::from_digest(1));
+    let across = DimensionMeasure::Diameter(EdgeName::from_digest(2));
+    let turned = DimensionMeasure::Angle {
+        first: EdgeName::from_digest(3),
+        second: EdgeName::from_digest(4),
+    };
+    let fit = |code: &str, deviations: bool| DimensionTolerance::Fit {
+        fit: IsoFit::from_code(code).unwrap(),
+        deviations,
+    };
+
+    assert_eq!(
+        toleranced(&straight, 20.0, DimensionTolerance::Symmetric(0.1)),
+        ["20 \u{b1}0.1"]
+    );
+    assert_eq!(
+        toleranced(&turned, 30.0, DimensionTolerance::Symmetric(0.5)),
+        ["30\u{b0} \u{b1}0.5\u{b0}"]
+    );
+    assert_eq!(
+        toleranced(
+            &straight,
+            20.0,
+            DimensionTolerance::Deviations {
+                upper: 0.02,
+                lower: -0.01
+            }
+        ),
+        ["20", "+0.02", "\u{2212}0.01"]
+    );
+    assert_eq!(
+        toleranced(
+            &straight,
+            20.0,
+            DimensionTolerance::Deviations {
+                upper: 0.0,
+                lower: -0.05
+            }
+        ),
+        ["20", "0", "\u{2212}0.05"]
+    );
+    assert_eq!(
+        toleranced(
+            &straight,
+            20.0,
+            DimensionTolerance::Limits {
+                upper: 0.02,
+                lower: -0.01
+            }
+        ),
+        ["20.02", "19.99"]
+    );
+    assert_eq!(
+        toleranced(&across, 10.0, fit("H7", false)),
+        ["\u{2300}10 H7"]
+    );
+    assert_eq!(
+        toleranced(&across, 10.0, fit("H7", true)),
+        ["\u{2300}10 H7", "+0.015", "0"]
+    );
+    assert_eq!(
+        toleranced(&across, 25.0, fit("g6", true)),
+        ["\u{2300}25 g6", "\u{2212}0.007", "\u{2212}0.02"]
+    );
+    assert_eq!(
+        toleranced(&across, 640.0, fit("H7", true)),
+        ["\u{2300}640 H7"]
+    );
+}
+
+#[test]
+fn a_dimension_with_deviations_stacks_them_beside_its_value_smaller_and_in_reach() {
+    let pair = pair();
+    let mut drawing = front_only(plate_drawing(&pair));
+
+    let lines = lines_of(&pair.document, &drawing, StandardView::Front);
+
+    drawing.dimensions = vec![DrawingDimension {
+        tolerance: Some(DimensionTolerance::Fit {
+            fit: IsoFit::from_code("h6").unwrap(),
+            deviations: true,
+        }),
+        ..dimension(0, length_of(top_edge(&lines)), Point2::new(10.0, 9.0))
+    }];
+
+    let plan = annotated(&drawing, &lines);
+    let laid = &plan.annotations[0];
+    let [main, upper, lower] = laid.texts.as_slice() else {
+        panic!("a value and two deviations: {:?}", laid.texts);
+    };
+
+    assert_eq!(main.content, "20 h6");
+    assert_eq!(upper.content, "0");
+    assert_eq!(lower.content, "\u{2212}0.013");
+    assert_eq!(upper.height, DEVIATION_TEXT_HEIGHT);
+    assert!(upper.at.y > lower.at.y);
+    assert!(upper.at.x > main.at.x && lower.at.x > main.at.x);
+    assert_eq!(
+        plan.annotation_at(lower.at, 0.1),
+        Some(Annotation::Dimension(AnnotationId::from_raw(0)))
+    );
+}
+
+#[test]
+fn tolerances_out_of_range_reversed_or_a_fit_on_an_angle_are_refused() {
+    let pair = pair();
+    let mut editor = Editor::new(pair.document.clone());
+
+    let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
+
+    editor.apply(transaction).unwrap();
+
+    let with = |tolerance: DimensionTolerance, measure: DimensionMeasure| {
+        editor
+            .document()
+            .changing_drawing(id, "Tolerance", |drawing| {
+                drawing.dimensions.push(DrawingDimension {
+                    tolerance: Some(tolerance),
+                    ..dimension(0, measure, Point2::ZERO)
+                });
+            })
+    };
+    let straight = length_of(EdgeName::from_digest(1));
+    let turned = DimensionMeasure::Angle {
+        first: EdgeName::from_digest(3),
+        second: EdgeName::from_digest(4),
+    };
+
+    assert!(matches!(
+        with(DimensionTolerance::Symmetric(0.0), straight),
+        Err(EditError::ToleranceOutOfRange)
+    ));
+    assert!(matches!(
+        with(DimensionTolerance::Symmetric(f64::NAN), straight),
+        Err(EditError::ToleranceOutOfRange)
+    ));
+    assert!(matches!(
+        with(
+            DimensionTolerance::Deviations {
+                upper: -0.1,
+                lower: 0.1
+            },
+            straight
+        ),
+        Err(EditError::ToleranceReversed)
+    ));
+    assert!(matches!(
+        with(
+            DimensionTolerance::Limits {
+                upper: 500.0,
+                lower: 0.0
+            },
+            straight
+        ),
+        Err(EditError::ToleranceOutOfRange)
+    ));
+    assert!(matches!(
+        with(
+            DimensionTolerance::Fit {
+                fit: IsoFit::from_code("H7").unwrap(),
+                deviations: false
+            },
+            turned
+        ),
+        Err(EditError::FitOnAngle)
+    ));
+    assert!(
+        with(
+            DimensionTolerance::Fit {
+                fit: IsoFit::from_code("H7").unwrap(),
+                deviations: true
+            },
+            straight
+        )
+        .is_ok()
+    );
 }

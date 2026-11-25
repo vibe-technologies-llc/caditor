@@ -37,7 +37,7 @@ use serde_json::Value;
 use super::{
     configurations::configured_model,
     drawings::{
-        parameter_offset_document, with_annotations, with_detail_views, with_drawings,
+        parameter_offset_document, with_annotations, with_detail_views, with_drawings, with_marks,
         with_placed_views, with_section_views,
     },
     seeds::seed_journal_by_reference,
@@ -63,7 +63,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 94] = [
+const KEPT: [(&str, &str); 96] = [
+    (
+        "journal-1/centre-marks-callouts-and-tolerances.journal",
+        "120dd569083052eca31f7ce1d3c0e376d35244df9d154bb68ec469e449e3060d",
+    ),
+    (
+        "model-1/centre-marks-callouts-and-tolerances.caditor",
+        "c30946f6a590762cd56dde4357429ca3d63fee48ce742affb67a3ecced0b3c46",
+    ),
     (
         "journal-1/dimensions-and-notes.journal",
         "1ce9db1b5da3654ff431e3dfd6897b2a55b6782e81238666ab279da0f22d9aba",
@@ -1231,6 +1239,14 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("dimensions-and-notes"), annotations_journal()),
         (
+            model("centre-marks-callouts-and-tolerances"),
+            saved(&marked_model(), "Centre marks, callouts and tolerances"),
+        ),
+        (
+            journal("centre-marks-callouts-and-tolerances"),
+            marks_journal(),
+        ),
+        (
             model("section-parameter-offsets"),
             saved(&parameter_offset_sections(), "Section parameter offsets"),
         ),
@@ -2204,6 +2220,41 @@ fn annotations_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/dimensions-and-notes.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn marked_model() -> Document {
+    let (mut document, change) = with_marks();
+
+    document.apply(change).unwrap();
+    document
+}
+
+fn marks_journal() -> Vec<u8> {
+    let (base, change) = with_marks();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+
+    session.apply(change);
+
+    let model = save_bytes(
+        &base,
+        None,
+        at(1_700_000_000),
+        Some("Centre marks, callouts and tolerances"),
+    )
+    .unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new(
+            "/models/centre-marks-callouts-and-tolerances.caditor",
+        )),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

@@ -116,10 +116,22 @@ nothing is measured in it. Click an edge, then a second one, then where the dime
 
 The value shows trailing zeros left off, in millimetres. A placed dimension stays picked: drag it
 or use the arrow keys (Shift for larger steps) to move it, Delete to remove it, and Escape to let
-it go. **Dimensions and notes** in the panel lists them, each with **Measures** (horizontal,
-vertical or straight; radius or diameter), **Decimals** (the most it shows), **Value along** (how
-far the value stands from the middle of its line, in sheet millimetres), **Re-attach** and
+it go. **Annotations** in the panel lists them, each with **Measures** (horizontal, vertical or
+straight; radius or diameter), **Tolerance**, **Decimals** (the most it shows), **Value along**
+(how far the value stands from the middle of its line, in sheet millimetres), **Re-attach** and
 **Delete**. A dimension stands in its view's own model lengths, so it moves with its view.
+
+**Tolerance** says how far the made size may stray from a length, radius or diameter, written as
+ISO 129-1 does:
+
+- **Plus or minus** a deviation: `20 ±0.1`.
+- **Deviations**, an upper and a lower one written small beside the value, the upper above:
+  `20` with `+0.02` over `−0.01`. A deviation of nothing is written `0`.
+- **Limits**, the largest and smallest size, the largest above.
+- **ISO 286 fit**, a letter and a grade such as `⌀10 H7`: H for a hole from its size up; f, g, h,
+  js, k, n and p for shafts from running to press fits; grades IT5 to IT11. **Show the
+  deviations** writes them from ISO 286's table after the fit, and the panel says what they are
+  for the size measured. The table covers sizes up to 500 mm; past it the fit is written alone.
 
 When an edge a dimension measures disappears after an edit, the dimension is kept and drawn
 dashed in the error colour with a question mark for its value, and the panel says what it lost.
@@ -129,6 +141,41 @@ dashed in the error colour with a question mark for its value, and the panel say
 stands, type it, click an edge if a leader should point at it, then **Place the note** (or Enter).
 A note is one line of up to 200 characters. In the panel its text can be changed, its leader
 removed and the note deleted; a note whose edge is gone keeps its text and the panel says so.
+
+## Centre marks and centrelines
+
+A centre mark crosses a circle seen round with two thin long-dash-dot lines a little past its rim,
+and a centreline runs along a cylinder seen from the side, a hole or a shaft, a little past each
+end, as ISO 128 draws them. Each follows the circle or cylinder it marks, so it moves and grows
+with the model.
+
+{command:model.drawing_centre_marks} (or **Add centre marks to this view** above the sheet) marks
+every circle seen round and every cylinder seen from the side in the view you picked on the sheet:
+circles sharing a centre, such as both ends of a hole, take one mark, and a counterbore and its
+bore one centreline. What already has a mark is left as it is, so the command can be run again
+after the model gains holes. {command:model.drawing_centre_mark} (or **Add a centre mark or
+centreline** above the sheet) marks one at a time: click a circle or the outline of a cylinder.
+
+A centre mark is picked by a click and removed with Delete or in the panel; it does not move on
+its own. One whose circle or cylinder is gone is no longer drawn, and the panel says so.
+
+## Hole and thread callouts
+
+{command:model.drawing_callout} (or **Add a callout to a hole** above the sheet) writes what a
+hole or a thread is: click an edge of a hole, or of a face a thread was put on, then where the
+text stands. A leader runs from the text to the edge, ending on a circle pointing at its centre.
+The callout reads the feature each time it is drawn, so editing the hole changes it:
+
+- A hole: its diameter `⌀6.6` and, for a blind hole, its depth `↧10`; a slot its width and
+  overall length.
+- A counterbore `⌴⌀11 ↧6.4`, each step of a stepped hole the same way, or a countersink
+  `⌵⌀12 × 90°`, on a line of its own below.
+- A tapped hole its thread above the drill, `M8-6H ↧12` then `⌀6.8 ↧15`; a thread its
+  designation and length.
+
+The symbols are drawn as lines, so they come out the same in every format. A callout is dragged
+or moved like a note. One whose hole or edge is gone is drawn dashed in the error colour as `?`,
+and the panel says what it lost.
 
 ## The sheet in the view
 
@@ -158,12 +205,14 @@ size in millimetres, with every view where the sheet shows it, as:
 - **SVG**, for documents and the web.
 - **DXF**, for other CAD programs, with the outlines on layer `Visible`, hidden lines on a dashed
   layer `Hidden`, section hatching on `Hatching`, cutting lines on a dash-dot layer `Cutting`,
-  dimensions (as DXF dimensions) and notes on `Annotations` and the frame and title block on
-  `Frame`.
+  centre marks and centrelines on a dash-dot layer `Centre lines`, dimensions (as DXF dimensions,
+  their tolerance part of the text), notes and callouts on `Annotations` and the frame and title
+  block on `Frame`.
 
 The file dialog proposes the format the last sheet was written in, PDF at first; type another of
 the three extensions to change it.
 
 Lines, circles, arcs and ellipses stay exact; other curves are written as short straight pieces,
-and the notice says how many. A dimension that lost its edges is left out of the file, and a note
-whose edge is gone is written without its leader; the notice says how many.
+and the notice says how many. A dimension, centre mark or callout that lost what it refers to is
+left out of the file, and a note whose edge is gone is written without its leader; the notice
+says how many.

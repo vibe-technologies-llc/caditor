@@ -26,6 +26,7 @@ pub(super) enum Layer {
     Hidden,
     Hatching,
     Cutting,
+    Centre,
     Annotation,
     Frame,
 }
@@ -42,6 +43,7 @@ impl Layer {
                 | Self::Hidden
                 | Self::Hatching
                 | Self::Cutting
+                | Self::Centre
                 | Self::Annotation
                 | Self::Frame
         )
@@ -59,6 +61,7 @@ impl Layer {
             Self::Hidden => "Hidden",
             Self::Hatching => "Hatching",
             Self::Cutting => "Cutting",
+            Self::Centre => "Centre lines",
             Self::Annotation => "Annotations",
             Self::Frame => "Frame",
         }
@@ -251,6 +254,17 @@ pub(super) struct Dimension {
     pub(super) measure: Measure,
     pub(super) marks: Vec<Shape>,
     pub(super) text: Text,
+    pub(super) more: Vec<Text>,
+}
+
+impl Dimension {
+    pub(super) fn written(&self) -> String {
+        std::iter::once(&self.text)
+            .chain(&self.more)
+            .map(|text| text.content.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -363,11 +377,13 @@ impl Shape {
                     measure,
                     marks,
                     text,
+                    more,
                 } = *dimension;
                 Self::Dimension(Box::new(Dimension {
                     measure: measure.moved(motion),
                     marks: marks.into_iter().map(|mark| mark.moved(motion)).collect(),
                     text: text.moved(motion),
+                    more: more.into_iter().map(|text| text.moved(motion)).collect(),
                 }))
             }
         }
@@ -400,6 +416,7 @@ impl Shape {
                 .iter()
                 .flat_map(Self::outline_points)
                 .chain(dimension.text.corners())
+                .chain(dimension.more.iter().flat_map(Text::corners))
                 .collect(),
         }
     }
@@ -419,6 +436,7 @@ impl Shape {
                 .iter()
                 .flat_map(Self::traced)
                 .chain(std::iter::once(dimension.text.outline()))
+                .chain(dimension.more.iter().map(Text::outline))
                 .collect(),
             shape => vec![shape.outline_points()],
         }

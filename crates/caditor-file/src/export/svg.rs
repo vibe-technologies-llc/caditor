@@ -130,7 +130,7 @@ fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::R
                 layer.name(),
                 Real(THIN_WIDTH)
             )?,
-            Layer::Cutting => writeln!(
+            Layer::Cutting | Layer::Centre => writeln!(
                 text,
                 r#"<g id="{}" stroke-width="{}" stroke-dasharray="{CHAIN}" stroke-linecap="butt">"#,
                 layer.name(),
@@ -213,7 +213,11 @@ fn write_shape(text: &mut String, shape: &Shape, font_scale: f64) -> std::fmt::R
             for mark in &dimension.marks {
                 write_shape(text, mark, font_scale)?;
             }
-            write_text(text, &dimension.text, font_scale)
+            write_text(text, &dimension.text, font_scale)?;
+            for more in &dimension.more {
+                write_text(text, more, font_scale)?;
+            }
+            Ok(())
         }
     }
 }

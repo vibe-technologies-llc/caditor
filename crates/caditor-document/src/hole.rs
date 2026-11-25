@@ -308,6 +308,11 @@ impl Hole {
         entity >> THREAD_SHIFT == 0 && entity % PARTS == HolePart::Wall as u64
     }
 
+    pub(crate) fn point_of(entity: u64) -> u64 {
+        let wall = Self::thread_part(entity).map_or(entity, |(wall, _)| wall);
+        (wall & ((1 << THREAD_SHIFT) - 1)) / PARTS
+    }
+
     pub fn is_modelled_thread(&self) -> bool {
         self.thread.form == ThreadForm::Modelled
             && hole_thread(self).is_some_and(|thread| thread.size.family().can_be_modelled())

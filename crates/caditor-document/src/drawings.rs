@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Point2, Vector2, Vector3};
-use caditor_kernel::{EdgeName, MAX_SIZE};
+use caditor_kernel::{EdgeName, FaceName, MAX_SIZE};
 
 use crate::{
     document::{Document, FeatureId, ParameterUser},
+    drawing_fits::IsoFit,
     edit::{Edit, EditError, Transaction},
     views::view_name,
 };
@@ -29,6 +30,7 @@ pub const MAX_NOTE_CHARS: usize = 200;
 pub const MAX_DIMENSION_DECIMALS: u8 = 4;
 pub const DEFAULT_DIMENSION_DECIMALS: u8 = 2;
 pub const MAX_TEXT_OFFSET: f64 = MAX_VIEW_PLACE;
+pub const MAX_DEVIATION: f64 = 100.0;
 const NUMBERED_NAME: &str = "Drawing";
 const ENLARGEMENT: f64 = 2.0;
 const RATIO_SLACK: f64 = 1e-9;
@@ -600,6 +602,54 @@ impl DimensionMeasure {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DimensionTolerance {
+    Symmetric(f64),
+    Deviations { upper: f64, lower: f64 },
+    Limits { upper: f64, lower: f64 },
+    Fit { fit: IsoFit, deviations: bool },
+}
+
+impl DimensionTolerance {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Symmetric(_) => "Plus or minus",
+            Self::Deviations { .. } => "Deviations",
+            Self::Limits { .. } => "Limits",
+            Self::Fit { .. } => "ISO 286 fit",
+        }
+    }
+
+    pub fn is_usable_on(self, measure: &DimensionMeasure) -> bool {
+        self.checked(measure).is_ok()
+    }
+
+    fn checked(self, measure: &DimensionMeasure) -> Result<(), EditError> {
+        let usable = |deviation: f64| deviation.is_finite() && deviation.abs() <= MAX_DEVIATION;
+
+        match self {
+            Self::Symmetric(deviation) if !(usable(deviation) && deviation > 0.0) => {
+                Err(EditError::ToleranceOutOfRange)
+            }
+            Self::Deviations { upper, lower } | Self::Limits { upper, lower }
+                if !(usable(upper) && usable(lower)) =>
+            {
+                Err(EditError::ToleranceOutOfRange)
+            }
+            Self::Deviations { upper, lower } | Self::Limits { upper, lower } if upper <= lower => {
+                Err(EditError::ToleranceReversed)
+            }
+            Self::Fit { .. } if matches!(measure, DimensionMeasure::Angle { .. }) => {
+                Err(EditError::FitOnAngle)
+            }
+            Self::Symmetric(_)
+            | Self::Deviations { .. }
+            | Self::Limits { .. }
+            | Self::Fit { .. } => Ok(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawingDimension {
     pub id: AnnotationId,
     pub view: DrawnView,
@@ -607,6 +657,7 @@ pub struct DrawingDimension {
     pub place: Point2,
     pub decimals: u8,
     pub text_offset: f64,
+    pub tolerance: Option<DimensionTolerance>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -628,15 +679,39 @@ pub fn note_text(text: &str) -> String {
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CentreTarget {
+    Circle(EdgeName),
+    Cylinder(FaceName),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CentreMark {
+    pub id: AnnotationId,
+    pub view: DrawnView,
+    pub target: CentreTarget,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DrawingCallout {
+    pub id: AnnotationId,
+    pub view: DrawnView,
+    pub feature: FeatureId,
+    pub edge: EdgeName,
+    pub at: Point2,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Annotation {
     Dimension(AnnotationId),
     Note(AnnotationId),
+    Centre(AnnotationId),
+    Callout(AnnotationId),
 }
 
 impl Annotation {
     pub fn id(self) -> AnnotationId {
         match self {
-            Self::Dimension(id) | Self::Note(id) => id,
+            Self::Dimension(id) | Self::Note(id) | Self::Centre(id) | Self::Callout(id) => id,
         }
     }
 }
@@ -657,6 +732,8 @@ pub struct Drawing {
     pub positions: BTreeMap<DrawnView, Point2>,
     pub dimensions: Vec<DrawingDimension>,
     pub notes: Vec<DrawingNote>,
+    pub centres: Vec<CentreMark>,
+    pub callouts: Vec<DrawingCallout>,
     pub next_annotation: u64,
 }
 
@@ -684,6 +761,8 @@ impl Drawing {
             positions: BTreeMap::new(),
             dimensions: Vec::new(),
             notes: Vec::new(),
+            centres: Vec::new(),
+            callouts: Vec::new(),
             next_annotation: 0,
         }
     }
@@ -703,6 +782,8 @@ impl Drawing {
             + size_of_val(self.dimensions.as_slice())
             + size_of_val(self.notes.as_slice())
             + self.notes.iter().map(|note| note.text.len()).sum::<usize>()
+            + size_of_val(self.centres.as_slice())
+            + size_of_val(self.callouts.as_slice())
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
@@ -721,10 +802,11 @@ impl Drawing {
     }
 
     fn annotation_ids(&self) -> impl Iterator<Item = AnnotationId> + '_ {
-        self.dimensions
-            .iter()
-            .map(|dimension| dimension.id)
-            .chain(self.notes.iter().map(|note| note.id))
+        self.annotations().map(Annotation::id)
+    }
+
+    pub fn annotation_count(&self) -> usize {
+        self.dimensions.len() + self.notes.len() + self.centres.len() + self.callouts.len()
     }
 
     pub fn annotations(&self) -> impl Iterator<Item = Annotation> + '_ {
@@ -732,13 +814,47 @@ impl Drawing {
             .iter()
             .map(|dimension| Annotation::Dimension(dimension.id))
             .chain(self.notes.iter().map(|note| Annotation::Note(note.id)))
+            .chain(
+                self.centres
+                    .iter()
+                    .map(|centre| Annotation::Centre(centre.id)),
+            )
+            .chain(
+                self.callouts
+                    .iter()
+                    .map(|callout| Annotation::Callout(callout.id)),
+            )
     }
 
     pub fn has_annotation(&self, annotation: Annotation) -> bool {
         match annotation {
             Annotation::Dimension(id) => self.dimension(id).is_some(),
             Annotation::Note(id) => self.note(id).is_some(),
+            Annotation::Centre(id) => self.centre(id).is_some(),
+            Annotation::Callout(id) => self.callout(id).is_some(),
         }
+    }
+
+    pub fn centre(&self, id: AnnotationId) -> Option<&CentreMark> {
+        self.centres.iter().find(|centre| centre.id == id)
+    }
+
+    pub fn has_centre(&self, view: DrawnView, target: CentreTarget) -> bool {
+        self.centres
+            .iter()
+            .any(|centre| centre.view == view && centre.target == target)
+    }
+
+    pub fn callout(&self, id: AnnotationId) -> Option<&DrawingCallout> {
+        self.callouts.iter().find(|callout| callout.id == id)
+    }
+
+    pub fn callout_mut(&mut self, id: AnnotationId) -> Option<&mut DrawingCallout> {
+        self.callouts.iter_mut().find(|callout| callout.id == id)
+    }
+
+    pub fn callout_features(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.callouts.iter().map(|callout| callout.feature)
     }
 
     pub fn dimension(&self, id: AnnotationId) -> Option<&DrawingDimension> {
@@ -770,6 +886,8 @@ impl Drawing {
         match annotation {
             Annotation::Dimension(id) => self.dimensions.retain(|dimension| dimension.id != id),
             Annotation::Note(id) => self.notes.retain(|note| note.id != id),
+            Annotation::Centre(id) => self.centres.retain(|centre| centre.id != id),
+            Annotation::Callout(id) => self.callouts.retain(|callout| callout.id != id),
         }
     }
 
@@ -782,7 +900,7 @@ impl Drawing {
     }
 
     fn checked_annotations(&self) -> Result<(), EditError> {
-        let count = self.dimensions.len() + self.notes.len();
+        let count = self.annotation_count();
 
         if count > MAX_ANNOTATIONS {
             return Err(EditError::DrawingTooManyAnnotations {
@@ -812,6 +930,16 @@ impl Drawing {
             if dimension.decimals > MAX_DIMENSION_DECIMALS {
                 return Err(EditError::DimensionDecimals(dimension.decimals));
             }
+            if let Some(tolerance) = dimension.tolerance {
+                tolerance.checked(&dimension.measure)?;
+            }
+        }
+        if self
+            .callouts
+            .iter()
+            .any(|callout| !in_reach(callout.at, MAX_VIEW_PLACE))
+        {
+            return Err(EditError::CalloutPlaceOutOfRange);
         }
         for note in &self.notes {
             let length = note.text.chars().count();
@@ -1085,6 +1213,10 @@ impl Drawings {
         self.drawings
             .iter()
             .flat_map(|drawing| drawing.bodies.iter().copied())
+    }
+
+    pub fn callout_features(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.drawings.iter().flat_map(Drawing::callout_features)
     }
 
     pub fn same_content(&self, other: &Self) -> bool {

@@ -1,14 +1,15 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
-    Annotation, AnnotationId, DetailParent, DetailScale, DetailView, DimensionDirection,
-    DimensionMeasure, Document, Drawing, DrawingDimension, DrawingId, DrawingScale,
-    DrawingViewError, DrawnView, FeatureId, MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS,
-    MAX_DRAWINGS, MAX_NOTE_CHARS, MAX_TEXT_OFFSET, MIN_DETAIL_RADIUS, Projection, ScaleRatio,
-    SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetPlan, SheetSize, StandardView,
-    TitleFields, Transaction, dimension_problem, lay_out_sheet,
+    Annotation, AnnotationId, CalloutLine, CentreTarget, DetailParent, DetailScale, DetailView,
+    DimensionDirection, DimensionMeasure, DimensionTolerance, Document, Drawing, DrawingDimension,
+    DrawingId, DrawingScale, DrawingViewError, DrawnView, FIT_GRADES, FeatureId, FitLetter, IsoFit,
+    MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_FIT_SIZE, MAX_NOTE_CHARS,
+    MAX_TEXT_OFFSET, MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane,
+    SectionView, SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction,
+    callout_lines, callout_texts, deviation_text, dimension_problem, lay_out_sheet,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, Expression, format_decimals};
 use caditor_geometry::Point2;
 use egui::{Align, Area, Id, Key, Layout, Order, Rect, Sense, TextEdit, Ui, UiBuilder, vec2};
 use thiserror::Error;
@@ -25,7 +26,7 @@ use crate::{
     model::{Action, Model, Notice},
     sheet_canvas::{self, SheetCanvas, SheetContext},
     sheet_export::SheetJob,
-    sheet_tools::SheetTool,
+    sheet_tools::{self, SheetTool},
     sheet_views::{DrawingViews, SheetViews},
     widgets::{self, PanelTitle, Tone},
 };
@@ -74,11 +75,21 @@ pub const DETAIL_SCALE: &str = "Scale";
 pub const NO_DETAILS: &str = "A detail view enlarges a circle of one of the other views, drawn \
                               thin on that view and lettered, with the lines inside it clipped \
                               exactly to the circle.";
-pub const ANNOTATIONS: &str = "Dimensions and notes";
+pub const ANNOTATIONS: &str = "Annotations";
 pub const NO_ANNOTATIONS: &str = "A dimension measures edges of a view from the model, so it \
                                   follows every edit; a note writes text on the sheet, with a \
-                                  leader to an edge if you like. Add them with the buttons above \
-                                  the sheet.";
+                                  leader to an edge if you like; centre marks and centrelines \
+                                  mark circles and cylinders, and a callout reads a hole or a \
+                                  thread. Add them with the buttons above the sheet.";
+pub const TOLERANCE: &str = "Tolerance";
+pub const NO_TOLERANCE: &str = "No tolerance";
+pub const DEVIATION: &str = "Deviation";
+pub const UPPER_DEVIATION: &str = "Upper deviation";
+pub const LOWER_DEVIATION: &str = "Lower deviation";
+pub const FIT_LETTER: &str = "Fit";
+pub const FIT_GRADE: &str = "Grade";
+pub const SHOW_DEVIATIONS: &str = "Show the deviations";
+const DEFAULT_DEVIATION: f64 = 0.1;
 pub const DECIMALS: &str = "Decimals";
 pub const MEASURES: &str = "Measures";
 pub const TEXT_OFFSET: &str = "Value along";
@@ -100,6 +111,8 @@ pub enum SheetRefusal {
     Working,
     #[error("A model keeps at most {MAX_DRAWINGS} drawings")]
     TooMany,
+    #[error("Click a view on the drawing sheet first to pick it")]
+    NoViewPicked,
 }
 
 impl Reason for SheetRefusal {
@@ -214,12 +227,7 @@ impl DrawingsTool {
     pub fn plan(&self, model: &Model) -> Option<SheetPlan> {
         let document = model.document();
         let drawing = self.current(document)?;
-        Some(plan_of(
-            document,
-            &model.display_name(),
-            drawing,
-            &self.sheet,
-        ))
+        Some(plan_of(model, drawing, &self.sheet))
     }
 
     pub fn job(&self, model: &Model) -> Result<SheetJob, SheetRefusal> {
@@ -230,7 +238,7 @@ impl DrawingsTool {
             return Err(SheetRefusal::Working);
         }
 
-        let plan = plan_of(document, &model.display_name(), drawing, &self.sheet);
+        let plan = plan_of(model, drawing, &self.sheet);
         let views = plan
             .views
             .iter()
@@ -248,21 +256,18 @@ impl DrawingsTool {
     }
 }
 
-pub fn plan_of(
-    document: &Document,
-    model_name: &str,
-    drawing: &Drawing,
-    sheet: &SheetViews,
-) -> SheetPlan {
-    let fields = TitleFields::of(document.properties(), model_name, drawing);
+pub fn plan_of(model: &Model, drawing: &Drawing, sheet: &SheetViews) -> SheetPlan {
+    let document = model.document();
+    let fields = TitleFields::of(document.properties(), &model.display_name(), drawing);
     let extents = sheet
         .finished()
         .filter_map(|(view, lines)| Some((view, lines.bounds?)))
         .collect::<BTreeMap<_, _>>();
 
     let mut plan = lay_out_sheet(drawing, &fields, &extents, &sheet.cuts());
+    let callouts = callout_texts(document, model.evaluation(), drawing);
 
-    plan.annotate(drawing, &sheet.finished().collect());
+    plan.annotate(drawing, &sheet.finished().collect(), &callouts);
     plan
 }
 
@@ -349,6 +354,30 @@ pub fn commands(
     }
     if commands.invoke(Command::DrawingNote, &exportable) {
         tool.start_tool(SheetTool::note());
+    }
+    if commands.invoke(Command::DrawingCentreMark, &exportable) {
+        tool.start_tool(SheetTool::Centre);
+    }
+    if commands.invoke(Command::DrawingCallout, &exportable) {
+        tool.start_tool(SheetTool::callout());
+    }
+
+    let drawing = tool.current(model.document());
+    let picked = tool
+        .canvas
+        .picked()
+        .filter(|view| drawing.is_some_and(|drawing| drawing.has_view(*view)));
+
+    let markable = match (drawing, picked) {
+        (None, _) => Err(SheetRefusal::NoDrawing),
+        (Some(_), None) => Err(SheetRefusal::NoViewPicked),
+        (Some(_), Some(_)) => Ok(()),
+    };
+
+    if commands.invoke(Command::DrawingCentreMarks, &markable)
+        && let (Some(drawing), Some(view)) = (drawing, picked)
+    {
+        sheet_tools::add_centre_marks(model, drawing, &tool.sheet, view, actions);
     }
 }
 
@@ -1363,6 +1392,15 @@ pub fn text_offset_field_id(drawing: DrawingId, id: AnnotationId) -> Id {
     Id::unique(("drawing-dimension-offset", drawing.raw(), id.raw()))
 }
 
+pub fn tolerance_field_id(drawing: DrawingId, id: AnnotationId, field: &'static str) -> Id {
+    Id::unique((
+        "drawing-dimension-tolerance",
+        drawing.raw(),
+        id.raw(),
+        field,
+    ))
+}
+
 pub fn note_field_id(drawing: DrawingId, id: AnnotationId) -> Id {
     Id::unique(("drawing-note-text", drawing.raw(), id.raw()))
 }
@@ -1472,6 +1510,248 @@ fn measure_choice(
     }
 }
 
+fn tolerance_choices(
+    dimension: &DrawingDimension,
+) -> Vec<(&'static str, Option<DimensionTolerance>)> {
+    let fit = IsoFit::new(FitLetter::HoleH, 7).map(|fit| DimensionTolerance::Fit {
+        fit,
+        deviations: false,
+    });
+    let mut choices = vec![
+        (NO_TOLERANCE, None),
+        (
+            "Plus or minus",
+            Some(DimensionTolerance::Symmetric(DEFAULT_DEVIATION)),
+        ),
+        (
+            "Deviations",
+            Some(DimensionTolerance::Deviations {
+                upper: DEFAULT_DEVIATION,
+                lower: 0.0,
+            }),
+        ),
+        (
+            "Limits",
+            Some(DimensionTolerance::Limits {
+                upper: DEFAULT_DEVIATION,
+                lower: -DEFAULT_DEVIATION,
+            }),
+        ),
+    ];
+
+    if !matches!(dimension.measure, DimensionMeasure::Angle { .. }) {
+        choices.push(("ISO 286 fit", fit));
+    }
+    choices
+}
+
+fn same_kind(left: Option<DimensionTolerance>, right: Option<DimensionTolerance>) -> bool {
+    let kind = |tolerance: Option<DimensionTolerance>| {
+        tolerance.map(|tolerance| std::mem::discriminant(&tolerance))
+    };
+    kind(left) == kind(right)
+}
+
+fn change_tolerance(
+    model: &Model,
+    drawing: DrawingId,
+    id: AnnotationId,
+    tolerance: Option<DimensionTolerance>,
+    actions: &mut Vec<Action>,
+) {
+    change_dimension(
+        model,
+        drawing,
+        id,
+        "Change dimension tolerance",
+        |dimension| dimension.tolerance = tolerance,
+        actions,
+    );
+}
+
+fn deviation_row(
+    ui: &mut Ui,
+    model: &Model,
+    (drawing, id): (DrawingId, AnnotationId),
+    (field, caption): (&'static str, &str),
+    (value, non_negative): (f64, bool),
+) -> Option<f64> {
+    length_row(
+        ui,
+        model,
+        tolerance_field_id(drawing, id, field),
+        caption,
+        value,
+        non_negative,
+        "How far the size may be from the value, in model lengths; units may be typed",
+    )
+}
+
+fn fit_rows(
+    ui: &mut Ui,
+    model: &Model,
+    (drawing, id): (DrawingId, AnnotationId),
+    (fit, deviations): (IsoFit, bool),
+    actions: &mut Vec<Action>,
+) {
+    let refit = |fit: IsoFit, deviations: bool| Some(DimensionTolerance::Fit { fit, deviations });
+    let mut chosen = None;
+
+    widgets::property(ui, FIT_LETTER, |ui| {
+        widgets::combo(
+            ("drawing-dimension-fit", drawing.raw(), id.raw()),
+            fit.letter().code(),
+        )
+        .hover("The ISO 286 fundamental deviation: a capital letter for a hole, a small one for a shaft")
+        .show(ui, |ui| {
+            for letter in FitLetter::ALL {
+                if widgets::menu_option(ui, letter == fit.letter(), letter.describe()).clicked() {
+                    chosen = IsoFit::new(letter, fit.grade());
+                }
+            }
+        });
+    });
+    widgets::property(ui, FIT_GRADE, |ui| {
+        widgets::combo(
+            ("drawing-dimension-grade", drawing.raw(), id.raw()),
+            format!("IT{}", fit.grade()),
+        )
+        .hover("The ISO 286 tolerance grade: the smaller the number, the closer the tolerance")
+        .show(ui, |ui| {
+            for grade in FIT_GRADES {
+                if widgets::menu_option(ui, grade == fit.grade(), &format!("IT{grade}")).clicked() {
+                    chosen = IsoFit::new(fit.letter(), grade);
+                }
+            }
+        });
+    });
+    if let Some(fit) = chosen {
+        change_tolerance(model, drawing, id, refit(fit, deviations), actions);
+    }
+    widgets::property(ui, "", |ui| {
+        let mut shown = deviations;
+
+        if widgets::checkbox(ui, &mut shown, SHOW_DEVIATIONS)
+            .on_hover_text("Write the deviations from ISO 286's table after the fit")
+            .changed()
+        {
+            change_tolerance(model, drawing, id, refit(fit, shown), actions);
+        }
+    });
+}
+
+fn tolerance_rows(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: DrawingId,
+    dimension: &DrawingDimension,
+    actions: &mut Vec<Action>,
+) {
+    let id = dimension.id;
+    let choices = tolerance_choices(dimension);
+    let current = choices
+        .iter()
+        .find(|(_, tolerance)| same_kind(*tolerance, dimension.tolerance))
+        .map_or(NO_TOLERANCE, |(name, _)| name);
+    let mut chosen = None;
+
+    widgets::property(ui, TOLERANCE, |ui| {
+        widgets::combo(
+            ("drawing-dimension-tolerance", drawing.raw(), id.raw()),
+            current,
+        )
+        .hover("How far the made size may stray from the value")
+        .show(ui, |ui| {
+            for (name, tolerance) in &choices {
+                if widgets::menu_option(ui, *name == current, name).clicked()
+                    && !same_kind(*tolerance, dimension.tolerance)
+                {
+                    chosen = Some(*tolerance);
+                }
+            }
+        });
+    });
+    if let Some(tolerance) = chosen {
+        change_tolerance(model, drawing, id, tolerance, actions);
+    }
+
+    let at = (drawing, id);
+
+    match dimension.tolerance {
+        None => {}
+        Some(DimensionTolerance::Symmetric(deviation)) => {
+            if let Some(changed) =
+                deviation_row(ui, model, at, ("plus-minus", DEVIATION), (deviation, true))
+            {
+                change_tolerance(
+                    model,
+                    drawing,
+                    id,
+                    Some(DimensionTolerance::Symmetric(changed)),
+                    actions,
+                );
+            }
+        }
+        Some(
+            tolerance @ (DimensionTolerance::Deviations { upper, lower }
+            | DimensionTolerance::Limits { upper, lower }),
+        ) => {
+            let limits = matches!(tolerance, DimensionTolerance::Limits { .. });
+            let made = |upper: f64, lower: f64| {
+                Some(if limits {
+                    DimensionTolerance::Limits { upper, lower }
+                } else {
+                    DimensionTolerance::Deviations { upper, lower }
+                })
+            };
+
+            if let Some(changed) =
+                deviation_row(ui, model, at, ("upper", UPPER_DEVIATION), (upper, false))
+            {
+                change_tolerance(model, drawing, id, made(changed, lower), actions);
+            }
+            if let Some(changed) =
+                deviation_row(ui, model, at, ("lower", LOWER_DEVIATION), (lower, false))
+            {
+                change_tolerance(model, drawing, id, made(upper, changed), actions);
+            }
+        }
+        Some(DimensionTolerance::Fit { fit, deviations }) => {
+            fit_rows(ui, model, at, (fit, deviations), actions);
+        }
+    }
+}
+
+fn fit_note(ui: &mut Ui, dimension: &DrawingDimension, measured: Option<f64>) {
+    let (Some(DimensionTolerance::Fit { fit, .. }), Some(size)) = (dimension.tolerance, measured)
+    else {
+        return;
+    };
+    let code = fit.code();
+    let size_text = format_decimals(size, usize::from(MAX_DIMENSION_DECIMALS));
+
+    match fit.deviations(size) {
+        Some((upper, lower)) => {
+            ui.label(widgets::muted(
+                format!(
+                    "{code} at {size_text} mm runs from {} to {} mm.",
+                    deviation_text(upper, ""),
+                    deviation_text(lower, "")
+                ),
+                ui,
+            ));
+        }
+        None => {
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.label(format!(
+                    "ISO 286's table runs to {MAX_FIT_SIZE} mm, so {code} has no deviations for \
+                     {size_text} mm; the drawing writes the fit alone."
+                ))
+            });
+        }
+    }
+}
+
 fn dimension_settings(
     ui: &mut Ui,
     model: &Model,
@@ -1483,6 +1763,9 @@ fn dimension_settings(
 
     widgets::properties(ui, ("drawing-dimension", drawing.raw(), id.raw()), |ui| {
         measure_choice(ui, model, drawing, dimension, actions);
+        if !matches!(dimension.measure, DimensionMeasure::Angle { .. }) {
+            tolerance_rows(ui, model, drawing, dimension, actions);
+        }
         widgets::property(ui, DECIMALS, |ui| {
             let mut chosen = None;
 
@@ -1554,13 +1837,16 @@ fn dimension_rows(
         let annotation = Annotation::Dimension(dimension.id);
         let laid = plan.annotation(annotation);
         let number = number(dimension.id);
-        let problem = laid.and_then(|laid| laid.problem).or_else(|| {
-            dimension_problem(drawing, dimension, &tool.sheet.finished().collect())
-                .and_then(Result::err)
-        });
+        let measured = dimension_problem(drawing, dimension, &tool.sheet.finished().collect());
+        let problem = laid
+            .and_then(|laid| laid.problem)
+            .or_else(|| measured.and_then(Result::err));
+        let size = measured
+            .and_then(Result::ok)
+            .map(|geometry| geometry.value());
         let value = laid
             .filter(|laid| laid.problem.is_none())
-            .map_or_else(String::new, |laid| format!(" {}", laid.text.content));
+            .map_or_else(String::new, |laid| format!(" {}", laid.content()));
 
         ui.add_space(SPACE_S);
         ui.horizontal(|ui| {
@@ -1596,6 +1882,116 @@ fn dimension_rows(
             widgets::announced(ui, &response, false);
         }
         dimension_settings(ui, model, drawing.id, dimension, actions);
+        fit_note(ui, dimension, size);
+    }
+}
+
+fn centre_rows(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    for centre in &drawing.centres {
+        let annotation = Annotation::Centre(centre.id);
+        let number = number(centre.id);
+        let (kind, what) = match centre.target {
+            CentreTarget::Circle(_) => ("Centre mark", "a circle"),
+            CentreTarget::Cylinder(_) => ("Centreline", "a cylinder"),
+        };
+
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(
+                ui,
+                &format!(
+                    "{kind} {number} of {what} in the {}",
+                    centre.view.describe()
+                ),
+                1,
+            );
+            if widgets::icon_button(
+                ui,
+                icons::DELETE,
+                &format!("Delete {} {number}", kind.to_lowercase()),
+            )
+            .clicked()
+            {
+                sheet_canvas::delete_annotation(model, drawing, annotation, actions);
+            }
+        });
+        if let Some(problem) = plan.annotation(annotation).and_then(|laid| laid.problem) {
+            let response = widgets::callout(ui, Tone::Error, |ui| {
+                ui.label(format!(
+                    "{kind} {number} lost what it marks: {problem}. Delete it, then add centre \
+                     marks to the view again."
+                ))
+            });
+
+            widgets::announced(ui, &response, false);
+        }
+    }
+}
+
+fn callout_rows(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: &Drawing,
+    plan: &SheetPlan,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+
+    for callout in &drawing.callouts {
+        let annotation = Annotation::Callout(callout.id);
+        let number = number(callout.id);
+        let source = document.feature(callout.feature).map_or_else(
+            || "a deleted feature".to_owned(),
+            |found| found.name.clone(),
+        );
+        let read = callout_lines(
+            document,
+            &model.evaluation().parameters,
+            callout.feature,
+            None,
+        )
+        .map(|lines| {
+            lines
+                .iter()
+                .map(CalloutLine::spoken)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(
+                ui,
+                &format!(
+                    "Callout {number} of {source} in the {}",
+                    callout.view.describe()
+                ),
+                1,
+            )
+            .on_hover_text(read);
+            if widgets::icon_button(ui, icons::DELETE, &format!("Delete callout {number}"))
+                .clicked()
+            {
+                sheet_canvas::delete_annotation(model, drawing, annotation, actions);
+            }
+        });
+        if let Some(problem) = plan.annotation(annotation).and_then(|laid| laid.problem) {
+            let response = widgets::callout(ui, Tone::Error, |ui| {
+                ui.label(format!(
+                    "Callout {number} lost what it reads: {problem}. Delete it and call the hole \
+                     out again."
+                ))
+            });
+
+            widgets::announced(ui, &response, false);
+        }
     }
 }
 
@@ -1747,11 +2143,13 @@ fn annotation_rows(
 ) {
     ui.add_space(SPACE_S);
     ui.label(widgets::section_title(ANNOTATIONS));
-    if drawing.dimensions.is_empty() && drawing.notes.is_empty() {
+    if drawing.annotation_count() == 0 {
         ui.label(widgets::muted(NO_ANNOTATIONS, ui));
     }
     dimension_rows(ui, model, tool, drawing, plan, actions);
     note_rows(ui, model, tool, drawing, plan, actions);
+    centre_rows(ui, model, drawing, plan, actions);
+    callout_rows(ui, model, drawing, plan, actions);
 }
 
 fn position_label(view: DrawnView) -> String {

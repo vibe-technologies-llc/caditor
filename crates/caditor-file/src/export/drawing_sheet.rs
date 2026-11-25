@@ -69,6 +69,8 @@ pub struct SheetExported {
     pub approximated: usize,
     pub dimensions: usize,
     pub notes: usize,
+    pub centres: usize,
+    pub callouts: usize,
     pub left_out: usize,
 }
 
@@ -243,29 +245,53 @@ fn measure_of(measure: SheetMeasure) -> Measure {
 }
 
 fn annotation_shapes(figure: &mut Figure, laid: &SheetAnnotation, exported: &mut SheetExported) {
-    if laid.problem.is_some() {
+    let lost = laid.problem.is_some();
+
+    if lost {
         exported.left_out += 1;
     }
+
+    let texts = || laid.texts.iter().map(text_shape);
+    let marks = || laid.marks.iter().map(mark_shape);
+
     match (laid.annotation, laid.measure) {
-        (Annotation::Dimension(_), Some(measure)) if laid.problem.is_none() => {
+        (Annotation::Dimension(_), Some(measure)) if !lost => {
+            let mut written = texts();
+
+            let Some(text) = written.next() else {
+                return;
+            };
+
             exported.dimensions += 1;
             figure.push(
                 Layer::Annotation,
                 Shape::Dimension(Box::new(Dimension {
                     measure: measure_of(measure),
-                    marks: laid.marks.iter().map(mark_shape).collect(),
-                    text: text_shape(&laid.text),
+                    marks: marks().collect(),
+                    text,
+                    more: written.collect(),
                 })),
             );
         }
-        (Annotation::Dimension(_), _) => {}
         (Annotation::Note(_), _) => {
             exported.notes += 1;
-            for mark in &laid.marks {
-                figure.push(Layer::Annotation, mark_shape(mark));
+            for shape in marks().chain(texts().map(Shape::Text)) {
+                figure.push(Layer::Annotation, shape);
             }
-            figure.push(Layer::Annotation, Shape::Text(text_shape(&laid.text)));
         }
+        (Annotation::Centre(_), _) if !lost => {
+            exported.centres += 1;
+            for shape in marks() {
+                figure.push(Layer::Centre, shape);
+            }
+        }
+        (Annotation::Callout(_), _) if !lost => {
+            exported.callouts += 1;
+            for shape in marks().chain(texts().map(Shape::Text)) {
+                figure.push(Layer::Annotation, shape);
+            }
+        }
+        (Annotation::Dimension(_) | Annotation::Centre(_) | Annotation::Callout(_), _) => {}
     }
 }
 

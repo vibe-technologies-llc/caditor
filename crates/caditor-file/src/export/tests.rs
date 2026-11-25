@@ -3285,6 +3285,7 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
             place: Point2::new(20.0, 40.0),
             decimals: 2,
             text_offset: 0.0,
+            tolerance: None,
         },
         DrawingDimension {
             id: AnnotationId::from_raw(1),
@@ -3293,6 +3294,7 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
             place: Point2::new(-10.0, 0.0),
             decimals: 2,
             text_offset: 0.0,
+            tolerance: None,
         },
     ];
     drawing.notes = vec![DrawingNote {
@@ -3316,7 +3318,11 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
         &BTreeMap::new(),
     );
 
-    plan.annotate(&drawing, &DrawnLines::from([(front, front_lines)]));
+    plan.annotate(
+        &drawing,
+        &DrawnLines::from([(front, front_lines)]),
+        &caditor_document::CalloutTexts::new(),
+    );
 
     let views: Vec<SheetView<'_>> = plan
         .views
@@ -3366,4 +3372,137 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
     assert!(dxf.contains("\n  1\n40\n"), "{dxf}");
     assert!(dxf.contains("\n  2\nAnnotations\n"), "{dxf}");
     assert!(pdf_text.contains("0.25 w [] 0 d"));
+}
+
+#[test]
+fn centre_marks_callouts_and_toleranced_values_are_written_in_every_sheet_format() {
+    use caditor_document::{
+        AnnotationId, CalloutLine, CalloutPiece, CalloutSymbol, CalloutTexts, CentreMark,
+        CentreTarget, DimensionMeasure, DimensionTolerance, DrawingCallout, DrawingDimension,
+        DrawnLines, DrawnView, FeatureId, IsoFit, StandardView,
+    };
+    use caditor_kernel::{Curve2, ViewSource};
+
+    let pin = pin();
+    let mut drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Marked".to_owned(),
+    );
+
+    drawing.views = [StandardView::Top].into_iter().collect();
+
+    let lines = sheet_lines(&drawing, &[&pin]);
+    let top_lines = &lines[0];
+    let rim = top_lines
+        .pieces
+        .iter()
+        .find_map(|piece| match (piece.source, &piece.curve) {
+            (ViewSource::Edge { name, .. }, Curve2::Circle(_)) => Some(name),
+            _ => None,
+        })
+        .unwrap();
+    let top = DrawnView::Standard(StandardView::Top);
+    let id = AnnotationId::from_raw;
+
+    drawing.dimensions = vec![DrawingDimension {
+        id: id(0),
+        view: top,
+        measure: DimensionMeasure::Diameter(rim),
+        place: Point2::new(110.0, 10.0),
+        decimals: 2,
+        text_offset: 0.0,
+        tolerance: Some(DimensionTolerance::Fit {
+            fit: IsoFit::from_code("H7").unwrap(),
+            deviations: true,
+        }),
+    }];
+    drawing.centres = vec![CentreMark {
+        id: id(1),
+        view: top,
+        target: CentreTarget::Circle(rim),
+    }];
+    drawing.callouts = vec![DrawingCallout {
+        id: id(2),
+        view: top,
+        feature: FeatureId::from_raw(7),
+        edge: rim,
+        at: Point2::new(-80.0, 60.0),
+    }];
+
+    let texts = CalloutTexts::from([(
+        id(2),
+        Ok(vec![CalloutLine(vec![
+            CalloutPiece::Symbol(CalloutSymbol::Diameter),
+            CalloutPiece::Text("10".to_owned()),
+            CalloutPiece::Symbol(CalloutSymbol::Depth),
+            CalloutPiece::Text("20".to_owned()),
+        ])]),
+    )]);
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let mut plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+
+    plan.annotate(&drawing, &DrawnLines::from([(top, top_lines)]), &texts);
+
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .map(|placed| SheetView {
+            placed: *placed,
+            lines: top_lines,
+        })
+        .collect();
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("sheet.{}", format.extension()));
+
+    let written: Vec<SheetExported> = SheetFormat::ALL
+        .into_iter()
+        .map(|format| {
+            export_sheet(
+                &path(format),
+                &plan,
+                &views,
+                false,
+                format,
+                &CancelToken::never(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+    let dxf = std::fs::read_to_string(path(SheetFormat::Dxf)).unwrap();
+    let pdf = std::fs::read(path(SheetFormat::Pdf)).unwrap();
+    let pdf_text = String::from_utf8_lossy(&pdf);
+
+    let first = written[0];
+
+    assert!(written.iter().all(|exported| *exported == first));
+    assert_eq!(
+        (
+            first.dimensions,
+            first.centres,
+            first.callouts,
+            first.left_out
+        ),
+        (1, 1, 1, 0)
+    );
+    assert!(svg.contains(r#"<g id="Centre lines""#), "{svg}");
+    assert!(svg.contains(">\u{2300}10 H7</text>"), "{svg}");
+    assert!(svg.contains(">+0.015</text>"), "{svg}");
+    assert!(svg.contains(">20</text>"), "{svg}");
+    assert!(dxf.contains("\n  2\nCentre lines\n"), "{dxf}");
+    assert!(
+        dxf.contains("LINE\n  8\nCentre lines\n  6\nDASHDOT"),
+        "{dxf}"
+    );
+    assert!(dxf.contains("\n  1\n%%c10 H7 +0.015 0\n"), "{dxf}");
+    assert!(dxf.contains("TEXT\n  8\nAnnotations"), "{dxf}");
+    assert!(pdf_text.contains("[12 3 0.5 3] 0 d"), "{pdf_text}");
 }

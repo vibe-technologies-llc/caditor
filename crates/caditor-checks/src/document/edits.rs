@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
-    AnnotationId, Between, BodyAppearance, Configuration, ConfigurationId, Configurations,
-    ConfiguredValue, Datum, DatumPoint, DetailParent, DetailScale, DetailView, DimensionDirection,
-    DimensionMeasure, Drawing, DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings,
-    DrawnView, EdgePoint, EdgeSpot, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem,
+    AnnotationId, Between, BodyAppearance, CentreMark, CentreTarget, Configuration,
+    ConfigurationId, Configurations, ConfiguredValue, Datum, DatumPoint, DetailParent, DetailScale,
+    DetailView, DimensionDirection, DimensionMeasure, DimensionTolerance, Drawing, DrawingCallout,
+    DrawingDimension, DrawingId, DrawingNote, DrawingScale, Drawings, DrawnView, EdgePoint,
+    EdgeSpot, Edit, FaceColour, FeatureId, FeatureKind, Finish, FitLetter, IsoFit, MeasuredItem,
     Measurement, ModelProperties, ModelProperty, NamedView, NoteLeader, Outline, ParameterOwner,
     PieceStandIns, Pieces, PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry,
     PrincipalPlane, PrincipalShowing, Projection, ProjectionSource, Reading, Rgb, RollbackBar,
@@ -15,7 +16,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
-use caditor_kernel::EdgeName;
+use caditor_kernel::{EdgeName, FaceName};
 use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
 
 use super::{
@@ -938,6 +939,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
             place,
             decimals: input.int_in_range(0u8..=5)?,
             text_offset: f64::from(input.int_in_range(-20i32..=20)?),
+            tolerance: tolerance(input)?,
         });
     }
     for _ in 0..input.int_in_range(0u8..=2)? {
@@ -960,8 +962,60 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
             leader,
         });
     }
-    drawing.next_annotation = input.int_in_range(0u64..=8)?;
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        let target = if input.arbitrary::<bool>()? {
+            CentreTarget::Circle(edge_name(input)?)
+        } else {
+            CentreTarget::Cylinder(FaceName::from_digest(u128::from(
+                input.int_in_range(0u8..=8)?,
+            )))
+        };
+
+        drawing.centres.push(CentreMark {
+            id: AnnotationId::from_raw(input.int_in_range(0u64..=8)?),
+            view: drawn_view(input)?,
+            target,
+        });
+    }
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        drawing.callouts.push(DrawingCallout {
+            id: AnnotationId::from_raw(input.int_in_range(0u64..=8)?),
+            view: drawn_view(input)?,
+            feature: scene.feature(input)?,
+            edge: edge_name(input)?,
+            at: Vector2::new(
+                f64::from(input.int_in_range(-1300i32..=1300)?),
+                f64::from(input.int_in_range(-1300i32..=1300)?),
+            ),
+        });
+    }
+    drawing.next_annotation = input.int_in_range(0u64..=10)?;
     Ok(drawing)
+}
+
+fn tolerance(input: &mut Unstructured) -> Result<Option<DimensionTolerance>> {
+    let deviation = |input: &mut Unstructured| -> Result<f64> {
+        Ok(f64::from(input.int_in_range(-200i32..=200)?) / 1000.0)
+    };
+    Ok(match input.int_in_range(0u8..=4)? {
+        0 => None,
+        1 => Some(DimensionTolerance::Symmetric(deviation(input)?)),
+        2 => Some(DimensionTolerance::Deviations {
+            upper: deviation(input)?,
+            lower: deviation(input)?,
+        }),
+        3 => Some(DimensionTolerance::Limits {
+            upper: deviation(input)?,
+            lower: deviation(input)?,
+        }),
+        _ => {
+            let letter = *input.choose(&FitLetter::ALL)?;
+            let grade = input.int_in_range(4u8..=12)?;
+            let deviations = input.arbitrary()?;
+
+            IsoFit::new(letter, grade).map(|fit| DimensionTolerance::Fit { fit, deviations })
+        }
+    })
 }
 
 fn drawn_view(input: &mut Unstructured) -> Result<DrawnView> {
