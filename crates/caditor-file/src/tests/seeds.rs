@@ -509,8 +509,13 @@ fn mesh_seeds_import() {
 fn expression_seeds_parse() {
     for (path, bytes) in seeds_in("expression") {
         let text = String::from_utf8(bytes).unwrap();
-        let known =
-            |name: &str| (name == "width").then(|| caditor_expression::ParameterId::from_raw(1));
+        let known = |name: &str| {
+            ["width", "count", "turn"]
+                .iter()
+                .zip(1..)
+                .find(|(known, _)| **known == name)
+                .map(|(_, raw)| caditor_expression::ParameterId::from_raw(raw))
+        };
 
         let parsed =
             Expression::parse(&text, &known).is_ok() || Expression::parse_stored(&text).is_ok();
