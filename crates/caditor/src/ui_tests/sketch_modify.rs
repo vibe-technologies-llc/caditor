@@ -7,7 +7,10 @@ use super::{
     entity_pickables, fillet_arc, mirror_fixture, near, radii_of_circles, rectangle,
     run_from_palette, type_point,
 };
-use crate::{editing::Tool, filleting, mirroring, offsetting, selection::Pickable, sketch_tools};
+use crate::{
+    bodies::Hold, editing::Tool, filleting, mirroring, offsetting, selection::Pickable,
+    sketch_tools,
+};
 
 #[test]
 fn offset_takes_the_clicked_chain_and_runs_where_the_pointer_is_in_one_undoable_step() {
@@ -176,6 +179,91 @@ fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable
     harness.frame();
 
     assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn offset_works_out_the_preview_of_a_large_spline_on_a_worker_while_frames_go_on() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let ring: Vec<Point2> = (0..512)
+        .map(|index| {
+            let turn = f64::from(index) / 512.0 * std::f64::consts::TAU;
+            Point2::new(40.0 * turn.cos(), 40.0 * turn.sin())
+        })
+        .collect();
+    let spline = sketch.add_spline_of(&ring, SplineKind::fit(true));
+    let label = sketch.entity_label(spline);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let working = format!("{} {label}…", offsetting::WORKING);
+    let hold = Hold::holding();
+
+    harness.select(entity_pickables(feature, &[spline]));
+    run_from_palette(&mut harness, "offset sketch curves");
+    harness
+        .workspace
+        .viewport
+        .offset_preview()
+        .unwrap()
+        .hold(hold.clone());
+    harness.point_at(Point2::new(45.0, 0.0));
+
+    assert!(harness.shows(&working));
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .modify_preview()
+            .curves
+            .is_empty()
+    );
+
+    let started = harness.time;
+
+    for _ in 0..3 {
+        harness.frame();
+    }
+
+    assert!(harness.time > started);
+    assert!(harness.shows(&working));
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .modify_preview()
+            .curves
+            .is_empty()
+    );
+
+    harness
+        .workspace
+        .viewport
+        .offset_preview()
+        .unwrap()
+        .release();
+    harness.wait_until("the offset preview arrives", |harness| {
+        harness.shows(&format!(
+            "Offset {label} by 5 mm {}",
+            offsetting::FREE_SPLINE
+        ))
+    });
+
+    assert!(
+        !harness
+            .workspace
+            .viewport
+            .modify_preview()
+            .curves
+            .is_empty()
+    );
+
+    harness.click_at(Point2::new(45.0, 0.0));
+
+    assert_eq!(
+        entities_of_kind(harness.sketch(feature), "Closed fit-point spline").len(),
+        2
+    );
+    assert_eq!(harness.model.undo_label(), Some(offsetting::TRANSACTION));
 }
 
 #[test]

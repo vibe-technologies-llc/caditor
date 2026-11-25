@@ -624,7 +624,13 @@ relative to the extent.
   `FIRST_FIT_POINTS` (a share for an arc; four per control point for a spline, at most
   `MAX_FIT_POINTS`) until the centripetal spline strays from the offset by at most `FIT_TOLERANCE`
   of the curve's reach (at most `MAX_FIT_POINTS`); closed for a whole ellipse or a closed spline,
-  open end to end otherwise. Inward past the tightest bend (sampled signed curvature times the
+  open end to end otherwise. A fit is checked at `CHECKS_PER_SPAN` points of each span between fit
+  points, each measured from the curve point a few Newton steps find from the span's own share of
+  the curve (`Free::distance_near`, wrapping round a closed curve), stopping at the first that
+  strays; the self-crossing check sweeps the sampled segments in order of their least x. So an
+  offset's work grows with its fit points, not the curve's control points, and never with their
+  product (`offset/tests.rs` pins the fuzz-found cases in `solve/tally.rs` units against
+  `FRAME_OF_WORK`, about 100,000 units or a 60 Hz frame at the 0.15 to 0.2 µs a unit measured). Inward past the tightest bend (sampled signed curvature times the
   distance reaching one, `collapses_under`) is `Collapses`; a spline whose fitted offset crosses
   itself (sampled segments properly crossing, `crosses_itself`) is `CrossesItself`, and one whose
   control points all lie within `TOLERANCE` of the first (`has_length`) is `NoLength`, since its

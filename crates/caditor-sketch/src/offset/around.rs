@@ -1,14 +1,16 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point2, Vector2, larger};
+use caditor_geometry::{Point2, Vector2};
 
 use crate::{
     curve::{BSpline, EllipseGeometry},
-    entity::{Entity, SplineKind},
+    entity::{Entity, FitSpacing, SplineKind},
     id::EntityId,
     intersect,
     offset::{Chain, OffsetError, Side, TOLERANCE},
     sketch::{Sketch, SketchError},
+    solve::tally,
+    spacing::FitLayout,
 };
 
 const FIRST_FIT_POINTS: usize = 16;
@@ -17,6 +19,7 @@ const MIN_FIT_POINTS: usize = 4;
 const MAX_FIT_POINTS: usize = 512;
 const FIT_TOLERANCE: f64 = 1e-5;
 const CHECKS_PER_SPAN: usize = 8;
+const NEAR_REFINEMENTS: usize = 8;
 const CURVATURE_SAMPLES: usize = 720;
 const COLLAPSE_SHARE: f64 = 1e-6;
 const CROSSING_SEGMENT_ANGLE: f64 = PI / 90.0;
@@ -78,6 +81,59 @@ impl Free {
         tangent.perp_dot(bend) / (speed * speed * speed)
     }
 
+    fn derivatives_at(&self, share: f64) -> (Point2, [Vector2; 2]) {
+        match self {
+            Self::Ellipse(shape) => {
+                let parameter = shape.start + shape.sweep * share;
+                let point = shape.point_at(parameter);
+                (
+                    point,
+                    [
+                        shape.tangent_at(parameter) * shape.sweep,
+                        (shape.center - point) * (shape.sweep * shape.sweep),
+                    ],
+                )
+            }
+            Self::Spline { curve, .. } => (curve.point_at(share), curve.derivatives(share)),
+        }
+    }
+
+    fn kept_within(&self, share: f64) -> f64 {
+        if self.closed() {
+            share.rem_euclid(1.0)
+        } else {
+            share.clamp(0.0, 1.0)
+        }
+    }
+
+    fn distance_near(&self, point: Point2, guess: f64) -> f64 {
+        let mut share = self.kept_within(guess);
+        let mut nearest = f64::INFINITY;
+
+        for _ in 0..NEAR_REFINEMENTS {
+            tally::add(1);
+
+            let (at, [tangent, bend]) = self.derivatives_at(share);
+            let offset = at - point;
+
+            nearest = nearest.min(offset.length());
+
+            let slope = tangent.dot(tangent) + offset.dot(bend);
+
+            if !(slope > 0.0 && slope.is_finite()) {
+                break;
+            }
+
+            let next = self.kept_within(share - offset.dot(tangent) / slope);
+
+            if (next - share).abs() <= f64::EPSILON {
+                break;
+            }
+            share = next;
+        }
+        nearest
+    }
+
     fn closest_share(&self, point: Point2) -> f64 {
         match self {
             Self::Ellipse(shape) => (shape.closest_parameter(point) - shape.start) / shape.sweep,
@@ -121,6 +177,8 @@ impl Free {
     }
 
     fn collapses_under(&self, by: f64) -> bool {
+        tally::add(CURVATURE_SAMPLES);
+
         (0..=CURVATURE_SAMPLES).any(|index| {
             let share = index as f64 / CURVATURE_SAMPLES as f64;
             by * self.signed_curvature_at(share) >= 1.0 - COLLAPSE_SHARE
@@ -211,19 +269,21 @@ impl Around {
         let mut count = self.shape.first_fit_points();
         let tolerance = FIT_TOLERANCE * self.shape.reach();
         loop {
+            tally::add(count);
+
             let points: Vec<Point2> = (0..count + usize::from(!closed))
                 .map(|index| self.offset_at(index as f64 / count as f64, by))
                 .collect();
-            let curve = SplineKind::fit(closed).curve(&points);
-            let within = curve
+            let fitted = fitted(&points, closed);
+            let within = fitted
                 .as_ref()
-                .is_some_and(|curve| self.strays(curve, count, distance) <= tolerance);
+                .is_some_and(|(curve, sites)| self.stays_within(curve, sites, distance, tolerance));
 
             if within || count >= MAX_FIT_POINTS {
                 if self.shape.may_cross_itself()
-                    && curve
+                    && fitted
                         .as_ref()
-                        .is_some_and(|curve| crosses_itself(curve, closed))
+                        .is_some_and(|(curve, _)| crosses_itself(curve, closed))
                 {
                     return Err(OffsetError::CrossesItself);
                 }
@@ -233,19 +293,52 @@ impl Around {
         }
     }
 
-    fn strays(&self, curve: &BSpline, spans: usize, distance: f64) -> f64 {
-        let checks = spans * CHECKS_PER_SPAN;
-        (0..=checks)
-            .map(|index| {
-                let point = curve.point_at(index as f64 / checks as f64);
-                (self.distance_to(point) - distance).abs()
+    fn stays_within(&self, curve: &BSpline, sites: &[f64], distance: f64, tolerance: f64) -> bool {
+        let spans = sites.len().saturating_sub(1);
+
+        sites
+            .windows(2)
+            .enumerate()
+            .flat_map(|(span, pair)| {
+                let (from, to) = match pair {
+                    [from, to] => (*from, *to),
+                    _ => (0.0, 0.0),
+                };
+                (0..CHECKS_PER_SPAN).map(move |check| {
+                    let step = check as f64 / CHECKS_PER_SPAN as f64;
+                    (
+                        from + (to - from) * step,
+                        (span as f64 + step) / spans as f64,
+                    )
+                })
             })
-            .fold(0.0, larger)
+            .chain([(1.0, 1.0)])
+            .all(|(parameter, share)| {
+                tally::add(1);
+
+                let point = curve.point_at(parameter);
+                (self.shape.distance_near(point, share) - distance).abs() <= tolerance
+            })
     }
+}
+
+fn fitted(points: &[Point2], closed: bool) -> Option<(BSpline, Vec<f64>)> {
+    tally::add(points.len());
+
+    let curve = SplineKind::fit(closed).curve(points)?;
+    let mut sites = FitLayout::of(points, closed, FitSpacing::Centripetal)?.parameters;
+
+    if closed {
+        sites.push(1.0);
+    }
+    Some((curve, sites))
 }
 
 fn crosses_itself(curve: &BSpline, closed: bool) -> bool {
     let points = curve.polyline(CROSSING_SEGMENT_ANGLE);
+
+    tally::add(points.len());
+
     let segments: Vec<(Point2, Point2)> = points
         .iter()
         .copied()
@@ -253,14 +346,30 @@ fn crosses_itself(curve: &BSpline, closed: bool) -> bool {
         .collect();
     let count = segments.len();
     let adjacent = |first: usize, second: usize| {
+        let (first, second) = (first.min(second), first.max(second));
         second - first <= 1 || (closed && first == 0 && second + 1 == count)
     };
-    segments.iter().enumerate().any(|(first, a)| {
-        segments
+    let left = |(a, b): (Point2, Point2)| a.x.min(b.x);
+    let right = |(a, b): (Point2, Point2)| a.x.max(b.x);
+
+    let mut order: Vec<(usize, (Point2, Point2))> = segments.into_iter().enumerate().collect();
+
+    order.sort_by(|(_, a), (_, b)| left(*a).total_cmp(&left(*b)));
+
+    let mut open: Vec<(usize, (Point2, Point2))> = Vec::new();
+
+    order.into_iter().any(|(index, segment)| {
+        let from = left(segment);
+
+        open.retain(|(_, other)| right(*other) >= from);
+        tally::add(open.len() + 1);
+
+        let crosses = open
             .iter()
-            .enumerate()
-            .skip(first + 1)
-            .any(|(second, b)| !adjacent(first, second) && properly_cross(*a, *b))
+            .any(|(other, earlier)| !adjacent(index, *other) && properly_cross(segment, *earlier));
+
+        open.push((index, segment));
+        crosses
     })
 }
 

@@ -19,6 +19,8 @@ use egui::{
     Stroke, Ui, UiBuilder, Vec2, WidgetInfo, accesskit::Live, pos2, vec2,
 };
 
+#[cfg(test)]
+use crate::offset_preview::OffsetPreview;
 use crate::{
     analysis::{Analyses, FaceAnalysis},
     annotations::{self, Annotations, AutoHidden, LabelMoving, Surface},
@@ -2439,6 +2441,16 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn modify_preview(&self) -> Preview {
+        self.modifying.preview(self.scenes.faceting())
+    }
+
+    #[cfg(test)]
+    pub fn offset_preview(&mut self) -> Option<&mut OffsetPreview> {
+        self.modifying.offset_preview()
+    }
+
+    #[cfg(test)]
     pub fn snap_highlight(&self) -> Vec<EntityId> {
         self.drawing.snap_entities()
     }
@@ -4014,6 +4026,7 @@ impl ViewportState {
                 screen: cursor / scale,
                 sketch,
             });
+
         match (displayed, self.view()) {
             (Some(sketch), Some(view)) => {
                 let screen = SketchScreen {
@@ -4040,6 +4053,8 @@ impl ViewportState {
                 self.modifying.leave();
             }
         }
+        self.modifying
+            .refresh(self.scenes.faceting(), || model.waker());
     }
 
     fn click(

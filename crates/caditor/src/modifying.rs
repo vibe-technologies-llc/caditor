@@ -4,6 +4,8 @@ use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, EvalError, Expression, Quantity};
 use caditor_sketch::{EntityId, Faceting, FilletError, Sketch};
 
+#[cfg(test)]
+use crate::offset_preview::OffsetPreview;
 use crate::{
     blend_curving::{BlendCurving, BlendCurvingError},
     commands::Reason,
@@ -13,7 +15,7 @@ use crate::{
     filleting::{CornerCut, Filleting, FilletingError},
     gearing::{GearSettings, Gearing, GearingError},
     mirroring::{MirrorRefusal, Mirroring},
-    model::Model,
+    model::{Model, Waker},
     offsetting::{self, Offsetting, OffsettingError},
     patterning::{PatternKind, PatternSettings, Patterning, PatterningError},
     shape_modes::{ShapeMode, ShapeModes},
@@ -226,11 +228,11 @@ impl Reason for HighlightNeeded {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 enum State {
     #[default]
     Idle,
-    Offset(Offsetting),
+    Offset(Box<Offsetting>),
     Mirror(Mirroring),
     Pattern(Box<Patterning>),
     Fillet(Box<Filleting>),
@@ -268,7 +270,7 @@ impl LastSizes {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Modifying {
     context: Option<(FeatureId, Tool)>,
     state: State,
@@ -399,7 +401,7 @@ impl Modifying {
             let offset = self.last.offset.clone();
 
             self.state = match (context, sketch) {
-                (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::new(offset)),
+                (Some((_, Tool::Offset)), _) => State::Offset(Box::new(Offsetting::new(offset))),
                 (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::starting(selected)),
                 (Some((_, Tool::RectangularPattern)), _) => State::Pattern(Box::new(
                     Patterning::starting(PatternKind::Rectangular, selected),
@@ -494,6 +496,35 @@ impl Modifying {
         }
     }
 
+    pub fn refresh(&mut self, faceting: Faceting, wake: impl FnOnce() -> Waker) {
+        match &mut self.state {
+            State::Offset(offsetting) => offsetting.refresh(faceting, wake),
+            State::Mirror(_)
+            | State::Pattern(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub fn offset_preview(&mut self) -> Option<&mut OffsetPreview> {
+        match &mut self.state {
+            State::Offset(offsetting) => Some(offsetting.preview_worker()),
+            State::Mirror(_)
+            | State::Pattern(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => None,
+        }
+    }
+
     pub fn leave(&mut self) {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.leave(),
@@ -510,7 +541,7 @@ impl Modifying {
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
         match &self.state {
-            State::Offset(offsetting) => offsetting.preview(faceting),
+            State::Offset(offsetting) => offsetting.preview(),
             State::Mirror(mirroring) => mirroring.preview(),
             State::Pattern(patterning) => patterning.preview(),
             State::Fillet(filleting) => filleting.preview(faceting),

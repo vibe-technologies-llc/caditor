@@ -2,10 +2,12 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    Caps, Constraint, ConstraintId, Entity, EntityId, OffsetError, Side, Sketch, Solved, SplineKind,
+    Caps, Constraint, ConstraintId, Entity, EntityId, OffsetError, Side, Sketch, Solved,
+    SplineKind, solve::tally,
 };
 
 const EXACT: f64 = 1e-7;
+const FRAME_OF_WORK: usize = 100_000;
 
 fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
     Ok(Quantity::plain(0.0))
@@ -2263,4 +2265,108 @@ fn an_open_chain_ending_in_an_arc_holds_that_end_on_the_arcs_radius() {
     let center = Point2::new(0.0, 10.0);
 
     assert!((source - center).normalize().perp_dot(found - center).abs() < EXACT);
+}
+
+fn closed_control_spline(sketch: &mut Sketch, points: &[(f64, f64)]) -> EntityId {
+    let points: Vec<Point2> = points.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
+    sketch.add_spline_of(&points, SplineKind::Control { closed: true })
+}
+
+fn fit_points(sketch: &Sketch, spline: EntityId) -> usize {
+    match sketch.entity(spline) {
+        Some(Entity::Spline { points, .. }) => points.len(),
+        other => panic!("expected a spline, found {other:?}"),
+    }
+}
+
+fn wavy_ring(sketch: &mut Sketch, count: usize) -> EntityId {
+    let points: Vec<Point2> = (0..count)
+        .map(|index| {
+            let turn = index as f64 / count as f64 * std::f64::consts::TAU;
+            let radius = 40.0 + 0.4 * (turn * 12.0).sin();
+            Point2::new(radius * turn.cos(), radius * turn.sin())
+        })
+        .collect();
+    sketch.add_spline_of(&points, SplineKind::fit(true))
+}
+
+#[test]
+fn a_closed_spline_with_repeated_points_offsets_and_offsets_again_in_well_under_a_frame_of_work() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let spline = closed_control_spline(
+        &mut sketch,
+        &[
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (10.0, 10.0),
+        ],
+    );
+
+    let (made, once) =
+        tally::measure(|| sketch.offset(&[spline], Side::Right, 1.0, mm(1.0)).unwrap());
+    let [first] = made.as_slice() else {
+        panic!("expected one spline, found {made:?}");
+    };
+    let first = *first;
+
+    let (made, twice) =
+        tally::measure(|| sketch.offset(&[first], Side::Right, 1.0, mm(1.0)).unwrap());
+    let [second] = made.as_slice() else {
+        panic!("expected one spline, found {made:?}");
+    };
+
+    assert_eq!(fit_points(&sketch, first), 256);
+    assert_eq!(fit_points(&sketch, *second), 512);
+    assert!(once < FRAME_OF_WORK / 3, "{once} units to offset once");
+    assert!(twice < FRAME_OF_WORK / 3, "{twice} units to offset again");
+
+    assert_spline_beside_spline(&sketch, first, spline, 1.0);
+    assert_spline_beside_spline(&sketch, *second, first, 1.0);
+}
+
+#[test]
+fn a_closed_spline_folded_back_along_a_line_is_refused_in_well_under_a_frame_of_work() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let folded = closed_control_spline(
+        &mut sketch,
+        &[(0.0, 0.0), (10.0, 0.0), (0.0, 0.0), (10.0, 0.0)],
+    );
+    let before = sketch.clone();
+
+    for side in [Side::Left, Side::Right] {
+        let (refused, work) =
+            tally::measure(|| sketch.offset(&[folded], side, 1.0, mm(1.0)).unwrap_err());
+
+        assert_eq!(refused, OffsetError::CrossesItself);
+        assert!(work < FRAME_OF_WORK / 3, "{work} units to refuse");
+        assert_eq!(sketch, before);
+    }
+}
+
+#[test]
+fn offsetting_a_spline_of_sixteen_times_the_control_points_takes_no_more_work() {
+    let work = |count: usize| {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let ring = wavy_ring(&mut sketch, count);
+        let chain = sketch.offset_chain(&[ring]).unwrap();
+        let outside = chain.side_of(Point2::new(100.0, 0.0));
+
+        let (outline, work) = tally::measure(|| chain.outline(outside, 0.5));
+
+        assert!(outline.is_ok(), "{outline:?}");
+        work
+    };
+
+    let (few, many) = (work(128), work(2_048));
+
+    assert!(
+        many <= few + few / 4,
+        "{many} units for 2,048 control points against {few} for 128"
+    );
+    assert!(many < FRAME_OF_WORK / 3, "{many} units");
 }

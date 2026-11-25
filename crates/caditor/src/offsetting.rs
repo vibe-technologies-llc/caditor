@@ -2,18 +2,19 @@ use std::collections::BTreeMap;
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
-use caditor_sketch::{Caps, Chain, Entity, EntityId, Faceting, OffsetError, Outline, Side, Sketch};
+use caditor_sketch::{Caps, Chain, Entity, EntityId, Faceting, OffsetError, Side, Sketch};
 use thiserror::Error;
 
 use crate::{
     drawing::Preview,
     editing::Tool,
     feature_tree::count,
-    model::Model,
+    model::{Model, Waker},
     modifying::{
         HighlightNeeded, Hint, Outcome, Prompt, StepError, Value, ValueError, ValueField,
         length_text,
     },
+    offset_preview::{OffsetPreview, OffsetRequest, Offsets},
     shape_modes::OffsetMode,
     snap::{Pointer, Screen},
     trimming::{self, SketchGone, capitalized},
@@ -27,6 +28,7 @@ pub const CHOOSE_PROMPT: &str = "Click a curve to take its chain, or select the 
                                  first";
 pub const FREE_SPLINE: &str = "as a spline that will not follow it";
 pub const TRANSACTION: &str = "Offset curves";
+pub const WORKING: &str = "Working out the offset of";
 pub const BOTH_TRANSACTION: &str = "Offset curves to both sides";
 const KEYS: &str = "Type a distance, negative for the other side   Esc: choose another curve";
 const BOTH_KEYS: &str = "Type the distance on each side   Esc: choose another curve";
@@ -47,7 +49,7 @@ pub enum OffsettingError {
     Value(#[from] ValueError),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Offsetting {
     mode: OffsetMode,
     chains: Option<Result<Vec<Chain>, OffsetError>>,
@@ -56,6 +58,8 @@ pub struct Offsetting {
     highlight: Option<EntityId>,
     typed: Option<f64>,
     last: Option<String>,
+    request: Option<OffsetRequest>,
+    preview: OffsetPreview,
 }
 
 impl Offsetting {
@@ -93,6 +97,25 @@ impl Offsetting {
         self.under = None;
     }
 
+    pub fn refresh(&mut self, faceting: Faceting, wake: impl FnOnce() -> Waker) {
+        self.request = self
+            .chains()
+            .filter(|_| self.pointer.is_some() || self.typed.is_some())
+            .map(|chains| OffsetRequest {
+                chains: chains.to_vec(),
+                caps: self.mode.caps(),
+                pointer: self.pointer,
+                typed: self.typed,
+                faceting,
+            });
+        self.preview.refresh(self.request.as_ref(), wake);
+    }
+
+    #[cfg(test)]
+    pub fn preview_worker(&mut self) -> &mut OffsetPreview {
+        &mut self.preview
+    }
+
     fn reused(&self, text: &str) -> String {
         match self.last.as_deref() {
             Some(last) if text.trim().is_empty() => last.to_owned(),
@@ -119,63 +142,19 @@ impl Offsetting {
         self.chains.as_ref()?.as_ref().ok().map(Vec::as_slice)
     }
 
-    fn side(&self, chain: &Chain, flipped: bool) -> Side {
-        let side = self
-            .pointer
-            .map_or(chain.default_side(), |pointer| chain.side_of(pointer));
-        if flipped { side.other() } else { side }
-    }
-
     fn placement(&self) -> Option<Placement> {
-        let chains = self.chains()?;
-        let (flipped, distance) = match self.typed {
-            Some(value) => (value < 0.0, value.abs()),
-            None => {
-                let pointer = self.pointer?;
-                let nearest = chains
-                    .iter()
-                    .map(|chain| chain.distance_to(pointer))
-                    .fold(f64::INFINITY, f64::min);
-                (false, nearest)
-            }
-        };
-        Some(Placement {
-            sides: chains
-                .iter()
-                .map(|chain| (chain.curves(), self.side(chain, flipped)))
-                .collect(),
-            distance,
-        })
+        Placement::of(self.chains()?, self.pointer, self.typed)
     }
 
-    fn outlines(&self) -> Option<Result<Vec<Outline>, OffsetError>> {
-        let chains = self.chains()?;
-        let placement = self.placement()?;
-        let mut outlines = Vec::new();
-
-        for chain in chains {
-            let made = match self.mode.caps() {
-                Some(caps) => chain.both_sides(placement.distance, caps),
-                None => chain
-                    .outline(placement.side_of(chain), placement.distance)
-                    .map(|outline| vec![outline]),
-            };
-            match made {
-                Ok(made) => outlines.extend(made),
-                Err(error) => return Some(Err(error)),
-            }
-        }
-        Some(Ok(outlines))
+    fn previewed(&self) -> Option<&Result<Offsets, OffsetError>> {
+        self.preview.shown_for(self.request.as_ref())
     }
 
-    pub fn preview(&self, faceting: Faceting) -> Preview {
+    pub fn preview(&self) -> Preview {
         let mut preview = Preview::default();
 
-        if let Some(Ok(outlines)) = self.outlines() {
-            preview.curves = outlines
-                .iter()
-                .flat_map(|outline| outline.faceted(faceting))
-                .collect();
+        if let Some(Ok(offsets)) = self.previewed() {
+            preview.curves.clone_from(&offsets.curves);
         }
         preview
     }
@@ -199,18 +178,21 @@ impl Offsetting {
         let subject = subject(sketch, chains);
         let way = self.way(chains);
         let free = chains.iter().any(|chain| !chain.follows());
-        match (self.placement(), self.outlines()) {
-            (Some(placement), Some(Ok(_))) if free => Some(format!(
+        match self.previewed() {
+            Some(Ok(offsets)) if free => Some(format!(
                 "Offset {subject} by {}{way} {}",
-                length_text(unit, placement.distance),
+                length_text(unit, offsets.distance),
                 free_spline(chains)
             )),
-            (Some(placement), Some(Ok(_))) => Some(format!(
+            Some(Ok(offsets)) => Some(format!(
                 "Offset {subject} by {}{way}",
-                length_text(unit, placement.distance)
+                length_text(unit, offsets.distance)
             )),
-            (_, Some(Err(error))) => Some(capitalized(&error.to_string())),
-            _ => Some(format!("Offset {subject}")),
+            Some(Err(error)) => Some(capitalized(&error.to_string())),
+            None if self.request.is_some() && self.preview.is_working() => {
+                Some(format!("{WORKING} {subject}…"))
+            }
+            None => Some(format!("Offset {subject}")),
         }
     }
 
@@ -338,7 +320,7 @@ impl Offsetting {
 
         let sides: Sides = chains
             .iter()
-            .map(|chain| (chain.curves(), self.side(chain, flipped)))
+            .map(|chain| (chain.curves(), side_toward(chain, self.pointer, flipped)))
             .collect();
         commit(model, feature, chains, self.mode, &sides, value).map(Outcome::Apply)
     }
@@ -424,13 +406,39 @@ fn select_chain(sketch: &Sketch, curve: EntityId) -> Outcome {
 
 type Sides = BTreeMap<Vec<EntityId>, Side>;
 
-struct Placement {
+fn side_toward(chain: &Chain, pointer: Option<Point2>, flipped: bool) -> Side {
+    let side = pointer.map_or(chain.default_side(), |pointer| chain.side_of(pointer));
+    if flipped { side.other() } else { side }
+}
+
+pub struct Placement {
     sides: Sides,
-    distance: f64,
+    pub distance: f64,
 }
 
 impl Placement {
-    fn side_of(&self, chain: &Chain) -> Side {
+    pub fn of(chains: &[Chain], pointer: Option<Point2>, typed: Option<f64>) -> Option<Self> {
+        let (flipped, distance) = match typed {
+            Some(value) => (value < 0.0, value.abs()),
+            None => {
+                let pointer = pointer?;
+                let nearest = chains
+                    .iter()
+                    .map(|chain| chain.distance_to(pointer))
+                    .fold(f64::INFINITY, f64::min);
+                (false, nearest)
+            }
+        };
+        Some(Self {
+            sides: chains
+                .iter()
+                .map(|chain| (chain.curves(), side_toward(chain, pointer, flipped)))
+                .collect(),
+            distance,
+        })
+    }
+
+    pub fn side_of(&self, chain: &Chain) -> Side {
         self.sides
             .get(&chain.curves())
             .copied()

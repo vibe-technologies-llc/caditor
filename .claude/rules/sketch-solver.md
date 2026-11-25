@@ -37,7 +37,7 @@ paths:
 - Convergence is checked after every step and cancellation before it (and before each further
   Newton shift), so the diagnosis budget counts steps taken; the analysis polls cancellation before each part, constraint and null-space
   solve. Tests bound cost with `solve/tally.rs` work units (`fit.rs` adds its passes over the
-  samples), never wall-clock time.
+  samples, `offset/around.rs` its curve evaluations and segment tests), never wall-clock time.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. A minimum
   is a Newton step under the least shift predicting under a thousandth of the cost

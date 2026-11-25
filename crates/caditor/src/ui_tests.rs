@@ -564,7 +564,17 @@ impl Harness {
     }
 
     fn frame(&mut self) {
-        let shapes = self.pass();
+        let mut shapes = self.pass();
+
+        while let Some(preview) = self
+            .workspace
+            .viewport
+            .offset_preview()
+            .filter(|preview| preview.awaits())
+        {
+            preview.wait();
+            shapes = self.pass();
+        }
 
         self.texts.clear();
         self.text_clips.clear();

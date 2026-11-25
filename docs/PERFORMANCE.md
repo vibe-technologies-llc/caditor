@@ -126,16 +126,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
   that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
   chain's slow modes.
-
-## Sketch editing
-
-- [medium · medium] Offsetting a spline of hundreds of control points takes seconds: in release a
-  512-point fit spline (itself the offset of a closed five-point control spline with repeated
-  points, whose offset never came within `FIT_TOLERANCE` and doubled to `MAX_FIT_POINTS`) took
-  14 s to offset again, found by the `sketch_edit` fuzz target. `Around::fit_points` starts at
-  `MAX_FIT_POINTS` for such a spline and `strays` measures `CHECKS_PER_SPAN` points per span,
-  each through `closest_spline_parameter`, whose sampling also grows with the control points, so
-  the cost is about quadratic in them. The offset tool computes `Chain::outline` for its preview
-  in `offsetting.rs` on the UI thread, so an imported spline of that size would freeze the window.
-  A small spline whose offset never fits pays the same doubling: a closed four-point control
-  spline folded back along a line takes 1.3 s to be refused.

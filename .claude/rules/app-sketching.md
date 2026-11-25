@@ -8,6 +8,7 @@ paths:
   - "crates/caditor/src/trimming.rs"
   - "crates/caditor/src/modifying.rs"
   - "crates/caditor/src/offsetting.rs"
+  - "crates/caditor/src/offset_preview.rs"
   - "crates/caditor/src/mirroring.rs"
   - "crates/caditor/src/patterning.rs"
   - "crates/caditor/src/sketch_pattern_panel.rs"
@@ -468,7 +469,17 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   among them will not follow), since its offset spline does not follow it (`sketch.md`). `OffsetMode`
   (one side, both sides with round ends, both with flat ends): the both ways put the distance on each
   side (pointer side irrelevant, a negative typed value its magnitude) as one "Offset curves to both
-  sides" transaction (`Sketch::offset_both_sides`). Mirror copies the selection about the line or axis
+  sides" transaction (`Sketch::offset_both_sides`). The preview and its words are worked out off the
+  UI thread (`offset_preview.rs`): each frame `Modifying::refresh` hands the chains, way, pointer,
+  typed value and faceting to `OffsetPreview`, which starts a thread for a request unlike the one
+  running (other chains or way, cancelling it) and otherwise lets the running one finish, the
+  finished preview waking the UI, which then starts the newest request. Placement (side and
+  distance, `Placement::of`) is worked out there too, so a frame does no search along a large
+  spline. The last preview of the same chains and way stays shown meanwhile; with none yet the
+  words read `offsetting::WORKING`. A click or Enter commits on the UI thread from the current
+  placement, whatever the preview shows. The harness waits for an unheld preview after each frame
+  and draws another (`OffsetPreview::awaits`), and a test can hold it (`OffsetPreview::hold`).
+  Mirror copies the selection about the line or axis
   under the pointer (sketch lines win a tie with an axis), drawing a reference-axis guide in
   `preview.guides` while aimed at one.
 - Mirror and both patterns select inside the tool, as Smart dimension picks: started with nothing

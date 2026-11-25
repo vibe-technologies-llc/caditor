@@ -149,9 +149,8 @@ paths:
   curves at random picks. A refused edit must leave the sketch equal to what it was (edits work
   on a copy, `sketch.md`); an applied one must keep use counts equal to a count from scratch,
   read through `caditor_sketch::fuzzing` (behind the crate's `fuzzing` feature, which
-  `caditor-checks` turns on), with every entity in use still in the sketch. It offsets no spline
-  of more than `MOST_OFFSET_SPLINE_POINTS` points, since each such offset takes seconds
-  (`PERFORMANCE.md`) and would starve the target.
+  `caditor-checks` turns on), with every entity in use still in the sketch. Splines of any size
+  are offset, since an offset's work is bounded by `MAX_FIT_POINTS` (`sketch.md`).
 - Kernel and solver work runs under `WORK_BUDGET`, so slow inputs cancel instead of tripping
   libFuzzer's timeout: the structured targets but `sketch_edit` (sketch edits take no interrupt)
   and both STEP targets (`step`, `step_import`). Every

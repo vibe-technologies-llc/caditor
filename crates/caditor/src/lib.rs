@@ -156,6 +156,7 @@ mod new_sketch_panel;
 mod offers;
 mod offset_face_panel;
 mod offset_face_tools;
+mod offset_preview;
 mod offsetting;
 mod onboarding;
 mod outlining;

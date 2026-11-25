@@ -55,3 +55,8 @@ since no constraint can hold a spline at a distance from a curve along its whole
 words beside the pointer say so. Its fit points are free, so unlike a chain of lines and arcs the
 copy adds degrees of freedom you can drag to adjust it. A distance that shrinks a bend to nothing
 or makes the copy cross itself is refused in words.
+
+The preview is worked out in the background, so the window stays responsive while a spline of
+hundreds of points is offset. Until the first preview arrives the words beside the pointer say the
+offset is being worked out; while the pointer moves, the last preview stays shown until the next
+one is ready. Choosing another curve with Esc or leaving the tool stops the work.

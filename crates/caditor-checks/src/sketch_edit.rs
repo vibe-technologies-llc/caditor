@@ -15,7 +15,6 @@ use crate::{
 
 const MOST_EDITS: usize = 8;
 const MOST_PICKED: usize = 4;
-const MOST_OFFSET_SPLINE_POINTS: usize = 64;
 const MOST_SPLIT_PAIRS: usize = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -173,13 +172,6 @@ fn picks(input: &mut Unstructured, sketch: &Sketch) -> Result<Option<[Pick; 2]>>
     ]))
 }
 
-fn offsets_quickly(sketch: &Sketch, chosen: &[EntityId]) -> bool {
-    chosen.iter().all(|curve| match sketch.entity(*curve) {
-        Some(Entity::Spline { points, .. }) => points.len() <= MOST_OFFSET_SPLINE_POINTS,
-        _ => true,
-    })
-}
-
 fn split_at(input: &mut Unstructured, sketch: &Sketch) -> Result<(EntityId, EntityId)> {
     let drawn = curves(sketch);
     let loose = points(sketch);
@@ -242,10 +234,6 @@ pub fn edit(input: &mut Unstructured, sketch: &mut Sketch) -> Result<(EditKind, 
             };
             let (towards, by) = (side(input)?, dimensioned_length(input)?);
 
-            if !offsets_quickly(sketch, &chosen) {
-                return Ok((EditKind::Offset, false));
-            }
-
             let offset = sketch.offset(&chosen, towards, by.value, by.expression);
             (EditKind::Offset, offset.is_ok())
         }
@@ -257,10 +245,6 @@ pub fn edit(input: &mut Unstructured, sketch: &mut Sketch) -> Result<(EditKind, 
             } else {
                 Caps::Flat
             };
-
-            if !offsets_quickly(sketch, &chosen) {
-                return Ok((EditKind::OffsetBothSides, false));
-            }
 
             let offset = sketch.offset_both_sides(&chosen, by.value, by.expression, caps);
             (EditKind::OffsetBothSides, offset.is_ok())
