@@ -29,4 +29,4 @@ pub use maximize::{ButtonRect, ButtonState, on_maximize_button, set_maximize_but
 pub use power::battery_flag;
 pub use process::process_running;
 pub use registry::{boot_id, machine_guid};
-pub use window::{DialogParent, on_session_end, show_error};
+pub use window::{on_session_end, show_error};

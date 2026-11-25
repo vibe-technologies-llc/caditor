@@ -1,6 +1,5 @@
 use std::{io, sync::Arc};
 
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use wayland_client::{
     Connection, Dispatch, DispatchError, EventQueue, QueueHandle,
     backend::WaylandError,
@@ -12,6 +11,7 @@ use wayland_protocols::xdg::foreign::zv2::client::{
     zxdg_exported_v2::{self, ZxdgExportedV2},
     zxdg_exporter_v2::ZxdgExporterV2,
 };
+use winit::window::Window;
 
 use crate::connection::{AttachError, WindowConnection};
 
@@ -40,10 +40,7 @@ pub struct ToplevelExport {
 }
 
 impl ToplevelExport {
-    pub fn attach<W>(window: Arc<W>) -> Result<Option<Self>, AttachError>
-    where
-        W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
-    {
+    pub fn attach(window: Arc<Window>) -> Result<Option<Self>, AttachError> {
         let Some(window) = WindowConnection::of_window(window)? else {
             return Ok(None);
         };

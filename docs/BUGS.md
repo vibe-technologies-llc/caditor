@@ -201,16 +201,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
-## Application
-
-- [low · medium] Two safe functions of the `unsafe` crates rest on their callers: the Wayland
-  `DropTarget::attach` and `ToplevelExport::attach` wrap winit's `wl_display` and keep the window
-  alive, but the connection belongs to winit's event loop, so their soundness rests on the drop
-  order `wayland.md` describes rather than on types; and `caditor-windows`'s `DialogParent::new`
-  takes any `NonZeroIsize` and hands out a borrowed window handle claiming a live window. Make them
-  `unsafe` with a stated contract, or tie them to what owns the handle; unchecked whether winit
-  holds the display strongly.
-
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view

@@ -1,14 +1,17 @@
-use std::{num::NonZeroIsize, path::PathBuf, sync::OnceLock};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock, Weak},
+};
 
-use caditor_windows::DialogParent;
 use rfd::FileDialog;
+use winit::window::Window;
 
 use super::{DesktopSettings, DialogError, FileRequest, Mode, SettingError};
 
-static OWNER: OnceLock<DialogParent> = OnceLock::new();
+static OWNER: OnceLock<Weak<Window>> = OnceLock::new();
 
-pub fn own_dialogs(window: NonZeroIsize) {
-    if OWNER.set(DialogParent::new(window)).is_err() {
+pub fn own_dialogs(window: &Arc<Window>) {
+    if OWNER.set(Arc::downgrade(window)).is_err() {
         log::debug!("file dialogs already belong to the first window");
     }
 }
@@ -27,6 +30,7 @@ pub fn watch_desktop(_changed: impl FnMut(DesktopSettings)) -> Result<(), Settin
 }
 
 pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {
+    let owner = OWNER.get().and_then(Weak::upgrade);
     let mut dialog = FileDialog::new().set_title(request.title.as_str());
 
     if let Some(directory) = &request.directory {
@@ -38,8 +42,8 @@ pub fn choose(request: &FileRequest) -> Result<Option<PathBuf>, DialogError> {
     for filter in &request.filters {
         dialog = dialog.add_filter(filter.name.as_str(), &filter.extensions);
     }
-    if let Some(owner) = OWNER.get() {
-        dialog = dialog.set_parent(owner);
+    if let Some(owner) = &owner {
+        dialog = dialog.set_parent(owner.as_ref());
     }
     Ok(match request.mode {
         Mode::Open => dialog.pick_file(),

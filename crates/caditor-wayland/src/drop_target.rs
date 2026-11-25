@@ -12,7 +12,6 @@ use std::{
 };
 
 use parking_lot::Mutex;
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use wayland_client::{
     Connection, Dispatch, DispatchError, EventQueue, Proxy, QueueHandle,
     backend::WaylandError,
@@ -27,6 +26,7 @@ use wayland_client::{
         wl_surface::WlSurface,
     },
 };
+use winit::window::Window;
 
 use crate::{
     connection::{AttachError, WindowConnection},
@@ -85,13 +85,10 @@ pub struct DropTarget {
 }
 
 impl DropTarget {
-    pub fn attach<W>(
-        window: Arc<W>,
+    pub fn attach(
+        window: Arc<Window>,
         wake: impl Fn() + Send + 'static,
-    ) -> Result<Option<Self>, AttachError>
-    where
-        W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
-    {
+    ) -> Result<Option<Self>, AttachError> {
         let Some(window) = WindowConnection::of_window(window)? else {
             return Ok(None);
         };

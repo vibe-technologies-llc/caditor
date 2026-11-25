@@ -21,7 +21,9 @@ so call sites stay platform-free.
 - Allowed `unsafe` like `caditor-zstd`: `unsafe_code = "deny"` with `#[expect(unsafe_code, reason)]`
   per item (`conventions_tests.rs` checks it). Root is `#![cfg(windows)]`, so only Windows CI and
   `cargo xwin` lint it. `windows-sys` with only the `Win32_*` features used; only safe functions are
-  exported:
+  exported, and none hands out a borrowed handle it cannot vouch for: `on_session_end` and
+  `on_maximize_button` take a raw HWND, which is sound for any value since Win32 checks it and
+  `SetWindowLongPtrW` fails for a window that is gone or another process's:
   - `replace_file` (`ReplaceFileW` with a backup name, keeps the replaced file's ACLs, attributes,
     streams, creation time) and `move_file_durably` (`MoveFileExW`,
     `REPLACE_EXISTING | WRITE_THROUGH`, for a target that does not exist yet). Both take verbatim
@@ -63,7 +65,6 @@ so call sites stay platform-free.
     (`CredReadW`, `CredWriteW` with `CRED_PERSIST_LOCAL_MACHINE`, `CredDeleteW`, the answer freed with
     `CredFree`), the cloud sign-in's keyring (`cloud.md`); a missing credential is `None` or `false`,
     not an error, and a blob over `CREDENTIAL_BLOB_LIMIT` (2560 bytes) is `InvalidInput`.
-  - `DialogParent`: an HWND as `HasWindowHandle` and `HasDisplayHandle`, for rfd.
   - `show_error`: `MessageBoxW`, for a failed start.
 
 ## Files (`caditor-file/src/os/`)
@@ -98,8 +99,11 @@ so call sites stay platform-free.
 ## App
 
 - File dialogs are rfd's (`portal/windows.rs`), owned by the main window once it exists
-  (`portal::own_dialogs`). rfd's `common-controls-v6` feature stays off: it imports
-  `TaskDialogIndirect`, which unmanifested test binaries cannot load.
+  (`portal::own_dialogs`). The portal keeps a `Weak` of winit's `Window` and `choose` holds the
+  upgraded `Arc` until the dialog returns, so rfd reads the HWND from the window itself while it
+  lives, never a raw handle kept apart from it; with the window gone dialogs have no parent. rfd's
+  `common-controls-v6` feature stays off: it imports `TaskDialogIndirect`, which unmanifested test
+  binaries cannot load.
 - `caditor-file`'s `crash.rs` flushes the journal and ends the log on a console close and when Windows ends the
   session.
 - After the first save (`Files::saved_folder`), `defender.rs` shows once a tip-like card saying

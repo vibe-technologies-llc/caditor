@@ -8,10 +8,6 @@ use std::{
     },
 };
 
-use raw_window_handle::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle,
-    Win32WindowHandle, WindowHandle,
-};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, WPARAM},
     UI::WindowsAndMessaging::{
@@ -80,30 +76,6 @@ unsafe extern "system" fn session_procedure(
 
     let previous: WNDPROC = unsafe { std::mem::transmute::<isize, WNDPROC>(previous) };
     unsafe { CallWindowProcW(previous, window, message, wparam, lparam) }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DialogParent(NonZeroIsize);
-
-impl DialogParent {
-    pub fn new(window: NonZeroIsize) -> Self {
-        Self(window)
-    }
-}
-
-impl HasWindowHandle for DialogParent {
-    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let raw = RawWindowHandle::Win32(Win32WindowHandle::new(self.0));
-        #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
-        let handle = unsafe { WindowHandle::borrow_raw(raw) };
-        Ok(handle)
-    }
-}
-
-impl HasDisplayHandle for DialogParent {
-    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        Ok(DisplayHandle::windows())
-    }
 }
 
 pub fn show_error(title: &str, text: &str) -> bool {

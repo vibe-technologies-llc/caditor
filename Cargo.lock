@@ -874,6 +874,7 @@ dependencies = [
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
+ "winit",
 ]
 
 [[package]]
@@ -881,7 +882,6 @@ name = "caditor-windows"
 version = "0.1.0"
 dependencies = [
  "parking_lot 0.13.0",
- "raw-window-handle",
  "tempfile",
  "windows-sys 0.61.2",
 ]

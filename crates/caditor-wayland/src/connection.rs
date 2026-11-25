@@ -8,6 +8,7 @@ use wayland_client::{
     backend::{Backend, InvalidId, ObjectId},
     protocol::wl_surface::WlSurface,
 };
+use winit::window::Window;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AttachError {
@@ -28,14 +29,11 @@ pub enum AttachError {
 pub(crate) struct WindowConnection {
     pub(crate) connection: Connection,
     pub(crate) surface: WlSurface,
-    _window: Arc<dyn Send + Sync>,
+    _window: Arc<Window>,
 }
 
 impl WindowConnection {
-    pub(crate) fn of_window<W>(window: Arc<W>) -> Result<Option<Self>, AttachError>
-    where
-        W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
-    {
+    pub(crate) fn of_window(window: Arc<Window>) -> Result<Option<Self>, AttachError> {
         let display = window.display_handle()?.as_raw();
         let surface = window.window_handle()?.as_raw();
 
@@ -44,10 +42,16 @@ impl WindowConnection {
         else {
             return Ok(None);
         };
-        #[expect(unsafe_code, reason = "adopting winit's Wayland pointers is unsafe")]
+        #[expect(
+            unsafe_code,
+            reason = "the Window in the Arc holds winit's Connection, keeping the display connected"
+        )]
         let backend = unsafe { Backend::from_foreign_display(display.display.as_ptr().cast()) };
         let connection = Connection::from_backend(backend);
-        #[expect(unsafe_code, reason = "adopting winit's Wayland pointers is unsafe")]
+        #[expect(
+            unsafe_code,
+            reason = "the Window in the Arc holds its wl_surface, so the surface stays alive"
+        )]
         let surface =
             unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }?;
 

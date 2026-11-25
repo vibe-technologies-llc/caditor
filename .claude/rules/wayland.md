@@ -16,14 +16,20 @@ done on winit's own connection by `caditor-wayland`.
   `unsafe_code = "deny"` with `#[expect(unsafe_code, reason = "…")]` per item and the clippy lints
   listed in its manifest (`conventions_tests.rs` checks both). Root is `#![cfg(unix)]`; it offers
   only safe functions.
-- `WindowConnection::of_window` (`connection.rs`, the only `unsafe`) takes the window as an `Arc`
-  of anything with window and display handles and returns `Ok(None)` unless both are Wayland's. It
-  wraps winit's `wl_display` in a guest `wayland-client` `Connection`
-  (`Backend::from_foreign_display`, the system backend, `dependencies.md`) and the `wl_surface` as
-  a proxy, and holds the window `Arc` as long as they live, which makes the two calls sound.
-  `DropTarget` and `ToplevelExport` start from it, each with its own event queue and globals.
-- A guest connection's objects are destroyed on drop, which needs winit's display still connected:
-  the owner is dropped with the `Session` in `exiting`, before winit's event loop.
+- `WindowConnection::of_window` (`connection.rs`, the only `unsafe`) takes winit's `Window` as an
+  `Arc`, never any `HasWindowHandle`, since the proof below is about winit's type, and returns
+  `Ok(None)` unless both handles are Wayland's. It wraps winit's `wl_display` in a guest
+  `wayland-client` `Connection` (`Backend::from_foreign_display`, the system backend,
+  `dependencies.md`) and the `wl_surface` as a proxy, and holds the window `Arc` as long as they
+  live. `DropTarget` and `ToplevelExport` start from it, each with its own event queue and globals.
+- Why that is sound (winit 0.30.13, `platform_impl/linux/wayland/window`): the Wayland `Window`
+  owns its `WindowState`, which holds a clone of the event loop's `Connection`, and the system
+  backend calls `wl_display_disconnect` only when its last clone drops; the `wl_surface` is
+  smithay-client-toolkit's, destroyed only when the `Window`'s toolkit window drops. So while the
+  `Arc` lives, the display stays connected and the surface stays alive, whatever happens to winit's
+  event loop. Each owner declares its `WindowConnection` last and the connection before the `Arc`,
+  so its event queue, proxies and guest connection are dropped (their objects destroyed on the
+  still connected display) before the window can go. A winit upgrade rereads those files.
 - Queues are never read on a thread of their own: winit's loop reads the socket and sorts events
   into every queue; the app dispatches them from `about_to_wait` (`DropTarget::events`,
   `ToplevelExport::handle`) and flushes what they asked.

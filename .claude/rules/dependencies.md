@@ -21,7 +21,9 @@ paths:
 - `wayland-client` takes `system` and `dlopen` (in `caditor-wayland`'s manifest): only the system
   backend can adopt winit's foreign `wl_display`, and winit already loads that library at run time,
   so nothing new is linked. `wayland-protocols` takes `client` and `unstable` only, for
-  `xdg-foreign`.
+  `xdg-foreign`. `caditor-wayland` also takes the workspace's `winit`, already in every app build,
+  because its attach functions take winit's `Window`, the type `wayland.md` shows keeps the display
+  connected.
 - A dependency only one platform uses goes in the member's `[target.'cfg(unix)'.dependencies]` or
   `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus`,
   `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays
