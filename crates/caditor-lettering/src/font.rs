@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use caditor_geometry::Point2;
+use caditor_geometry::{Maths, Point2};
 use caditor_kernel::Interrupted;
 use skrifa::{
     FontRef, GlyphId, MetadataProvider, OutlineGlyphCollection, Tag,
@@ -13,7 +13,10 @@ use skrifa::{
     },
 };
 
-use crate::overlap::{Segment, merged};
+use crate::{
+    overlap::{Segment, merged},
+    signs::sign,
+};
 
 const WEIGHT_AXIS: Tag = Tag::new(b"wght");
 const KERNING: Tag = Tag::new(b"kern");
@@ -21,6 +24,8 @@ const LATIN: Tag = Tag::new(b"latn");
 const DEFAULT_SCRIPT: Tag = Tag::new(b"DFLT");
 const MISSING: GlyphId = GlyphId::NOTDEF;
 const WEIGHT_STEP: f64 = 100.0;
+const STEM_GLYPH: char = 'I';
+const FALLBACK_STEM: f64 = 0.125;
 
 pub struct Typeface<'f> {
     upright: Cut<'f>,
@@ -36,6 +41,13 @@ struct Cut<'f> {
     kerning: Vec<u16>,
     locations: BTreeMap<u16, Location>,
     outlines: BTreeMap<(u16, GlyphId), Arc<[Segment]>>,
+    signs: BTreeMap<(u16, char), Option<Arc<DrawnSign>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawnSign {
+    pub advance: f64,
+    pub outline: Arc<[Segment]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,6 +101,15 @@ impl<'f> Typeface<'f> {
     ) -> Result<Arc<[Segment]>, Interrupted> {
         self.cut_mut(instance.italic)
             .outline(instance.weight, glyph)
+    }
+
+    pub fn sign(
+        &mut self,
+        instance: Instance,
+        character: char,
+    ) -> Result<Option<Arc<DrawnSign>>, Interrupted> {
+        self.cut_mut(instance.italic)
+            .sign(instance.weight, character)
     }
 
     #[cfg(test)]
@@ -155,6 +176,7 @@ impl<'f> Cut<'f> {
             kerning,
             locations: BTreeMap::new(),
             outlines: BTreeMap::new(),
+            signs: BTreeMap::new(),
         })
     }
 
@@ -221,6 +243,74 @@ impl<'f> Cut<'f> {
 
         self.outlines.insert((weight, glyph), Arc::clone(&outline));
         Ok(outline)
+    }
+
+    fn sign(
+        &mut self,
+        weight: u16,
+        character: char,
+    ) -> Result<Option<Arc<DrawnSign>>, Interrupted> {
+        if let Some(drawn) = self.signs.get(&(weight, character)) {
+            return Ok(drawn.clone());
+        }
+
+        let cap_height = self
+            .cap_height(weight)
+            .unwrap_or(self.units_per_em)
+            .max(f64::MIN_POSITIVE);
+        let stem = self
+            .stem(weight)
+            .map_or(FALLBACK_STEM, |stem| stem / cap_height);
+        let slant = self.slant();
+
+        let drawn = match sign(character, stem) {
+            Some(designed) => {
+                let segments: Vec<Segment> = designed
+                    .segments
+                    .iter()
+                    .map(|segment| {
+                        segment.mapped(|point| {
+                            Point2::new(
+                                (point.x + slant * point.y) * cap_height,
+                                point.y * cap_height,
+                            )
+                        })
+                    })
+                    .collect();
+                let outline: Arc<[Segment]> = merged(&segments)?.unwrap_or(segments).into();
+
+                Some(Arc::new(DrawnSign {
+                    advance: designed.advance * cap_height,
+                    outline,
+                }))
+            }
+            None => None,
+        };
+
+        self.signs.insert((weight, character), drawn.clone());
+        Ok(drawn)
+    }
+
+    fn stem(&mut self, weight: u16) -> Option<f64> {
+        let glyph = self.glyph(STEM_GLYPH)?;
+        let points: Vec<Point2> = self
+            .segments(weight, glyph)
+            .iter()
+            .flat_map(|segment| segment.sampled(1))
+            .collect();
+        let (low, high) = points
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), point| {
+                (f64::min(low, point.x), f64::max(high, point.x))
+            });
+
+        (high > low).then_some(high - low)
+    }
+
+    fn slant(&self) -> f64 {
+        self.font.post().map_or(0.0, |post| {
+            (-post.italic_angle().to_f64()).to_radians().tan_libm()
+        })
     }
 
     fn curve_count(&mut self, weight: u16, glyph: GlyphId) -> usize {

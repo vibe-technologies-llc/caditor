@@ -405,8 +405,8 @@ lines, never a picture of the 3D view.
   as construction.
 - PDF is caditor's own writer, no dependency: PDF 1.4, one page sized in points, millimetre
   coordinates through a `cm` transform, arcs and ellipses as Béziers, text as filled Inter outlines
-  from `caditor-lettering` (no embedded font), the producer `APPLICATION` and nothing identifying
-  the user.
+  from `caditor-lettering` (no embedded font; a value's ⌀ is lettering's own outline, since Inter
+  lacks it, `lettering.md`), the producer `APPLICATION` and nothing identifying the user.
 
 ## App (`drawings_panel.rs`, `sheet_canvas.rs`, `sheet_views.rs`, `sheet_export.rs`)
 

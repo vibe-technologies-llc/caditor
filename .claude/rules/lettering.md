@@ -45,3 +45,13 @@ it without either depending on the other.
   line breaks counting as one, which sketch text names its curves by, so a letter's name does not
   change when a line is added after it, and the first line's letters keep their names whatever
   follows.
+- Inter has no diameter sign, depth, counterbore or countersink (U+2300 ⌀, U+21A7 ↧, U+2334 ⌴,
+  U+2335 ⌵), which drawings write in a dimension's value and a callout, so `signs.rs` draws them
+  itself: in cap heights, from a stroke width, as ring arcs (Bézier circles) and mitred polylines
+  closed into outlines, then merged like a glyph. `Cut::sign` scales a design to the face, takes
+  its stroke from the width of Inter's `I` at the weight (a heavier weight draws heavier signs,
+  `FALLBACK_STEM` when the face has no `I`), shears it by the italic cut's `post` angle, and caches
+  it per weight and character beside the glyph outlines. `lay_line` asks for a sign only for a
+  character the face lacks, so it is never listed in `Lettered::missing`; it advances by the
+  design's width plus a side bearing, takes no kerning and is a `Letter` like any other. Only
+  `lettered` uses them: SVG import's `Typeface` walk still counts them as missing glyphs.

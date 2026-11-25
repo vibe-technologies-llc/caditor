@@ -3375,6 +3375,133 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
 }
 
 #[test]
+fn a_diameter_dimension_keeps_its_sign_in_the_pdf_sheet() {
+    use caditor_document::{
+        AnnotationId, DimensionMeasure, DrawingDimension, DrawnLines, DrawnView, StandardView,
+    };
+    use caditor_kernel::{Curve2, ViewSource};
+
+    let pin = pin();
+    let mut drawing =
+        caditor_document::Drawing::new(caditor_document::DrawingId::from_raw(0), "Pin".to_owned());
+
+    drawing.views = [StandardView::Top].into_iter().collect();
+
+    let lines = sheet_lines(&drawing, &[&pin]);
+    let top_lines = &lines[0];
+    let rim = top_lines
+        .pieces
+        .iter()
+        .find_map(|piece| match (piece.source, &piece.curve) {
+            (ViewSource::Edge { name, .. }, Curve2::Circle(_)) => Some(name),
+            _ => None,
+        })
+        .unwrap();
+    let top = DrawnView::Standard(StandardView::Top);
+
+    drawing.dimensions = vec![DrawingDimension {
+        id: AnnotationId::from_raw(0),
+        view: top,
+        measure: DimensionMeasure::Diameter(rim),
+        place: Point2::new(110.0, 10.0),
+        decimals: 2,
+        text_offset: 0.0,
+        tolerance: None,
+    }];
+
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let mut plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+
+    plan.annotate(
+        &drawing,
+        &DrawnLines::from([(top, top_lines)]),
+        &caditor_document::CalloutTexts::new(),
+    );
+
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .map(|placed| SheetView {
+            placed: *placed,
+            lines: top_lines,
+        })
+        .collect();
+    let signless = {
+        let mut signless = plan.clone();
+
+        for text in signless
+            .annotations
+            .iter_mut()
+            .flat_map(|annotation| &mut annotation.texts)
+        {
+            text.content = text.content.replace('\u{2300}', "");
+        }
+        signless
+    };
+    let folder = TempDir::new().unwrap();
+    let with_sign = folder.path().join("with.pdf");
+    let without_sign = folder.path().join("without.pdf");
+
+    for (path, plan) in [(&with_sign, &plan), (&without_sign, &signless)] {
+        export_sheet(
+            path,
+            plan,
+            &views,
+            false,
+            SheetFormat::Pdf,
+            &CancelToken::never(),
+        )
+        .unwrap();
+    }
+
+    let with_sign = std::fs::read(&with_sign).unwrap();
+    let without_sign = std::fs::read(&without_sign).unwrap();
+    let moves = |pdf: &[u8]| String::from_utf8_lossy(pdf).matches(" m\n").count();
+    let sign_loops = {
+        let laid = caditor_lettering::lettered(
+            "\u{2300}",
+            caditor_lettering::Style::default(),
+            caditor_lettering::Alignment::Left,
+        )
+        .unwrap();
+        let mut ends: Option<Point2> = None;
+        let mut loops = 0;
+
+        for segment in laid.segments() {
+            let (from, to) = match segment {
+                caditor_lettering::Segment::Line(from, to) => (*from, *to),
+                caditor_lettering::Segment::Bezier(points) => (
+                    points.first().copied().unwrap_or_default(),
+                    points.last().copied().unwrap_or_default(),
+                ),
+            };
+
+            if ends.is_none_or(|ends| ends.distance(from) > 1e-9) {
+                loops += 1;
+            }
+            ends = Some(to);
+        }
+        loops
+    };
+
+    assert!(
+        plan.annotations
+            .iter()
+            .flat_map(|annotation| &annotation.texts)
+            .any(|text| text.content.starts_with('\u{2300}'))
+    );
+    assert_eq!(moves(&with_sign), moves(&without_sign) + sign_loops);
+}
+
+#[test]
 fn centre_marks_callouts_and_toleranced_values_are_written_in_every_sheet_format() {
     use caditor_document::{
         AnnotationId, CalloutLine, CalloutPiece, CalloutSymbol, CalloutTexts, CentreMark,

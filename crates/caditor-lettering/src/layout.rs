@@ -151,26 +151,39 @@ fn lay_line(
             pen += typeface.kerning(instance, before, glyph) * scale;
         }
 
-        let advance = typeface.advance(instance, glyph) * scale;
+        let sign = match glyph {
+            None if !character.is_whitespace() => typeface.sign(instance, character)?,
+            _ => None,
+        };
+        let advance = match &sign {
+            Some(sign) => sign.advance * scale,
+            None => typeface.advance(instance, glyph) * scale,
+        };
+        let offset = Vector2::new(pen, 0.0);
+        let placed = |outline: &[Segment]| -> Vec<Segment> {
+            outline
+                .iter()
+                .map(|segment| segment.mapped(|point| scaled(point, scale) + offset))
+                .collect()
+        };
 
-        match glyph {
-            Some(glyph) if !character.is_whitespace() => {
+        match (glyph, sign) {
+            (Some(glyph), _) if !character.is_whitespace() => {
                 let outline = typeface.outline(instance, glyph)?;
-                let offset = Vector2::new(pen, 0.0);
-
-                let segments = outline
-                    .iter()
-                    .map(|segment| segment.mapped(|point| scaled(point, scale) + offset))
-                    .collect();
 
                 lettered.letters.push(Letter {
                     character,
                     position,
-                    segments,
+                    segments: placed(&outline),
                 });
             }
-            None if !character.is_whitespace() => lettered.missing.push(character),
-            Some(_) | None => {}
+            (None, Some(sign)) => lettered.letters.push(Letter {
+                character,
+                position,
+                segments: placed(&sign.outline),
+            }),
+            (None, None) if !character.is_whitespace() => lettered.missing.push(character),
+            _ => {}
         }
         pen += advance;
         previous = glyph;

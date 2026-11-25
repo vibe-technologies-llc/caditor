@@ -1,6 +1,7 @@
 mod font;
 mod layout;
 mod overlap;
+mod signs;
 
 #[cfg(test)]
 mod tests;
@@ -8,7 +9,7 @@ mod tests;
 pub use skrifa::GlyphId;
 
 pub use crate::{
-    font::{Instance, Typeface},
+    font::{DrawnSign, Instance, Typeface},
     layout::{
         Alignment, BOLD_WEIGHT, Letter, Lettered, LetteringError, REGULAR_WEIGHT, Style, lettered,
     },

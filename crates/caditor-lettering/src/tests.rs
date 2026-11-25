@@ -339,3 +339,130 @@ fn a_cancelled_merge_leaves_nothing_cached_and_the_next_one_succeeds() {
     assert!(typeface.outline(instance, glyph).is_ok());
     assert_eq!(typeface.cached_outlines(), 1);
 }
+
+const SIGNS: [char; 4] = ['\u{2300}', '\u{21a7}', '\u{2334}', '\u{2335}'];
+
+fn horizontal_range(letters: &Lettered, position: usize) -> (f64, f64) {
+    let (low, high) = bounds(&Lettered {
+        letters: letters
+            .letters
+            .iter()
+            .filter(|letter| letter.position == position)
+            .cloned()
+            .collect(),
+        ..Lettered::default()
+    });
+    (low.x, high.x)
+}
+
+#[test]
+fn the_diameter_sign_is_drawn_and_not_reported_missing() {
+    let letters = left("\u{2300}20");
+
+    assert!(letters.missing.is_empty());
+    assert_eq!(
+        letters
+            .letters
+            .iter()
+            .map(|letter| letter.character)
+            .collect::<Vec<_>>(),
+        vec!['\u{2300}', '2', '0']
+    );
+    assert_eq!(
+        letters
+            .letters
+            .iter()
+            .map(|letter| letter.position)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+}
+
+#[test]
+fn the_diameter_sign_is_a_ring_split_by_its_slash_and_clears_its_digits() {
+    let letters = left("\u{2300}20");
+
+    let regions = profile(&left("\u{2300}")).regions().to_vec();
+    let solid = regions.iter().filter(|region| region.depth() == 0).count();
+    let holes = regions.iter().filter(|region| region.depth() == 1).count();
+    let (sign_left, sign_right) = horizontal_range(&letters, 0);
+    let (digit_left, _) = horizontal_range(&letters, 1);
+    let (low, high) = lowest_and_highest(&letters, 0);
+
+    assert_eq!(solid, 1);
+    assert_eq!(holes, 2);
+    assert!(sign_left > 0.0);
+    assert!(digit_left - sign_right > 0.02, "{sign_right} {digit_left}");
+    assert!(digit_left - sign_right < 0.3, "{sign_right} {digit_left}");
+    assert!((-0.1..0.0).contains(&low), "{low}");
+    assert!((1.0..1.1).contains(&high), "{high}");
+    assert!(letters.width > lettered("20", REGULAR, Alignment::Left).unwrap().width + 1.0);
+}
+
+#[test]
+fn every_technical_sign_stays_in_its_advance_and_draws_one_closed_outline() {
+    for character in SIGNS {
+        for style in [
+            REGULAR,
+            Style {
+                bold: true,
+                italic: false,
+            },
+        ] {
+            let letters = lettered(&character.to_string(), style, Alignment::Left).unwrap();
+
+            let (low, high) = bounds(&letters);
+            let regions = profile(&letters).regions().to_vec();
+
+            assert!(letters.missing.is_empty(), "{character}");
+            assert!(low.x >= 0.0 && high.x <= letters.width, "{character}");
+            assert!(low.y >= -0.1 && high.y <= 1.1, "{character}");
+            assert!(
+                regions.iter().any(|region| region.depth() == 0),
+                "{character}"
+            );
+            assert!(ink(&letters) > 0.05, "{character}");
+        }
+    }
+}
+
+#[test]
+fn the_technical_signs_follow_the_weight_and_lean_with_italic() {
+    for character in SIGNS {
+        let text = character.to_string();
+        let regular = lettered(&text, REGULAR, Alignment::Left).unwrap();
+        let bold = lettered(
+            &text,
+            Style {
+                bold: true,
+                italic: false,
+            },
+            Alignment::Left,
+        )
+        .unwrap();
+        let italic = lettered(
+            &text,
+            Style {
+                bold: false,
+                italic: true,
+            },
+            Alignment::Left,
+        )
+        .unwrap();
+
+        assert!(ink(&bold) > 1.2 * ink(&regular), "{character}");
+        assert!(bounds(&italic).1.x > bounds(&regular).1.x, "{character}");
+    }
+}
+
+#[test]
+fn a_sign_between_letters_takes_no_kerning_and_keeps_the_neighbours_apart() {
+    let apart = left("M\u{2300}M");
+
+    let (_, first_right) = horizontal_range(&apart, 0);
+    let (sign_left, sign_right) = horizontal_range(&apart, 1);
+    let (second_left, _) = horizontal_range(&apart, 2);
+
+    assert!(sign_left > first_right);
+    assert!(second_left > sign_right);
+}
