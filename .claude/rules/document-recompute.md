@@ -149,7 +149,8 @@ paths:
   `FeatureStatus::healing` holds a `Healing`, cached with the result and recomputed, like a
   failure's message, when the names it could hold change. `Healing::update` is the undoable "Update
   references", refused once the feature differs from the one checked so a lagging evaluation never
-  reverts an edit.
+  reverts an edit. A failed sketch has no `Healing`; the one failure Update references repairs,
+  a projected edge cut apart by a gap, carries its offer in `FeatureError::pieces` (`document.md`).
 - The same visitor (`healing::visit`, `visit_projections`) serves `referred_geometry`, which lists
   a feature kind's face and edge references by body and the principal planes it names (a
   `PlaneReference::Principal`, or an unattached sketch lying exactly on one) for the view to light

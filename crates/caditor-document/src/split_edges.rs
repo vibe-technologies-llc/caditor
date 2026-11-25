@@ -137,6 +137,31 @@ impl<'a> SplitEdges<'a> {
         )
     }
 
+    pub(crate) fn solid(&self) -> &'a Solid {
+        self.solid
+    }
+
+    pub(crate) fn pieces(&self, reference: &EdgeReference) -> Option<(EdgeId, Vec<EdgeId>)> {
+        let first = reference.resolve_in(&self.naming).ok()?;
+        let Followed::Resolved(Resolution::Pieces(pieces)) = self.follow(reference) else {
+            return None;
+        };
+        let from = midpoint(self.solid.edge(first)?);
+
+        let mut rest: Vec<(f64, EdgeId)> = pieces
+            .into_iter()
+            .filter(|piece| *piece != first)
+            .map(|piece| Some((midpoint(self.solid.edge(piece)?).distance(from), piece)))
+            .collect::<Option<_>>()?;
+
+        rest.sort_by(|one, other| one.0.total_cmp(&other.0).then(one.1.cmp(&other.1)));
+        Some((first, rest.into_iter().map(|(_, piece)| piece).collect()))
+    }
+
+    pub(crate) fn capture(&self, edge: EdgeId) -> Option<EdgeReference> {
+        EdgeReference::capture_in(&self.naming, edge)
+    }
+
     fn widen(
         &self,
         along: &SplitCurve,

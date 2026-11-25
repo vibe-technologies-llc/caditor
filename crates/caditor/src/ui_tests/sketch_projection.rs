@@ -1,11 +1,17 @@
-use caditor_document::{FeatureId, FeatureKind};
+use caditor_document::{
+    BodyOperation, Document, Extrude, ExtrudeExtent, FeatureId, FeatureKind, ProjectionSource,
+    RegionChoice, SolidFeature, edge_outline,
+};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::EdgeReference;
 use caditor_sketch::{Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
 use super::{CAMERA_SETTLE, Harness, extruded_plate, run_from_palette};
-use crate::{bodies::Hold, editing::Tool, model::Action, outlining, selection::Pickable};
+use crate::{
+    app::Workspace, bodies::Hold, editing::Tool, model::Action, outlining, selection::Pickable,
+};
 
 #[test]
 fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboard() {
@@ -711,4 +717,141 @@ fn cancelling_the_outline_from_the_palette_or_with_escape_leaves_the_sketch_unch
     assert_eq!(outline_lines(&harness, sketch), 0);
     assert_eq!(harness.sketch(sketch).projected().count(), 0);
     assert_eq!(harness.model.revision(), revision);
+}
+
+fn projected_block() -> (Document, FeatureId, FeatureId) {
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)];
+
+    for index in 0..4 {
+        let (from, to) = (corners[index], corners[(index + 1) % 4]);
+
+        outline.add_line(Point2::new(from.0, from.1), Point2::new(to.0, to.1));
+    }
+
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::Measure(5.0, Unit::Millimetre), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+
+    document.apply(transaction.finish()).unwrap();
+    (document, sketch, base)
+}
+
+fn project_front_top(harness: &mut Harness, base: FeatureId) -> FeatureId {
+    let solid = harness.model.evaluation().body(base).unwrap();
+    let (edge, _) = solid
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            middle.distance(Point3::new(20.0, 0.0, 5.0)) < 1e-9
+        })
+        .unwrap();
+
+    let reference = EdgeReference::capture(solid, edge).unwrap();
+    let outline = edge_outline(solid, edge, &Plane::XZ).unwrap();
+
+    let mut transaction = harness.document().transaction("Project");
+
+    let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+
+    transaction.add_projection(
+        side,
+        ProjectionSource::Edge {
+            body: base,
+            edge: reference,
+        },
+        &outline,
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    side
+}
+
+fn notch_front(harness: &mut Harness, outline: FeatureId) {
+    let before = harness.sketch(outline).clone();
+    let mut after = before.clone();
+
+    after.add_line(Point2::new(15.0, 0.0), Point2::new(15.0, 5.0));
+    after.add_line(Point2::new(15.0, 5.0), Point2::new(25.0, 5.0));
+    after.add_line(Point2::new(25.0, 5.0), Point2::new(25.0, 0.0));
+
+    let front = after
+        .entities()
+        .map(|(id, _)| id)
+        .find(|id| {
+            after
+                .line_endpoints(*id)
+                .is_some_and(|(start, end)| start.y.abs() < 1e-9 && end.y.abs() < 1e-9)
+        })
+        .unwrap();
+
+    after.trim(front, Point2::new(20.0, 0.0)).unwrap();
+
+    let mut transaction = harness.document().transaction("Notch");
+
+    transaction.reshape_sketch(outline, &before, &after);
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+}
+
+#[test]
+fn a_projected_edge_a_notch_cut_in_two_projects_both_pieces_from_its_failure_or_the_palette() {
+    let (document, outline, base) = projected_block();
+    let mut harness = Harness::starting(None, document, Workspace::new());
+
+    harness.settle();
+
+    let side = project_front_top(&mut harness, base);
+
+    notch_front(&mut harness, outline);
+
+    let failed = harness.model.evaluation().failed_count();
+    let offered = harness.shows("Project both pieces");
+
+    harness.click("Project both pieces");
+    harness.settle();
+
+    let label = harness.model.undo_label().map(str::to_owned);
+    let repaired = harness.model.evaluation().failed_count();
+    let projected = harness.sketch(side).projected().count();
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    let failed_again = harness.model.evaluation().failed_count();
+
+    harness.click("Side");
+    run_from_palette(&mut harness, "update references");
+    harness.settle();
+
+    assert_eq!(failed, 1);
+    assert!(offered);
+    assert!(
+        label
+            .as_deref()
+            .is_some_and(|label| label.starts_with("Project both pieces of ")),
+        "{label:?}"
+    );
+    assert_eq!(repaired, 0);
+    assert_eq!(projected, 6);
+    assert_eq!(failed_again, 1);
+    assert_eq!(harness.model.undo_label(), label.as_deref());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(!harness.shows("Project both pieces"));
 }

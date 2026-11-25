@@ -84,7 +84,9 @@ nothing until then, and features that use what it would make wait on it as on a 
 {command:model.next_waiting} goes to the next feature waiting after the chosen row and
 {command:model.previous_waiting} to the one before, both wrapping around, as the blue "waiting"
 count in the status bar does. A feature whose reference had to be found again shows a warning with Update references,
-offered once the recompute has checked the model as it now stands.
+offered once the recompute has checked the model as it now stands. A sketch whose projected edge
+was cut apart upstream offers to project each part instead
+([Project and intersect](project-and-intersect)).
 
 The model recomputes in the background, so the window never waits. {command:model.recompute} runs
 it again after a stop.

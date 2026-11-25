@@ -1741,7 +1741,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   line, no single curve follows the edge: the sketch fails (`ProjectionError::Unjoined`,
   `PartlyTraced`) saying the edge was cut into parts, with the fix to delete the projection and
   project the parts wanted (which deletes the constraints on it, never silently), and never
-  projects one piece or bridges the gap. A section edge's fragments are joined the same way. Source bodies count in `bodies_used`,
+  projects one piece or bridges the gap on its own. A gap between pieces that all still lie on the
+  edge's curve (`Unjoined` of an `Edge` source) also offers to project each piece as a curve of its
+  own (`projected_pieces.rs`, `FeatureError::pieces`, a boxed `ProjectedPieces` worked out by
+  `pieces_found` from `SplitEdges::pieces`): the entity keeps its id, points, constraints and
+  dimensions on the piece its reference resolves to, recaptured so it matches at both ends and is
+  no longer widened, and every other piece, ordered by its distance from that one, becomes a new
+  projected curve (`add_projection`, ids from the sketch counter) with its own freshly captured
+  `Edge` source. It is offered only when the first piece still projects to the entity's kind and
+  point count and every piece is captured. `ProjectedPieces::update` builds the one undoable
+  transaction ("Project both pieces of Line 3", "Project the 3 pieces of …") against the document
+  as it stands, refused once the sketch no longer maps the entity to the source the failure was
+  found with, so a lagging evaluation never rewrites an edit; the records are ordinary `edge`
+  projections, so the file format is unchanged. Only the entity the failure names is offered; a
+  second gapped projection in the sketch fails and offers its own pieces after the first is
+  applied. A section edge's fragments are joined the same way. Source bodies count in `bodies_used`,
   source sketches in `features()`, edge origins in `origin_features`.
 - `TransactionBuilder::add_projection` adds an `Outline` (`edge_outline`, `vertex_outline`,
   `sketch_outline`) as points, a curve and its source in one transaction; `add_projected` does the

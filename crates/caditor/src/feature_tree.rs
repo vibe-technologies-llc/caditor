@@ -2508,14 +2508,22 @@ fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, 
     let document = model.document();
     let updates: Vec<Transaction> = targets
         .iter()
-        .filter_map(|feature| model.current_healing(feature.id())?.update(document))
+        .filter_map(|feature| {
+            let id = feature.id();
+            match model.current_healing(id) {
+                Some(healing) => healing.update(document),
+                None => model.current_pieces(id)?.update(document),
+            }
+        })
         .collect();
     let awaiting = targets.iter().any(|feature| {
-        model.current_healing(feature.id()).is_none()
-            && model
-                .evaluation()
-                .feature(feature.id())
-                .is_some_and(|status| status.healing.is_some())
+        let id = feature.id();
+        model.current_healing(id).is_none()
+            && model.current_pieces(id).is_none()
+            && model.evaluation().feature(id).is_some_and(|status| {
+                status.healing.is_some()
+                    || matches!(&status.state, FeatureState::Failed(error) if error.pieces.is_some())
+            })
     });
     match updates.as_slice() {
         [] if awaiting => Err(TreeError::HealingAwaitsRecompute),
@@ -3610,6 +3618,24 @@ fn leave_out_button(
     }
 }
 
+fn pieces_button(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: FeatureId) {
+    let Some(pieces) = model.current_pieces(feature) else {
+        return;
+    };
+    let Some(update) = pieces.update(model.document()) else {
+        return;
+    };
+
+    let button = widgets::small_button(
+        ui,
+        icons::command(Command::UpdateReferences),
+        &pieces.action(),
+    );
+    if ui.add(button).clicked() {
+        actions.push(Action::Apply(update));
+    }
+}
+
 fn failure(
     ui: &mut Ui,
     model: &Model,
@@ -3624,6 +3650,7 @@ fn failure(
         ui.label(error.reason());
         ui.label(widgets::muted(error.remedy(), ui));
         leave_out_button(ui, model, actions, row, error);
+        pieces_button(ui, model, actions, row.feature.id());
         if matches!(row.feature.kind, FeatureKind::Sketch(_))
             && let Some(remedies) =
                 ConstraintRemedies::of(row.feature.id(), error.constraints.clone())

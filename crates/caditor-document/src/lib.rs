@@ -65,6 +65,7 @@ mod pipe;
 mod pool;
 mod presenting;
 mod primitive;
+mod projected_pieces;
 mod projection;
 mod properties;
 mod recompute;
@@ -241,6 +242,7 @@ pub use crate::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
         PrimitiveShape, SizeRule,
     },
+    projected_pieces::ProjectedPieces,
     projection::{
         Outline, OutlineOrigin, OutlinePart, PROJECTED_SPLINE_POINTS, Projected, ProjectionSource,
         axis_outline, body_outline, edge_outline, point_outline, sketch_outline, vertex_outline,

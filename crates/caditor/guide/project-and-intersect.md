@@ -35,8 +35,11 @@ A projected edge follows its body when an earlier sketch is changed. If [Trim](t
 split cuts the edge's curve in two and the parts still run on end to end, the projection becomes the
 whole of them, with its points and the [constraints](constraints) and
 [dimensions](dimensions) on them kept. If a gap opens between the parts, the sketch stops and
-says the edge was cut into parts: delete the projection and project the parts you want, rather
-than one of them being taken without notice.
+says the edge was cut into parts, rather than one of them being taken without notice. Its message
+offers **Project both pieces** (or **Project the 3 pieces**, and so on), which
+{command:model.update_references} also does: the projection stays on the first part with its
+points, constraints and dimensions, and each other part is projected as a curve of its own, in one
+step you can undo. Or delete the projection and project the parts you want.
 
 ## Keeping a projection as ordinary curves
 

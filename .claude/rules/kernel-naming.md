@@ -112,7 +112,9 @@ paths:
   line, one arc or one elliptical arc from the run's start to its end, or one sampled spline by arc
   length along the run, so the entity, its points and every constraint and dimension on them keep
   their ids and nothing is lost. Gapped or partly traced pieces fail the sketch (`Unjoined`,
-  `PartlyTraced`) rather than projecting one piece or bridging the gap. A section edge goes
+  `PartlyTraced`) rather than projecting one piece or bridging the gap; gapped pieces are offered
+  as one curve each (`SplitEdges::pieces`: the resolved piece first, the rest by distance from it,
+  each captured afresh so it matches at both ends and stays on its piece; `document.md`). A section edge goes
   through the same joining without `SplitEdges` (its fragments are ambiguous matches only).
   `trace_edge` gives the app the same answer (`TracedEdge`) for a measurement's pick: found as
   one edge or as pieces, partly traced, or gone.

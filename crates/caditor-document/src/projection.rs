@@ -23,6 +23,7 @@ use crate::{
     failure::Cause,
     origins,
     pieces::{Resolution, pieces_of_one_edge},
+    projected_pieces::{PiecesFound, ProjectedPieces},
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     section::{SectionError, datum_outline, section_solid},
     split_edges::{Followed, SplitEdges, Unrun, joined},
@@ -1056,11 +1057,27 @@ pub(crate) fn refreshed<'a>(
             continue;
         };
         let wanted = Shape::of(existing);
-        let outline = outline_of(source, plane, wanted, feature.id(), inputs, &mut sources)
-            .map_err(|error| match error {
-                ProjectionError::Cancelled => Failure::Cancelled,
-                error => projection_failure(feature, &sketch, *entity, source, error, inputs),
-            })?;
+        let outline = match outline_of(source, plane, wanted, feature.id(), inputs, &mut sources) {
+            Ok(outline) => outline,
+            Err(ProjectionError::Cancelled) => return Err(Failure::Cancelled),
+            Err(error) => {
+                let pieces = (error == ProjectionError::Unjoined)
+                    .then(|| pieces_found(source, plane, wanted, &sources.splits))
+                    .flatten()
+                    .and_then(|found| {
+                        ProjectedPieces::new(
+                            feature.id(),
+                            *entity,
+                            sketch.entity_label(*entity),
+                            found,
+                        )
+                    });
+
+                return Err(projection_failure(
+                    feature, &sketch, *entity, source, error, pieces, inputs,
+                ));
+            }
+        };
 
         place(&mut sketch, *entity, &outline).map_err(|()| {
             projection_failure(
@@ -1069,11 +1086,43 @@ pub(crate) fn refreshed<'a>(
                 *entity,
                 source,
                 ProjectionError::ChangedShape,
+                None,
                 inputs,
             )
         })?;
     }
     Ok(Cow::Owned(sketch))
+}
+
+fn pieces_found(
+    source: &ProjectionSource,
+    plane: &Plane,
+    wanted: Shape,
+    splits: &Splits<'_>,
+) -> Option<PiecesFound> {
+    let ProjectionSource::Edge { body, edge } = source else {
+        return None;
+    };
+    let split = splits.get(body)?;
+    let solid = split.solid();
+
+    let (first, rest) = split.pieces(edge)?;
+    let piece_outline = |piece: EdgeId, wanted: Option<Shape>| {
+        curve_outline(&EdgeRun::single(piece, solid.edge(piece)?), plane, wanted)
+    };
+
+    piece_outline(first, Some(wanted))?;
+
+    let rest = rest
+        .into_iter()
+        .map(|piece| Some((split.capture(piece)?, piece_outline(piece, None)?)))
+        .collect::<Option<Vec<_>>>()?;
+    Some(PiecesFound {
+        body: *body,
+        followed: *edge,
+        first: split.capture(first)?,
+        rest,
+    })
 }
 
 fn traced_error(unrun: Unrun) -> ProjectionError {
@@ -1405,6 +1454,7 @@ fn projection_failure(
     entity: EntityId,
     source: &ProjectionSource,
     error: ProjectionError,
+    pieces: Option<ProjectedPieces>,
     inputs: &Inputs<'_>,
 ) -> Failure {
     let label = sketch.entity_label(entity);
@@ -1463,7 +1513,9 @@ fn projection_failure(
         what,
         error,
         drawn,
-    });
+        pieces: pieces.as_ref().map(ProjectedPieces::count),
+    })
+    .offering(pieces);
     Failure::from(match fix {
         Some(fix) => error.fixing(fix),
         None => error,
@@ -1476,6 +1528,7 @@ pub(crate) struct ProjectionCause {
     what: String,
     error: ProjectionError,
     drawn: bool,
+    pieces: Option<usize>,
 }
 
 impl ProjectionCause {
@@ -1544,10 +1597,20 @@ impl ProjectionCause {
         } else {
             "project the geometry you want"
         };
-        format!(
-            "Open the sketch, delete {} and {redo} in its place.",
-            self.label
-        )
+        let label = &self.label;
+        match self.pieces {
+            Some(2) => format!(
+                "Project both pieces to keep {label} on the first, with its constraints and \
+                 dimensions, and add the other as a curve of its own; or open the sketch, delete \
+                 {label} and {redo} in its place."
+            ),
+            Some(count) => format!(
+                "Project the {count} pieces to keep {label} on the first, with its constraints \
+                 and dimensions, and add the others as curves of their own; or open the sketch, \
+                 delete {label} and {redo} in its place."
+            ),
+            None => format!("Open the sketch, delete {label} and {redo} in its place."),
+        }
     }
 }
 

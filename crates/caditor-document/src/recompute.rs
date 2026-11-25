@@ -51,7 +51,9 @@ use crate::{
     pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
-    primitive, projection,
+    primitive,
+    projected_pieces::ProjectedPieces,
+    projection,
     reference_image::{self, PlacedImage},
     removal, replace_face, rib, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
@@ -135,6 +137,7 @@ pub struct FeatureError {
     pub constraints: Vec<ConstraintId>,
     pub place: Option<Point3>,
     pub pick: Option<Box<FailingPick>>,
+    pub pieces: Option<Box<ProjectedPieces>>,
 }
 
 impl FeatureError {
@@ -145,7 +148,13 @@ impl FeatureError {
             constraints: Vec::new(),
             place: None,
             pick: None,
+            pieces: None,
         }
+    }
+
+    pub(crate) fn offering(mut self, pieces: Option<ProjectedPieces>) -> Self {
+        self.pieces = pieces.map(Box::new);
+        self
     }
 
     pub(crate) fn fixing(mut self, fix: FixTarget) -> Self {

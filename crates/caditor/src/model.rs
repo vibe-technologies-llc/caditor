@@ -9,9 +9,10 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
-    FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pieces,
-    Pivot, Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction,
-    TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
+    FeatureResult, FeatureState, FeatureStatus, Healing, ModelEvaluator, Move, Outcome,
+    ParameterValues, Pieces, Pivot, Prepared, Progress, ProjectedPieces, Recomputer, Rgb,
+    SketchResult, Stale, Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis,
+    displayed_frame,
 };
 pub use caditor_file::crash::PanicFlush;
 use caditor_file::{
@@ -577,13 +578,24 @@ impl Model {
         self.evaluation_generation
     }
 
-    pub fn current_healing(&self, feature: FeatureId) -> Option<&Healing> {
+    fn current_status(&self, feature: FeatureId) -> Option<&FeatureStatus> {
         let current = self.evaluated_revision == Some(self.revision());
 
         if !current || self.evaluation.is_pending(feature) {
             return None;
         }
-        self.evaluation.feature(feature)?.healing.as_deref()
+        self.evaluation.feature(feature)
+    }
+
+    pub fn current_healing(&self, feature: FeatureId) -> Option<&Healing> {
+        self.current_status(feature)?.healing.as_deref()
+    }
+
+    pub fn current_pieces(&self, feature: FeatureId) -> Option<&ProjectedPieces> {
+        match &self.current_status(feature)?.state {
+            FeatureState::Failed(error) => error.pieces.as_deref(),
+            _ => None,
+        }
     }
 
     pub fn draft_evaluation(&self) -> Option<&Evaluation> {

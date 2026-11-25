@@ -114,12 +114,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   they are not acquired for tracks and never crossed by a direction or track, since they are not in
   the sketch until a point lands on them: acquiring one would need tracks that hold a point the
   shape has yet to project.
-- [medium · hard] A projected edge (`projection.rs`) that an upstream trim, split or break cut into
-  pieces with a gap between them fails the sketch in words rather than projecting each piece as a
-  curve of its own: a projection is one sketch curve with the points it was made with, and the
-  recompute that places it cannot add the curves for the other pieces. Offering them from Update
-  references (the pieces projected as new curves, the first keeping the id constraints and
-  dimensions hang on) needs that healing to add sketch geometry, which it does not yet.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and sketch text
   set along a curve (`sketch.md`, Text): text runs straight from its point at an angle, while

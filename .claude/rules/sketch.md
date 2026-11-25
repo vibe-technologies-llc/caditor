@@ -49,8 +49,9 @@ paths:
   holds it fixed like the origin (`PointHandle::Fixed`, a circle's `RadiusHandle::Fixed`): no
   freedom, reads as fully constrained, and a `SolveMemo` is recalled only under the fixed values it
   was made with. A projected edge cut into pieces upstream stays this one curve while the pieces
-  join end to end (`document.md`); it never becomes several curves, so a constraint on it is kept
-  or the sketch fails in words, never losing one silently. A constraint on projected or reference
+  join end to end (`document.md`); recompute never makes it several curves, so a constraint on it
+  is kept or the sketch fails in words, never losing one silently. Only the user's Project both
+  pieces (`ProjectedPieces`, `document.md`) adds a curve per piece, keeping this one on the first. A constraint on projected or reference
   geometry alone is `OnlyReference` when added (`add_constraint`, `check_constraint`); one inserted
   under its ID (`insert_constraint`: undo, journal replay, loading) is refused only on reference
   geometry alone, since projecting a curve after constraining its points leaves a kept constraint on

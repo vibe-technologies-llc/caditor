@@ -1,7 +1,7 @@
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{EdgeReference, Solid};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 
 use crate::*;
 
@@ -658,6 +658,182 @@ fn a_projected_edge_of_a_notched_edge_fails_in_words_rather_than_take_one_piece(
     assert!(definition.projections.contains_key(&line));
 
     leaves_its_references(&evaluation, side, &document);
+}
+
+fn hold_start(
+    document: &mut Document,
+    side: FeatureId,
+    line: EntityId,
+) -> (EntityId, ConstraintId) {
+    let start = sketch_of(document, side).entity(line).unwrap().points()[0];
+    let mut transaction = document.transaction("Hold");
+
+    let free = transaction.add_sketch_entity(side, Entity::Point(on_side(1.0, 6.0)));
+    let held = transaction.add_sketch_constraint(side, Constraint::Coincident(free, start));
+
+    document.apply(transaction.finish()).unwrap();
+    (free, held)
+}
+
+fn projected_lines(document: &Document, side: FeatureId) -> Vec<(EntityId, ProjectionSource)> {
+    let FeatureKind::Sketch(definition) = &document.feature(side).unwrap().kind else {
+        panic!("a sketch");
+    };
+    definition
+        .projections
+        .iter()
+        .map(|(id, source)| (*id, source.clone()))
+        .collect()
+}
+
+fn spans(sketch: &Sketch, line: EntityId) -> (f64, f64) {
+    let [start, end] = ends_of(sketch, line);
+
+    let (from, to) = (start.x, end.x);
+    (from.min(to), from.max(to))
+}
+
+fn spans_close(found: (f64, f64), wanted: (f64, f64)) -> bool {
+    (found.0 - wanted.0).abs() < CLOSE && (found.1 - wanted.1).abs() < CLOSE
+}
+
+#[test]
+fn a_projected_edge_of_a_notched_edge_projects_both_pieces_keeping_its_id_and_constraints() {
+    let (mut document, outline, base) = block();
+
+    let (side, line) = project_front_top(&mut document, base);
+
+    let (free, held) = hold_start(&mut document, side, line);
+
+    notch(&mut document, outline, 4.0, 6.0);
+
+    let error = failure(&evaluate(&document), side);
+    let pieces = error.pieces.as_deref().unwrap().clone();
+    let update = pieces.update(&document).unwrap();
+    let failed = document.clone();
+    let label = sketch_of(&failed, side).entity_label(line);
+    let mut editor = Editor::new(document);
+
+    editor.apply(update).unwrap();
+
+    let repaired = editor.document().clone();
+    let evaluation = evaluate(&repaired);
+    let found = solved(&evaluation, side);
+    let projections = projected_lines(&repaired, side);
+    let added: Vec<EntityId> = projections
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| *id != line)
+        .collect();
+
+    assert_eq!(pieces.count(), 2);
+    assert_eq!(pieces.action(), "Project both pieces");
+    assert!(
+        error.remedy().starts_with("Project both pieces to keep"),
+        "{}",
+        error.remedy()
+    );
+    assert_eq!(
+        editor.undo_label(),
+        Some(format!("Project both pieces of {label}").as_str())
+    );
+    assert_eq!(projections.len(), 2);
+    assert_eq!(added.len(), 1);
+    assert!(added[0] > free);
+    assert!(found.is_projected(line) && found.is_projected(added[0]));
+    assert!(found.constraint(held).is_some());
+    assert_eq!(
+        found.point(free),
+        found.point(found.entity(line).unwrap().points()[0])
+    );
+
+    let kept = spans(&found, line);
+    let other = spans(&found, added[0]);
+
+    assert!(
+        spans_close(kept, (0.0, 4.0)) && spans_close(other, (6.0, 10.0))
+            || spans_close(kept, (6.0, 10.0)) && spans_close(other, (0.0, 4.0)),
+        "{kept:?} {other:?}"
+    );
+    assert!(pieces.update(&repaired).is_none());
+
+    editor.undo().unwrap();
+
+    assert!(editor.document().same_content(&failed));
+}
+
+#[test]
+fn a_projected_edge_notched_twice_offers_every_piece_in_order_along_it() {
+    let (mut document, outline, base) = block();
+
+    let (side, line) = project_front_top(&mut document, base);
+
+    notch(&mut document, outline, 3.0, 4.0);
+    notch(&mut document, outline, 6.0, 7.0);
+
+    let error = failure(&evaluate(&document), side);
+    let pieces = error.pieces.as_deref().unwrap();
+
+    document.apply(pieces.update(&document).unwrap()).unwrap();
+
+    let found = solved(&evaluate(&document), side);
+    let mut lines: Vec<(f64, f64)> = projected_lines(&document, side)
+        .iter()
+        .map(|(id, _)| spans(&found, *id))
+        .collect();
+
+    lines.sort_by(|one, other| one.0.total_cmp(&other.0));
+
+    assert_eq!(pieces.count(), 3);
+    assert_eq!(pieces.action(), "Project the 3 pieces");
+    assert!(found.is_projected(line));
+    assert_eq!(lines.len(), 3);
+    assert!(spans_close(lines[0], (0.0, 3.0)), "{lines:?}");
+    assert!(spans_close(lines[1], (4.0, 6.0)), "{lines:?}");
+    assert!(spans_close(lines[2], (7.0, 10.0)), "{lines:?}");
+}
+
+#[test]
+fn projecting_the_pieces_is_refused_once_the_projection_changed_meanwhile() {
+    let (mut document, outline, base) = block();
+
+    let (side, line) = project_front_top(&mut document, base);
+
+    notch(&mut document, outline, 4.0, 6.0);
+
+    let error = failure(&evaluate(&document), side);
+    let pieces = error.pieces.as_deref().unwrap();
+
+    document
+        .apply(Transaction::single(
+            "Unlink",
+            Edit::SetSketchProjection {
+                feature: side,
+                id: line,
+                source: None,
+            },
+        ))
+        .unwrap();
+
+    assert!(pieces.update(&document).is_none());
+}
+
+#[test]
+fn a_projected_edge_whose_piece_left_its_line_offers_no_pieces() {
+    let (mut document, outline, base) = block();
+
+    let (side, _) = project_front_top(&mut document, base);
+
+    move_piece_off_the_line(&mut document, outline);
+
+    let error = failure(&evaluate(&document), side);
+
+    assert!(error.pieces.is_none());
+    assert!(
+        error.remedy().starts_with("Open the sketch"),
+        "{}",
+        error.remedy()
+    );
 }
 
 #[test]

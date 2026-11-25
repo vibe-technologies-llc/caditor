@@ -747,7 +747,10 @@ paths:
   while it is open. A failure with a `pick` still in the feature's list offers Leave this edge out
   or Leave this face out (`feature_tree::leave_out_button`, `leaving_out::listed`), returning the
   same `Action` as that row's remove button in the panel (`leaving_out::leave_out`, each panel's
-  `leave_out`). A failure with a `place` offers Show where, which frames the view around it
+  `leave_out`). A failure with `pieces` (a projected edge cut apart by a gap, `document.md`) offers
+  Project both pieces or Project the N pieces with the Update references icon
+  (`feature_tree::pieces_button`), while `Model::current_pieces` holds it as for a healing and
+  `ProjectedPieces::update` still applies. A failure with a `place` offers Show where, which frames the view around it
   (`PanelState::shown_place`, `ViewportState::show_place`). A row asked to take focus
   (`Focus::Feature`: F8, the failed pill, the palette) scrolls so its callouts show with it. Callout
   actions are `small_button`s with icons.
@@ -756,7 +759,8 @@ paths:
   evaluation was checked against the feature as it now stands (`Healing::update`) and is of the
   current revision with the feature not pending (`Model::current_healing`), so an undo or edit
   meanwhile never writes a reference captured on another model; the row menu and palette take the
-  same healing, refusing with `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
+  same healing, or a failure's projected pieces (`Model::current_pieces`), refusing with
+  `HEALING_AWAITS_RECOMPUTE` until the recompute reports.
 - A row opened for editing (a sketch entered, a feature opened) collapses again when editing ends, by
   the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`, `finished_editing`).
 - Whatever is selected in the view marks the rows of the features it belongs to as selected: a face
