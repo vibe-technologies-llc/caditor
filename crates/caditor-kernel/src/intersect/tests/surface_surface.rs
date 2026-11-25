@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI, TAU};
+use std::{
+    cell::Cell,
+    f64::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI, TAU},
+};
 
 use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
@@ -11,7 +14,8 @@ use crate::{
         intersect_surfaces_sharing,
     },
     sense::Sense,
-    surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus},
+    surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus, spline_counting},
+    test_support::Helix,
 };
 
 fn cylinder(origin: Point3, axis: Vector3, radius: f64) -> Surface {
@@ -925,4 +929,29 @@ fn a_spline_patch_subdivided_once_is_shared_by_the_surfaces_it_meets_with_the_sa
         assert!(alone.pieces() > 1);
         assert!(shared.pieces() - before < alone.pieces());
     }
+}
+
+#[test]
+fn the_interleaved_flanks_of_a_long_thread_meet_nowhere_without_chasing_their_sides() {
+    let helix = Helix {
+        turns: 12,
+        pitch: 2.0,
+    };
+    let rising = Surface::from(helix.exact_flank([(3.8, 0.0), (4.6, 0.4)]));
+    let falling = Surface::from(helix.exact_flank([(3.8, 1.2), (4.6, 0.8)]));
+    let along = (0.0, 48.0);
+    let evaluations =
+        || spline_counting::POINTS.with(Cell::get) + spline_counting::DERIVATIVES.with(Cell::get);
+
+    let before = evaluations();
+    let found = intersect_surfaces(
+        &patch(&rising, (0.0, 1.0), along),
+        &patch(&falling, (0.0, 1.0), along),
+    )
+    .unwrap();
+    let spent = evaluations() - before;
+
+    assert!(found.is_empty(), "{found:?}");
+
+    eprintln!("spent {spent}");
 }

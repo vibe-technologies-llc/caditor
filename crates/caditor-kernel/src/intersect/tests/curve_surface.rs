@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::{
+    cell::Cell,
+    f64::consts::{FRAC_PI_2, TAU},
+};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 
@@ -7,8 +10,8 @@ use crate::{
     bspline::BSpline,
     curve::{Circle, Curve, Ellipse, Line},
     intersect::{CurveSurfaceIntersection, intersect_curve_surface, intersect_surfaces},
-    surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus},
-    test_support::Random,
+    surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus, spline_counting},
+    test_support::{Helix, Random},
 };
 
 const BRUTE_SAMPLES: usize = 1500;
@@ -650,4 +653,26 @@ fn a_circle_poking_out_of_a_torus_by_less_than_the_resolution_is_met_at_both_cro
         assert!(ring.distance(point.point) < 1e-9, "{point:?}");
         assert!(point.point.y.abs() > 1e-2, "{point:?}");
     }
+}
+
+#[test]
+fn the_crest_beside_a_long_flank_is_set_apart_by_its_span_patches() {
+    let helix = Helix {
+        turns: 12,
+        pitch: 2.0,
+    };
+    let flank = Surface::from(helix.flank([(3.8, 0.0), (4.6, 0.4)]));
+    let crest = helix.curve(4.6, 0.55);
+    let evaluations =
+        || spline_counting::POINTS.with(Cell::get) + spline_counting::DERIVATIVES.with(Cell::get);
+
+    let before = evaluations();
+    let found =
+        intersect_curve_surface(&crest, crest.domain().bounded().unwrap(), &flank, None).unwrap();
+    let spent = evaluations() - before;
+
+    assert!(found.points.is_empty(), "{:?}", found.points);
+    assert!(found.overlaps.is_empty(), "{:?}", found.overlaps);
+
+    eprintln!("spent {spent}");
 }

@@ -582,7 +582,7 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
 
 fn hulls_miss(surface: &Surface, bounds: &Aabb) -> bool {
     match surface {
-        Surface::BSpline(spline) => spline.hulls_miss(&bounds.expanded(TOLERANCE)),
+        Surface::BSpline(spline) => spline.patches_miss(&bounds.expanded(TOLERANCE)),
         _ => false,
     }
 }

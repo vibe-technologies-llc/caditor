@@ -768,10 +768,13 @@ fn rough_contacts(
         let next = points.get(index + 1).unwrap_or(point);
 
         let tangent = (*next - *previous).try_normalize()?;
-        let start = [
-            first.project(*point, hints.map(|[hint, _]| hint)),
-            second.project(*point, hints.map(|[_, hint]| hint)),
-        ];
+        let start = match hints {
+            Some([first_hint, second_hint]) => [
+                first.project_near(*point, first_hint),
+                second.project_near(*point, second_hint),
+            ],
+            None => [first.project(*point, None), second.project(*point, None)],
+        };
 
         let contact = refine_on_plane(pair, start, *point, tangent)
             .or_else(|| touching_contact(pair, start, *point))?;
@@ -968,8 +971,8 @@ fn probes(surfaces: [&Surface; 2], low: &Traced, high: &Traced, span: f64) -> [P
             guess,
             normal: derivative.try_normalize().or(chord),
             hint: [
-                first.project(guess, Some(a0.lerp(b0, fraction))),
-                second.project(guess, Some(a1.lerp(b1, fraction))),
+                first.project_near(guess, a0.lerp(b0, fraction)),
+                second.project_near(guess, a1.lerp(b1, fraction)),
             ],
         }
     })

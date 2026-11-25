@@ -7,8 +7,9 @@ use crate::{
     intersect::{
         IntersectionError, SurfacePatch, boxes_overlap, parameter_slack,
         solve::{
-            Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
-            nearest_turn, parallel_normals, refine_contact, refine_on_plane, uv_direction,
+            Constraint, Contact, Coordinate, bracket_reachable_root, carried_on_plane,
+            closest_approach, contact_direction, nearest_turn, parallel_normals, refine_contact,
+            refine_on_plane, uv_direction,
         },
         surface_surface::{
             Raw, RawCurve, RawPoint,
@@ -44,6 +45,7 @@ const HINT_REACH: f64 = 1e3 * LINEAR_RESOLUTION;
 const MIN_STEP: f64 = 1e-2 * LINEAR_RESOLUTION;
 const MAX_STEPS: usize = 1 << 15;
 const GRID: usize = 3;
+const MAX_ARC_TO_CHORD: f64 = 2.0;
 const EXIT_BISECTIONS: usize = 48;
 const PERIOD_SLACK: f64 = 1e-9;
 const TOUCH_SLACK: f64 = 0.1;
@@ -235,9 +237,17 @@ impl<'a> Tracer<'a> {
             }
 
             let along = |fraction: f64| value(start.lerp(end, fraction));
-            let fraction =
-                crate::intersect::solve::bracket_root(along, 0.0, 1.0, low, high).clamp(0.0, 1.0);
-            let uv = start.lerp(end, fraction);
+            let at = |fraction: f64| a.surface().point_at(start.lerp(end, fraction));
+            let reachable = |[from, to]: [f64; 2], [at_from, at_to]: [f64; 2]| {
+                at_from.abs() + at_to.abs()
+                    <= MAX_ARC_TO_CHORD * at(from).distance(at(to)) + 2.0 * TOLERANCE
+            };
+
+            let Some(fraction) = bracket_reachable_root(along, reachable, [0.0, 1.0], [low, high])
+            else {
+                continue;
+            };
+            let uv = start.lerp(end, fraction.clamp(0.0, 1.0));
             let point = a.surface().point_at(uv);
 
             let guess = [uv, other.project(point, Some(b.bounds().center()))];

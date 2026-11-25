@@ -53,8 +53,9 @@ paths:
   hollow cuboid's edge was met twice 1e-6 apart and the cone's two sections through that point
   ended at different vertices, `Open`), else subdivides the curve on piece boxes
   (widened by a second-derivative sagitta within a spline span, since span hulls do not shrink),
-  prunes by the surface's Lipschitz distance (a spline surface first by its span hulls, which
-  needs no projection), brackets sign changes of the signed distance and minimises it for touches
+  prunes by the surface's Lipschitz distance (a spline surface first by its span patches,
+  `patches_miss`, which needs no projection: a helical crest 0.15 beside a thread flank of 286
+  spans cost 1.5 million evaluations pruned by control windows and 44 thousand by patches), brackets sign changes of the signed distance and minimises it for touches
   (Brent's method). The minimisation stops once the distance is below minus the tolerance (a
   crossing, bracketed on both sides) or above the tolerance by twice the curve's reach across the
   bracket, since the distance changes no faster than the curve moves. A minimum past the surface
@@ -113,7 +114,12 @@ paths:
   across the point and returned one self-crossing loop with no vertex where it crosses.
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
-    scan of the distance for tiny loops. Near-coincident patches prune little, so pairs are
+    scan of the distance for tiny loops (`grid_seed`). A sign change is bracketed only while the
+    two ends' distances could both fall to zero along the path between them, their sum at most
+    `MAX_ARC_TO_CHORD` times the chord plus twice the resolution (`bracket_reachable_root`): the
+    signed distance to a strip jumps where the foot leaves its side, and bisecting that jump to
+    the last bit cost the lead screw's two flanks a hundred projections each, 4 a leaf, 30 s in
+    all. Near-coincident patches prune little, so pairs are
     budgeted at `MAX_SEED_PAIRS`. A seed whose normals' sine is at most `TOUCH_SINE` is a touch,
     not traced; it equals `STOP_SINE` (1e-6), since a torus and its copy turned 1e-5 radians meet
     at sines no larger than about the turn anywhere, and at 1e-5 every seed of their meridian

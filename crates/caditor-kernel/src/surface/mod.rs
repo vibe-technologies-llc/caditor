@@ -1,4 +1,5 @@
 mod bend;
+mod bezier;
 mod coincidence;
 mod elementary;
 mod nurbs;
@@ -12,6 +13,8 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 
 use caditor_geometry::{Point2, Point3, RigidTransform, Similarity, Vector3};
 
+#[cfg(test)]
+pub(crate) use self::nurbs::counting as spline_counting;
 pub(crate) use self::projection::{periodic_near, refine as refine_projection};
 pub use self::{
     bend::{
@@ -37,6 +40,7 @@ const NORMAL_NUDGE: f64 = 1e-7;
 const HINT_PREFERENCE: f64 = 1e-3 * LINEAR_RESOLUTION;
 const SPAN_SEARCH_SHARE: f64 = 0.5;
 const MAX_OUTSIDE_SPANS: usize = 4;
+const NEAR_FOOT_REACH: f64 = 1e4 * LINEAR_RESOLUTION;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceDerivatives {
@@ -313,6 +317,23 @@ impl Surface {
             }
             Self::BSpline(spline) => self.project_on_spline(spline, point, hint),
         }
+    }
+
+    pub fn project_near(&self, point: Point3, hint: Point2) -> Point2 {
+        let Self::BSpline(spline) = self else {
+            return self.project(point, Some(hint));
+        };
+
+        if !point.is_finite() || !hint.is_finite() {
+            return self.project(point, Some(hint));
+        }
+
+        let refined = projection::refine(self, point, hint);
+
+        if refined.is_finite() && self.point_at(refined).distance(point) <= NEAR_FOOT_REACH {
+            return self.at_pole(spline.place(refined, Some(hint)), Some(hint));
+        }
+        self.project(point, Some(hint))
     }
 
     fn project_on_spline(

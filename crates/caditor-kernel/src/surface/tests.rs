@@ -1,12 +1,15 @@
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
+use std::{
+    cell::Cell,
+    f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU},
+};
 
-use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
     bspline::BSpline,
     curve::{Circle, Curve, Line},
-    test_support::Random,
+    test_support::{Helix, Random},
     tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
 };
 
@@ -793,4 +796,102 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
         .collect();
 
     assert!(missed.is_empty(), "{missed:?}");
+}
+
+fn whole(spline: &BSplineSurface) -> Aabb2 {
+    let surface = Surface::from(spline.clone());
+    let (u, v) = (
+        surface.u_domain().bounded().unwrap(),
+        surface.v_domain().bounded().unwrap(),
+    );
+    Aabb2::from_points([
+        Point2::new(u.start(), v.start()),
+        Point2::new(u.end(), v.end()),
+    ])
+    .unwrap()
+}
+
+fn evaluations() -> usize {
+    spline_counting::POINTS.with(Cell::get) + spline_counting::DERIVATIVES.with(Cell::get)
+}
+
+#[test]
+fn the_flanks_of_a_long_thread_are_told_apart_span_by_span_without_evaluating_them() {
+    let helix = Helix {
+        turns: 40,
+        pitch: 2.0,
+    };
+    let rising = helix.flank([(3.8, 0.0), (4.6, 0.4)]);
+    let falling = helix.flank([(3.8, 1.2), (4.6, 0.8)]);
+    let crossing = helix.flank([(3.8, 0.3), (4.6, -0.1)]);
+    let before = evaluations();
+
+    let apart = rising.patches_apart(whole(&rising), &falling, whole(&falling), LINEAR_RESOLUTION);
+    let crossed = rising.patches_apart(
+        whole(&rising),
+        &crossing,
+        whole(&crossing),
+        LINEAR_RESOLUTION,
+    );
+
+    assert!(apart);
+    assert!(!crossed);
+    assert_eq!(evaluations(), before);
+}
+
+#[test]
+fn a_box_just_off_a_long_flank_misses_its_span_patches_but_not_their_control_windows() {
+    let helix = Helix {
+        turns: 40,
+        pitch: 2.0,
+    };
+    let flank = helix.flank([(3.8, 0.0), (4.6, 0.4)]);
+    let surface = Surface::from(flank.clone());
+    let at = surface.evaluate(0.5, 100.5);
+
+    let off = Aabb::from_point(at.point + at.normal().unwrap() * 0.15).expanded(0.02);
+    let on = Aabb::from_point(at.point).expanded(0.02);
+
+    assert!(flank.patches_miss(&off));
+    assert!(!flank.hulls_miss(&off));
+    assert!(!flank.patches_miss(&on));
+}
+
+#[test]
+fn a_point_near_a_long_flank_projects_from_its_hint_without_searching_the_whole_strip() {
+    let helix = Helix {
+        turns: 40,
+        pitch: 2.0,
+    };
+    let surface = Surface::from(helix.flank([(3.8, 0.0), (4.6, 0.4)]));
+    let lifted: Vec<(Point3, Point2)> = (0..200)
+        .map(|step| {
+            let foot = Point2::new(0.3 + 0.002 * f64::from(step), 0.79 * f64::from(step));
+            let at = surface.evaluate(foot.x, foot.y);
+            (at.point + at.normal().unwrap() * 1e-4, foot)
+        })
+        .collect();
+    let hint = |foot: Point2| foot + Point2::new(0.01, 0.02);
+
+    let start = evaluations();
+    let near: Vec<Point2> = lifted
+        .iter()
+        .map(|(point, foot)| surface.project_near(*point, hint(*foot)))
+        .collect();
+    let between = evaluations();
+    let searched: Vec<Point2> = lifted
+        .iter()
+        .map(|(point, foot)| surface.project(*point, Some(hint(*foot))))
+        .collect();
+    let end = evaluations();
+
+    let (from_hints, searching) = (between - start, end - between);
+
+    for ((near, searched), (_, foot)) in near.iter().zip(&searched).zip(&lifted) {
+        assert_eq!(near, searched);
+        assert!((*near - *foot).length() < 1e-9, "{near} {foot}");
+    }
+
+    assert!(from_hints <= 20 * lifted.len(), "{from_hints}");
+    assert!(5 * from_hints < searching, "{from_hints} {searching}");
 }

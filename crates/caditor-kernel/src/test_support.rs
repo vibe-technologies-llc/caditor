@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    f64::consts::{FRAC_PI_4, TAU},
     fmt::Debug,
     sync::{
         Arc,
@@ -7,9 +8,12 @@ use std::{
     },
 };
 
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3};
 
-use crate::{profile::ProfileCurve, tessellation::Mesh};
+use crate::{
+    bspline::BSpline, curve::Curve, profile::ProfileCurve, surface::BSplineSurface,
+    tessellation::Mesh,
+};
 
 pub(crate) fn cancelled_after<T>(allowed: usize, work: impl FnOnce() -> T) -> (T, usize) {
     let polls = Arc::new(AtomicUsize::new(0));
@@ -153,5 +157,112 @@ pub(crate) fn assert_watertight(name: &str, mesh: &Mesh) {
             mesh.position(*from),
             mesh.position(*to)
         );
+    }
+}
+
+pub(crate) struct Helix {
+    pub(crate) turns: usize,
+    pub(crate) pitch: f64,
+}
+
+impl Helix {
+    const POINTS_PER_TURN: usize = 24;
+    const DEGREE: usize = 3;
+
+    fn count(&self) -> usize {
+        Self::POINTS_PER_TURN * self.turns + 1
+    }
+
+    fn knots(&self) -> Vec<f64> {
+        let spans = self.count() - Self::DEGREE;
+        let mut knots = vec![0.0; Self::DEGREE];
+
+        knots.extend((0..=spans).map(|span| span as f64));
+        knots.extend([spans as f64; Self::DEGREE]);
+        knots
+    }
+
+    fn at(&self, radius: f64, rise: f64, index: usize) -> Point3 {
+        let turned = index as f64 / Self::POINTS_PER_TURN as f64;
+        let angle = TAU * turned;
+        Point3::new(
+            radius * angle.cos_libm(),
+            radius * angle.sin_libm(),
+            self.pitch * turned + rise,
+        )
+    }
+
+    pub(crate) fn flank(&self, sides: [(f64, f64); 2]) -> BSplineSurface {
+        let [(inner, inner_rise), (outer, outer_rise)] = sides;
+
+        let control_points: Vec<Point3> = (0..self.count())
+            .flat_map(|index| {
+                [
+                    self.at(inner, inner_rise, index),
+                    self.at(outer, outer_rise, index),
+                ]
+            })
+            .collect();
+
+        BSplineSurface::new(
+            1,
+            Self::DEGREE,
+            vec![0.0, 0.0, 1.0, 1.0],
+            self.knots(),
+            2,
+            control_points,
+            None,
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn exact_flank(&self, sides: [(f64, f64); 2]) -> BSplineSurface {
+        let [(inner, inner_rise), (outer, outer_rise)] = sides;
+        let quarters = 4 * self.turns;
+        let corner = FRAC_PI_4.cos_libm();
+        let weight = |index: usize| if index % 2 == 1 { corner } else { 1.0 };
+        let at = |radius: f64, rise: f64, index: usize| {
+            let angle = FRAC_PI_4 * index as f64;
+            let reach = radius / weight(index);
+            Point3::new(
+                reach * angle.cos_libm(),
+                reach * angle.sin_libm(),
+                self.pitch * index as f64 / 8.0 + rise,
+            )
+        };
+        let mut knots = vec![0.0; 3];
+
+        for quarter in 1..quarters {
+            knots.extend([quarter as f64; 2]);
+        }
+        knots.extend([quarters as f64; 3]);
+
+        let indices = 0..2 * quarters + 1;
+        let control_points: Vec<Point3> = indices
+            .clone()
+            .flat_map(|index| [at(inner, inner_rise, index), at(outer, outer_rise, index)])
+            .collect();
+        let weights: Vec<f64> = indices.flat_map(|index| [weight(index); 2]).collect();
+
+        BSplineSurface::new(
+            1,
+            2,
+            vec![0.0, 0.0, 1.0, 1.0],
+            knots,
+            2,
+            control_points,
+            Some(weights),
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn curve(&self, radius: f64, rise: f64) -> Curve {
+        let control_points: Vec<Point3> = (0..self.count())
+            .map(|index| self.at(radius, rise, index))
+            .collect();
+
+        BSpline::new(Self::DEGREE, self.knots(), control_points)
+            .unwrap()
+            .into()
     }
 }

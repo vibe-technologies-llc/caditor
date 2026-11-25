@@ -104,6 +104,17 @@ paths:
   a whole turn away. Refining is Newton on the squared distance, Gauss–Newton when the Hessian
   is not positive definite; a one-direction step is taken only when the other direction's term is
   zero, never negative (that stuck projections on a spline's corner).
+- `Surface::project_near` is the foot Newton reaches on a spline from the hint, placed as
+  `project` places it, when that lies within `NEAR_FOOT_REACH` (0.01) of the point, else `project`
+  with the hint; it is `project`'s answer whenever the search would keep the hint's foot, without
+  the search, which on the lead screw's flanks cost about 265 evaluations against about 11. Tracing
+  an intersection curve (`rough_contacts`, the probes `assess` solves from) and STEP healing's gap
+  check (`farthest`) use it; anything wanting the nearest foot of the whole surface uses `project`.
+- A span net also keeps, built on first use, each span's own Bézier patch (`surface/bezier.rs`,
+  the span's control window restricted to it): its box and its slab between the planes of its
+  corners' diagonal normal hold the span far tighter than the window, which reaches over
+  `degree` neighbouring spans. `patches_miss` prunes by them (curve–surface intersection), and
+  `patches_apart` tells two splines apart by them.
 - Splines reach `MAX_SPLINE_DEGREE` (25). Evaluation keeps its basis tables on the stack at the
   width the degree needs (`CUBIC_WIDTH`, `NARROW_WIDTH` up to degree 9, `WIDE_WIDTH`).
 - `BSpline::interpolating` passes a clamped spline through points at chord-length parameters
@@ -299,6 +310,15 @@ paths:
   with the caller's interrupt), each worker taking the next pair in order and none taking one beyond
   the first crossing found so far, so the answer is the sequential one: first crossing in pair
   order, else the first inconclusive pair. A lead screw's thread is the case it serves.
+- Two spline faces whose span patches are apart are `Clear` without intersecting them
+  (`BSplineSurface::patches_apart`): every span meeting one face's uv box is held against the
+  other's spans meeting its own, each pair apart by more than the resolution in their boxes or in
+  either one's slab, else both halved (de Casteljau, the larger patch along its longer side) down
+  to `MAX_SPLITS` deep and within `MAX_APART_TESTS` tests in all, past which the faces are
+  intersected as before. Only a span net (`SpanIndex`) has patches, and a uv box reaching past
+  the domain (a seam) keeps every span. The VZ330's lead screw has its two helical flanks, 2516
+  spans each, never more than half a millimetre apart: intersecting them took 30 s, proving
+  them apart 14 ms.
 
 ## Faceted solids (`faceted/`)
 

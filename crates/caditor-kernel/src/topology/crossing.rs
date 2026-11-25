@@ -15,6 +15,7 @@ use crate::{
         SurfaceIntersection, SurfacePatch, intersect_curve_surface, intersect_curves,
         intersect_surfaces, patch_bounds,
     },
+    surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
     topology::{Edge, EdgeId, Face, FaceContainment, FaceId, Solid, SolidClassifier},
 };
@@ -374,6 +375,13 @@ impl Solid {
         else {
             return Probe::Inconclusive;
         };
+
+        if let (Surface::BSpline(first_spline), Surface::BSpline(second_spline)) =
+            (first_face.surface(), second_face.surface())
+            && first_spline.patches_apart(first.uv, second_spline, second.uv, LINEAR_RESOLUTION)
+        {
+            return Probe::Clear;
+        }
 
         let (Ok(first_patch), Ok(second_patch)) = (
             SurfacePatch::new(first_face.surface(), first.uv),

@@ -18,7 +18,7 @@ pub(crate) fn farthest(surface: &Surface, samples: &[Point3]) -> f64 {
     samples
         .iter()
         .map(|point| {
-            let hinted = hint.map(|hint| surface.project(*point, Some(hint)));
+            let hinted = hint.map(|hint| surface.project_near(*point, hint));
             let foot = match hinted {
                 Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
                 _ => surface.project(*point, None),

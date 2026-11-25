@@ -78,11 +78,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## STEP import
 
-- [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406
-  faces, helical splines of 7 by 1441 control points) takes most of the 71 s alone, in healing and
-  `find_crossing`. Opening the saved model takes 14 s on the computer that imported it (5.3 s to
-  save), its 1,200 texts read in parallel and trusted as checked (`checked_texts.rs`); on another
-  computer each text is checked once, about 75 s.
+- [high · hard] Reading a large STEP file is bound by its largest parts: the VZ330 reads in 38 s
+  and its lead screw (406 faces, two helical spline flanks of 4 by 2519 control points) in 8.3 s
+  alone, 1.6 s of it an exact build the file refuses, 3.5 s healing it extended (tracing its edges,
+  loops and gap checks, each global projection onto a flank still about 265 evaluations) and 2.9 s
+  in `find_crossing`, nearly all testing the thread's crest and root edges against the opposite
+  flank. Opening the saved model takes 14 s on the computer that imported it (5.3 s to save), its
+  1,200 texts read in parallel and trusted as checked (`checked_texts.rs`); on another computer
+  each text is checked once, about 75 s, measured before the lead screw got cheaper.
 
 ## Interface
 

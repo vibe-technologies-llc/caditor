@@ -767,17 +767,30 @@ pub(crate) fn uv_direction(derivatives: &SurfaceDerivatives, direction: Vector3)
 
 pub(crate) fn bracket_root(
     function: impl Fn(f64) -> f64,
-    mut low: f64,
-    mut high: f64,
-    mut low_value: f64,
-    mut high_value: f64,
+    low: f64,
+    high: f64,
+    low_value: f64,
+    high_value: f64,
 ) -> f64 {
+    bracket_reachable_root(function, |_, _| true, [low, high], [low_value, high_value])
+        .unwrap_or(low)
+}
+
+pub(crate) fn bracket_reachable_root(
+    function: impl Fn(f64) -> f64,
+    reachable: impl Fn([f64; 2], [f64; 2]) -> bool,
+    [mut low, mut high]: [f64; 2],
+    [mut low_value, mut high_value]: [f64; 2],
+) -> Option<f64> {
     for iteration in 0..MAX_BRACKET_ITERATIONS {
         if low_value == 0.0 {
-            return low;
+            return Some(low);
         }
         if high_value == 0.0 {
-            return high;
+            return Some(high);
+        }
+        if !reachable([low, high], [low_value, high_value]) {
+            return None;
         }
 
         let width = high - low;
@@ -813,11 +826,11 @@ pub(crate) fn bracket_root(
             high_value = value;
         }
     }
-    if low_value.abs() <= high_value.abs() {
+    Some(if low_value.abs() <= high_value.abs() {
         low
     } else {
         high
-    }
+    })
 }
 
 #[derive(Clone, Copy, Debug)]

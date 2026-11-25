@@ -1,6 +1,9 @@
-use std::{ops::Range, sync::Arc};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
-use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, RigidTransform, Vector3};
 
 use crate::{
     box_tree::{BoxTree, nearest_squared},
@@ -8,7 +11,9 @@ use crate::{
     error::GeometryError,
     interval::Interval,
     shared::SharedBuffer,
-    surface::{Pole, SurfaceDerivatives, SurfaceSide, projection::periodic_near},
+    surface::{
+        Pole, SurfaceDerivatives, SurfaceSide, bezier::BezierPatch, projection::periodic_near,
+    },
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -19,6 +24,7 @@ const BLOCK_SIZE: usize = 8;
 const MAX_SPAN_SEARCHES: usize = 32;
 const OUTSIDE_SHARE: f64 = 1e-4;
 const SPAN_SAMPLES: usize = 4;
+const MAX_APART_TESTS: usize = 1 << 18;
 
 #[cfg(test)]
 pub(crate) mod counting {
@@ -53,6 +59,7 @@ pub struct BSplineSurface {
 struct SpanIndex {
     tree: BoxTree,
     spans: Vec<Span>,
+    patches: OnceLock<Vec<Option<BezierPatch>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -245,7 +252,15 @@ impl BSplineSurface {
             &self.spans,
             size_of::<SpanIndex>()
                 + size_of_val(self.spans.spans.as_slice())
-                + self.spans.tree.heap_size(),
+                + self.spans.tree.heap_size()
+                + self.spans.patches.get().map_or(0, |patches| {
+                    size_of_val(patches.as_slice())
+                        + patches
+                            .iter()
+                            .flatten()
+                            .map(BezierPatch::heap_size)
+                            .sum::<usize>()
+                }),
         ));
     }
 
@@ -986,6 +1001,111 @@ impl BSplineSurface {
         })
     }
 
+    fn span_patches(&self) -> &[Option<BezierPatch>] {
+        self.spans.patches.get_or_init(|| {
+            self.spans
+                .spans
+                .iter()
+                .map(|span| self.span_patch(span))
+                .collect()
+        })
+    }
+
+    pub(crate) fn patches_miss(&self, bounds: &Aabb) -> bool {
+        if self.spans.spans.is_empty() {
+            return self.hulls_miss(bounds);
+        }
+
+        let patches = self.span_patches();
+        self.spans
+            .tree
+            .overlapping(bounds, 0.0)
+            .into_iter()
+            .all(|index| match patches.get(index).and_then(Option::as_ref) {
+                Some(patch) => patch.misses(bounds),
+                None => {
+                    self.spans.spans.get(index).is_none_or(|span| {
+                        self.span_misses(span.first_column, span.first_row, bounds)
+                    })
+                }
+            })
+    }
+
+    pub(crate) fn patches_apart(
+        &self,
+        own_uv: Aabb2,
+        other: &BSplineSurface,
+        other_uv: Aabb2,
+        margin: f64,
+    ) -> bool {
+        if self.spans.spans.is_empty() || other.spans.spans.is_empty() {
+            return false;
+        }
+
+        let (own, theirs) = (self.span_patches(), other.span_patches());
+        let mut tests = MAX_APART_TESTS;
+
+        self.spans
+            .spans
+            .iter()
+            .zip(own)
+            .filter(|(span, _)| self.span_meets(span, own_uv))
+            .all(|(_, patch)| {
+                patch.as_ref().is_some_and(|patch| {
+                    other
+                        .spans
+                        .tree
+                        .overlapping(&patch.bounds(), margin)
+                        .into_iter()
+                        .filter(|index| {
+                            other
+                                .spans
+                                .spans
+                                .get(*index)
+                                .is_some_and(|span| other.span_meets(span, other_uv))
+                        })
+                        .all(|index| {
+                            theirs
+                                .get(index)
+                                .and_then(Option::as_ref)
+                                .is_some_and(|their| patch.apart(their, margin, &mut tests))
+                        })
+                })
+            })
+    }
+
+    fn span_meets(&self, span: &Span, uv: Aabb2) -> bool {
+        let within =
+            |low: f64, high: f64, domain: Interval| low >= domain.start() && high <= domain.end();
+        let (low, high) = (uv.min(), uv.max());
+
+        if !within(low.x, high.x, self.u_domain) || !within(low.y, high.y, self.v_domain) {
+            return true;
+        }
+        span.u.end() >= low.x
+            && span.u.start() <= high.x
+            && span.v.end() >= low.y
+            && span.v.start() <= high.y
+    }
+
+    fn span_patch(&self, span: &Span) -> Option<BezierPatch> {
+        let net = self.restricted_net(
+            (
+                span.first_column,
+                span.first_column + self.u_degree,
+                span.u.start(),
+                span.u.end(),
+            ),
+            (
+                span.first_row,
+                span.first_row + self.v_degree,
+                span.v.start(),
+                span.v.end(),
+            ),
+        )?;
+        BezierPatch::new(self.u_degree + 1, net)
+    }
+
     fn span_points(&self, first_column: usize, first_row: usize) -> impl Iterator<Item = Point3> {
         (first_row..=first_row + self.v_degree).flat_map(move |row| {
             (first_column..=first_column + self.u_degree)
@@ -1253,6 +1373,7 @@ impl BSplineSurface {
         SpanIndex {
             tree: BoxTree::new(spans.iter().map(|span| span.hull)),
             spans,
+            patches: OnceLock::new(),
         }
     }
 
