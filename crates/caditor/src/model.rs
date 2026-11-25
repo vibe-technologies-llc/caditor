@@ -50,6 +50,8 @@ use crate::{
     save_preview::SavePreviews,
     scene,
     selection::{Pickable, SelectionFilter, SketchSelectionFilter},
+    sketch_toolbar,
+    sketch_tools::{EnteredDimension, Measuring},
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
     visibility::PrincipalView,
     widgets::Tone,
@@ -100,6 +102,7 @@ pub enum Action {
     UndoStep(StepBack),
     Drag(DragCommand),
     Trial(ConstraintTrial),
+    MeasureDimension(Box<Measuring>),
     Queue(Box<Queued>),
     DropQueued,
     Paste(Box<PasteRequest>),
@@ -373,6 +376,7 @@ pub struct Model {
     draft: Option<DraftPreview>,
     drafts: u64,
     trials: Trials,
+    entered_dimension: Option<EnteredDimension>,
     queued: Queue,
     pastes: Pastes,
     outlines: Outlines,
@@ -438,6 +442,7 @@ impl Model {
             draft: None,
             drafts: 0,
             trials: Trials::default(),
+            entered_dimension: None,
             queued: Queue::default(),
             pastes: Pastes::default(),
             outlines: Outlines::default(),
@@ -1050,7 +1055,17 @@ impl Model {
         self.settled_result(feature).map(|result| &result.solution)
     }
 
+    pub fn settled_sketch_result(&self, feature: FeatureId) -> Option<Arc<FeatureResult>> {
+        self.settled_feature_result(feature)
+            .filter(|result| result.sketch().is_some())
+            .cloned()
+    }
+
     fn settled_result(&self, feature: FeatureId) -> Option<&SketchResult> {
+        self.settled_feature_result(feature)?.sketch()
+    }
+
+    fn settled_feature_result(&self, feature: FeatureId) -> Option<&Arc<FeatureResult>> {
         if self.status != RecomputeStatus::UpToDate {
             return None;
         }
@@ -1060,7 +1075,7 @@ impl Model {
         if status.state != FeatureState::UpToDate {
             return None;
         }
-        status.result.as_deref()?.sketch()
+        status.result.as_ref()
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -1447,6 +1462,10 @@ impl Model {
                 self.try_constraints(trial);
                 Ok(None)
             }
+            Action::MeasureDimension(measuring) => {
+                self.measure_dimension(measuring);
+                Ok(None)
+            }
             Action::Queue(queued) => {
                 self.hold(*queued);
                 Ok(None)
@@ -1739,8 +1758,43 @@ impl Model {
         self.judged(verdict);
     }
 
+    fn measure_dimension(&mut self, measuring: Box<Measuring>) {
+        let wake = (self.services.make_waker)();
+        let revision = self.revision();
+
+        let verdict = self.trials.measure(measuring, revision, wake);
+
+        self.judged(verdict);
+    }
+
+    pub fn take_entered_dimension(&mut self) -> Option<EnteredDimension> {
+        self.entered_dimension.take()
+    }
+
+    fn measured(&mut self, measuring: &Measuring, determined: &[bool]) {
+        let added = measuring.added(self, determined);
+        let before = self.revision();
+        let driving = added.driving();
+        let referenced = !added.references.is_empty();
+
+        self.perform(Action::Apply(added.transaction));
+        self.queued.follow(before, self.revision());
+        if referenced {
+            self.set_notice(Notice::info(sketch_toolbar::REFERENCE_ADDED));
+        }
+        self.entered_dimension = driving.map(|constraint| EnteredDimension {
+            feature: measuring.feature(),
+            constraint,
+            entry: measuring.entry(),
+        });
+    }
+
     fn judged(&mut self, verdict: Option<Verdict>) -> bool {
         match verdict {
+            Some(Verdict::Measured {
+                measuring,
+                determined,
+            }) => self.measured(&measuring, &determined),
             Some(Verdict::Apply(transaction)) => {
                 let before = self.revision();
 
@@ -2219,6 +2273,7 @@ impl Model {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
 
         self.trials.cancel();
+        self.entered_dimension = None;
         self.pastes.cancel();
         self.outlines.cancel();
         self.pasted = None;

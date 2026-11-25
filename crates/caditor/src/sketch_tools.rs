@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::{
-    Document, Edit, FeatureId, ProjectionSource, SketchFeature, Transaction, TransactionBuilder,
+    Document, Edit, FeatureId, FeatureResult, ParameterValues, ProjectionSource, SketchFeature,
+    SketchResult, Transaction, TransactionBuilder,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
@@ -1102,10 +1103,160 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
         .collect()
 }
 
+pub const MEASURED_IN_PLACE_ITEMS: usize = 1_000;
+
 pub struct Added {
     pub transaction: Transaction,
     pub constraints: Vec<ConstraintId>,
     pub references: Vec<ConstraintId>,
+}
+
+impl Added {
+    pub fn driving(&self) -> Option<ConstraintId> {
+        self.constraints
+            .first()
+            .copied()
+            .filter(|constraint| !self.references.contains(constraint))
+    }
+}
+
+pub enum Adding {
+    Added(Added),
+    Measuring(Box<Measuring>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueEntry {
+    Canvas,
+    Panel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnteredDimension {
+    pub feature: FeatureId,
+    pub constraint: ConstraintId,
+    pub entry: ValueEntry,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Determination {
+    Known(bool),
+    Measured,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Measuring {
+    feature: FeatureId,
+    tool: ConstraintTool,
+    entry: ValueEntry,
+    constraints: Vec<Constraint>,
+    determinations: Vec<Determination>,
+    labels: Vec<Option<Vector2>>,
+    projections: Projections,
+    settled: Option<Arc<FeatureResult>>,
+    parameters: ParameterValues,
+}
+
+impl Measuring {
+    pub fn feature(&self) -> FeatureId {
+        self.feature
+    }
+
+    pub fn entry(&self) -> ValueEntry {
+        self.entry
+    }
+
+    pub fn label(&self) -> String {
+        format!("Add {}", self.tool.label())
+    }
+
+    pub fn determined(&self, cancelled: &dyn Fn() -> bool) -> Vec<bool> {
+        self.constraints
+            .iter()
+            .zip(&self.determinations)
+            .map(|(constraint, determination)| match determination {
+                Determination::Known(known) => *known,
+                Determination::Measured => self.measured_already(constraint, cancelled),
+            })
+            .collect()
+    }
+
+    pub fn unmeasured(&self) -> Vec<bool> {
+        self.determinations
+            .iter()
+            .map(|determination| match determination {
+                Determination::Known(known) => *known,
+                Determination::Measured => false,
+            })
+            .collect()
+    }
+
+    fn settled_sketch(&self) -> Option<&SketchResult> {
+        self.settled.as_deref().and_then(FeatureResult::sketch)
+    }
+
+    fn measured_already(&self, constraint: &Constraint, cancelled: &dyn Fn() -> bool) -> bool {
+        self.settled_sketch().is_some_and(|settled| {
+            settled
+                .geometry
+                .determines(
+                    settled.solution.dimensions(),
+                    &|id| self.parameters.value(id),
+                    constraint,
+                    cancelled,
+                )
+                .unwrap_or(false)
+        })
+    }
+
+    fn measures_in_place(&self) -> bool {
+        let measured = self.determinations.contains(&Determination::Measured);
+        let small = self.settled_sketch().is_none_or(|settled| {
+            settled.geometry.entities().len() + settled.geometry.constraints().len()
+                <= MEASURED_IN_PLACE_ITEMS
+        });
+        !measured || small
+    }
+
+    pub fn added(&self, model: &Model, determined: &[bool]) -> Added {
+        let label = if determined.iter().all(|determined| *determined) && !determined.is_empty() {
+            format!("Add reference {}", self.tool.label())
+        } else {
+            format!("Add {}", self.tool.label())
+        };
+        let mut transaction = model.document().transaction(label);
+
+        if let Some(settled) = self.settled_sketch() {
+            transaction.settle_sketch(self.feature, &settled.geometry);
+        }
+        self.projections.project(&mut transaction, self.feature);
+
+        let constraints: Vec<ConstraintId> = self
+            .constraints
+            .iter()
+            .map(|constraint| transaction.add_sketch_constraint(self.feature, constraint.clone()))
+            .collect();
+        let references: Vec<ConstraintId> = constraints
+            .iter()
+            .zip(determined)
+            .filter(|(_, determined)| **determined)
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in &references {
+            transaction.set_sketch_constraint_active(self.feature, *id, false);
+        }
+        for (id, offset) in constraints.iter().zip(&self.labels) {
+            if let Some(offset) = offset {
+                transaction.set_sketch_label(self.feature, *id, Some(*offset));
+            }
+        }
+        Added {
+            transaction: transaction.finish(),
+            constraints,
+            references,
+        }
+    }
 }
 
 pub fn add_constraints(
@@ -1114,8 +1265,16 @@ pub fn add_constraints(
     tool: ConstraintTool,
     constraints: Vec<Constraint>,
     projections: &Projections,
-) -> Added {
-    add_constraints_placed(model, feature, tool, constraints, projections, None)
+) -> Adding {
+    add_constraints_placed(
+        model,
+        feature,
+        tool,
+        constraints,
+        projections,
+        None,
+        ValueEntry::Panel,
+    )
 }
 
 pub fn add_constraints_placed(
@@ -1125,88 +1284,74 @@ pub fn add_constraints_placed(
     constraints: Vec<Constraint>,
     projections: &Projections,
     placed: Option<(&Sketch, Point2)>,
-) -> Added {
-    let settled = model
-        .settled_sketch(feature)
-        .zip(model.settled_solution(feature))
+    entry: ValueEntry,
+) -> Adding {
+    let settled = model.settled_sketch_result(feature);
+    let solution = settled
+        .as_deref()
+        .and_then(FeatureResult::sketch)
+        .map(|settled| &settled.solution)
         .filter(|_| tool.is_dimension());
-    let determined: Vec<bool> = constraints
+    let determinations = constraints
         .iter()
         .map(|constraint| {
-            settled.is_some_and(|(geometry, solution)| {
-                determines(model, geometry, solution, constraint, projections)
+            solution.map_or(Determination::Known(false), |solution| {
+                determination(solution, constraint, projections)
             })
         })
         .collect();
-    let label = if determined.iter().all(|determined| *determined) && !determined.is_empty() {
-        format!("Add reference {}", tool.label())
-    } else {
-        format!("Add {}", tool.label())
-    };
-    let mut transaction = settled_transaction(model, feature, label);
-
-    projections.project(&mut transaction, feature);
-
-    let added: Vec<(ConstraintId, Constraint)> = constraints
-        .into_iter()
+    let labels = constraints
+        .iter()
         .map(|constraint| {
-            let id = transaction.add_sketch_constraint(feature, constraint.clone());
-            (id, constraint)
+            let (shown, at) = placed?;
+            let measured = caditor_sketch::annotation::measured(shown, constraint)?;
+            let frame = crate::annotation_layout::label_frame(&measured)?;
+            Some(frame.offset_of(at))
         })
         .collect();
-    let constraints: Vec<ConstraintId> = added.iter().map(|(id, _)| *id).collect();
-    let references: Vec<ConstraintId> = constraints
-        .iter()
-        .zip(&determined)
-        .filter(|(_, determined)| **determined)
-        .map(|(id, _)| *id)
-        .collect();
 
-    for id in &references {
-        transaction.set_sketch_constraint_active(feature, *id, false);
-    }
-    if let Some((shown, at)) = placed {
-        for (id, constraint) in &added {
-            if let Some(measured) = caditor_sketch::annotation::measured(shown, constraint)
-                && let Some(frame) = crate::annotation_layout::label_frame(&measured)
-            {
-                transaction.set_sketch_label(feature, *id, Some(frame.offset_of(at)));
-            }
-        }
-    }
-    Added {
-        transaction: transaction.finish(),
+    let measuring = Measuring {
+        feature,
+        tool,
+        entry,
         constraints,
-        references,
+        determinations,
+        labels,
+        projections: projections.clone(),
+        settled,
+        parameters: model.parameters().clone(),
+    };
+
+    if measuring.measures_in_place() {
+        let determined = measuring.determined(&|| false);
+
+        Adding::Added(measuring.added(model, &determined))
+    } else {
+        Adding::Measuring(Box::new(measuring))
     }
 }
 
-fn determines(
-    model: &Model,
-    geometry: &Sketch,
+fn determination(
     solution: &SketchSolution,
     constraint: &Constraint,
     projections: &Projections,
-) -> bool {
+) -> Determination {
     let shapes_without_freedom = matches!(constraint, Constraint::Rho { .. });
-    let held_still = || {
-        constraint.entities().into_iter().all(|entity| {
-            projections.is_fixed(entity)
-                || solution.entity_state(entity) == Some(EntityState::FullyConstrained)
-        })
-    };
-    let measured_already = || {
-        geometry
-            .determines(
-                solution.dimensions(),
-                &|id| model.parameters().value(id),
-                constraint,
-            )
-            .unwrap_or(false)
-    };
-    constraint.dimension().is_some()
-        && !shapes_without_freedom
-        && (held_still() || measured_already())
+
+    if constraint.dimension().is_none() || shapes_without_freedom {
+        return Determination::Known(false);
+    }
+
+    let held_still = constraint.entities().into_iter().all(|entity| {
+        projections.is_fixed(entity)
+            || solution.entity_state(entity) == Some(EntityState::FullyConstrained)
+    });
+
+    if held_still {
+        Determination::Known(true)
+    } else {
+        Determination::Measured
+    }
 }
 
 pub fn remove_items(

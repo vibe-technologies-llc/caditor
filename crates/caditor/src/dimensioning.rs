@@ -9,7 +9,7 @@ use crate::{
     body_picks::Staged,
     model::Model,
     selection::Pickable,
-    sketch_tools::{self, Added, ConstraintOfferError, ConstraintTool},
+    sketch_tools::{self, Adding, ConstraintOfferError, ConstraintTool, ValueEntry},
 };
 
 pub const FIRST_KEYS: &str = "Esc: back to Select";
@@ -536,7 +536,7 @@ pub fn dimension(
     staged: &Staged,
     pointer: Option<Point2>,
     place_label: bool,
-) -> Result<Added, DimensionToolError> {
+) -> Result<Adding, DimensionToolError> {
     let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
 
     let tool = match fitting(shown, picks) {
@@ -561,6 +561,7 @@ pub fn dimension(
         constraints,
         &staged.projections,
         label_at,
+        ValueEntry::Canvas,
     ))
 }
 

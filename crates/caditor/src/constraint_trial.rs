@@ -12,7 +12,7 @@ use std::{
 use caditor_document::{Document, FeatureId, ParameterValues, Transaction};
 use caditor_sketch::{ConstraintId, Sketch, SketchError};
 
-use crate::{constraint_remedies::ConstraintRemedies, model::Waker};
+use crate::{constraint_remedies::ConstraintRemedies, model::Waker, sketch_tools::Measuring};
 
 pub const PATIENCE: Duration = Duration::from_millis(400);
 const NAMED_CONFLICTS: usize = 2;
@@ -88,19 +88,71 @@ impl Refusal {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Verdict {
     Apply(Transaction),
+    Measured {
+        measuring: Box<Measuring>,
+        determined: Vec<bool>,
+    },
     Refuse(Refusal),
-    Outdated { label: String },
+    Outdated {
+        label: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Outcome {
     Holds,
     Conflicts(Refusal),
+    Measured(Vec<bool>),
     Unknown,
 }
 
+enum Checked {
+    Trial(Transaction),
+    Dimension(Box<Measuring>),
+}
+
+impl Checked {
+    fn label(&self) -> String {
+        match self {
+            Self::Trial(transaction) => transaction.label().to_owned(),
+            Self::Dimension(measuring) => measuring.label(),
+        }
+    }
+
+    fn verdict(self, outcome: Outcome) -> Verdict {
+        match (self, outcome) {
+            (Self::Trial(_), Outcome::Conflicts(reason)) => Verdict::Refuse(reason),
+            (
+                Self::Trial(transaction),
+                Outcome::Holds | Outcome::Measured(_) | Outcome::Unknown,
+            ) => Verdict::Apply(transaction),
+            (Self::Dimension(measuring), Outcome::Measured(determined)) => Verdict::Measured {
+                measuring,
+                determined,
+            },
+            (
+                Self::Dimension(measuring),
+                Outcome::Holds | Outcome::Conflicts(_) | Outcome::Unknown,
+            ) => Verdict::Measured {
+                determined: measuring.unmeasured(),
+                measuring,
+            },
+        }
+    }
+
+    fn unchecked(self) -> Verdict {
+        match self {
+            Self::Trial(transaction) => Verdict::Apply(transaction),
+            Self::Dimension(measuring) => Verdict::Measured {
+                determined: measuring.determined(&|| false),
+                measuring,
+            },
+        }
+    }
+}
+
 struct Running {
-    transaction: Transaction,
+    checked: Checked,
     label: String,
     revision: u64,
     started: Instant,
@@ -127,37 +179,65 @@ impl Trials {
         revision: u64,
         wake: Waker,
     ) -> Option<Verdict> {
+        let job = Job {
+            document: document.clone(),
+            transaction: trial.transaction.clone(),
+            feature: trial.feature,
+            touched: trial.touched,
+            intent: trial.intent,
+        };
+
+        self.check(
+            Checked::Trial(trial.transaction),
+            revision,
+            wake,
+            move |cancelled| job.run(cancelled),
+        )
+    }
+
+    pub fn measure(
+        &mut self,
+        measuring: Box<Measuring>,
+        revision: u64,
+        wake: Waker,
+    ) -> Option<Verdict> {
+        let probe = measuring.clone();
+
+        self.check(
+            Checked::Dimension(measuring),
+            revision,
+            wake,
+            move |cancelled| Outcome::Measured(probe.determined(cancelled)),
+        )
+    }
+
+    fn check(
+        &mut self,
+        checked: Checked,
+        revision: u64,
+        wake: Waker,
+        work: impl FnOnce(&dyn Fn() -> bool) -> Outcome + Send + 'static,
+    ) -> Option<Verdict> {
+        let label = checked.label();
+
         if let Some(running) = &self.running {
             return Some(Verdict::Refuse(Refusal::Busy {
-                label: trial.transaction.label().to_owned(),
+                label,
                 running: running.label.clone(),
             }));
         }
 
-        let ConstraintTrial {
-            feature,
-            transaction,
-            touched,
-            intent,
-        } = trial;
         let cancelled = Arc::new(AtomicBool::new(false));
         let (sender, outcome) = mpsc::channel();
         let started = Instant::now();
 
-        let job = Job {
-            document: document.clone(),
-            transaction: transaction.clone(),
-            feature,
-            touched,
-            intent,
-            cancelled: Arc::clone(&cancelled),
-            started,
-        };
+        let stopped = Arc::clone(&cancelled);
         let spawned = thread::Builder::new()
             .name("constraint trial".to_owned())
             .spawn(move || {
-                let outcome =
-                    panic::catch_unwind(AssertUnwindSafe(|| job.run())).unwrap_or_else(|_| {
+                let cancelled = || stopped.load(Ordering::Relaxed) || started.elapsed() >= PATIENCE;
+                let outcome = panic::catch_unwind(AssertUnwindSafe(|| work(&cancelled)))
+                    .unwrap_or_else(|_| {
                         log::error!("checking a new constraint panicked");
                         Outcome::Unknown
                     });
@@ -168,12 +248,12 @@ impl Trials {
 
         if let Err(error) = spawned {
             log::warn!("could not start checking a new constraint: {error}");
-            return Some(Verdict::Apply(transaction));
+            return Some(checked.unchecked());
         }
         self.running = Some(Running {
-            label: transaction.label().to_owned(),
+            checked,
+            label,
             revision,
-            transaction,
             started,
             cancelled,
             outcome,
@@ -225,10 +305,7 @@ impl Trials {
                 label: running.label,
             });
         }
-        Some(match outcome {
-            Outcome::Holds | Outcome::Unknown => Verdict::Apply(running.transaction),
-            Outcome::Conflicts(reason) => Verdict::Refuse(reason),
-        })
+        Some(running.checked.verdict(outcome))
     }
 
     pub fn cancel(&mut self) {
@@ -244,21 +321,17 @@ struct Job {
     feature: FeatureId,
     touched: Vec<ConstraintId>,
     intent: Intent,
-    cancelled: Arc<AtomicBool>,
-    started: Instant,
 }
 
 impl Job {
-    fn run(self) -> Outcome {
-        let cancelled =
-            || self.cancelled.load(Ordering::Relaxed) || self.started.elapsed() >= PATIENCE;
+    fn run(self, cancelled: &dyn Fn() -> bool) -> Outcome {
         let trial = ConstraintTrial {
             feature: self.feature,
             transaction: self.transaction,
             touched: self.touched,
             intent: self.intent,
         };
-        outcome(self.document, &trial, &cancelled)
+        outcome(self.document, &trial, cancelled)
     }
 }
 
@@ -269,7 +342,7 @@ pub fn conflict(
 ) -> Option<Refusal> {
     match outcome(document.clone(), trial, cancelled) {
         Outcome::Conflicts(reason) => Some(reason),
-        Outcome::Holds | Outcome::Unknown => None,
+        Outcome::Holds | Outcome::Measured(_) | Outcome::Unknown => None,
     }
 }
 

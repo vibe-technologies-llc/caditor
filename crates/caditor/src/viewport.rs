@@ -4551,23 +4551,26 @@ impl ViewportState {
     fn dimension_added(
         &mut self,
         feature: FeatureId,
-        added: sketch_tools::Added,
+        adding: sketch_tools::Adding,
         actions: &mut Vec<Action>,
     ) {
-        let typed = added
-            .constraints
-            .first()
-            .copied()
-            .filter(|constraint| !added.references.contains(constraint));
+        match adding {
+            sketch_tools::Adding::Added(added) => {
+                let typed = added.driving();
 
-        actions.push(Action::Apply(added.transaction));
-        if !added.references.is_empty() {
-            actions.push(Action::Inform(Notice::info(
-                sketch_toolbar::REFERENCE_ADDED,
-            )));
-        }
-        if let Some(constraint) = typed {
-            self.edit_dimension(feature, constraint);
+                actions.push(Action::Apply(added.transaction));
+                if !added.references.is_empty() {
+                    actions.push(Action::Inform(Notice::info(
+                        sketch_toolbar::REFERENCE_ADDED,
+                    )));
+                }
+                if let Some(constraint) = typed {
+                    self.edit_dimension(feature, constraint);
+                }
+            }
+            sketch_tools::Adding::Measuring(measuring) => {
+                actions.push(Action::MeasureDimension(measuring));
+            }
         }
         self.selection.clear();
     }

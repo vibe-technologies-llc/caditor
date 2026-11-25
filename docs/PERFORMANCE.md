@@ -126,8 +126,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
   that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
   chain's slow modes.
-- [low · medium] Unmeasured: adding a constraint asks `Sketch::determines` (`solve/determined.rs`)
-  on the UI thread (`sketch_tools.rs`, `add_constraints`, from the toolbar and dimensioning), which
-  clones the sketch, builds the system and merges every measuring part with no cancellation, where
-  constraint trials and tidying run on workers. Measure with `tally` on a 2,000-line chain before
-  moving it.

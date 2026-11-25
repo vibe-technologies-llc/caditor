@@ -1,10 +1,14 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{Constraint, Entity, EntityId, EntityState, Sketch, Solved, SplineKind};
+use crate::{Constraint, Entity, EntityId, EntityState, Sketch, SketchError, Solved, SplineKind};
 
 fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
     Ok(Quantity::plain(0.0))
+}
+
+fn never() -> bool {
+    false
 }
 
 fn mm(value: f64) -> Expression {
@@ -75,7 +79,12 @@ fn determines(sketch: &Sketch, dimension: &Constraint) -> bool {
     let solved = solved(sketch);
     solved
         .geometry
-        .determines(solved.solution.dimensions(), &no_parameters, dimension)
+        .determines(
+            solved.solution.dimensions(),
+            &no_parameters,
+            dimension,
+            &never,
+        )
         .unwrap()
 }
 
@@ -121,7 +130,12 @@ fn a_width_driven_by_a_parameter_is_determined_like_its_value_and_unknown_withou
     let determines = |parameters: &dyn Fn(ParameterId) -> Result<Quantity, EvalError>, line| {
         solved
             .geometry
-            .determines(solved.solution.dimensions(), parameters, &driven(line))
+            .determines(
+                solved.solution.dimensions(),
+                parameters,
+                &driven(line),
+                &never,
+            )
             .unwrap()
     };
 
@@ -176,7 +190,12 @@ fn a_diagonal_still_free_to_stretch_is_not_determined() {
     assert!(
         !solved
             .geometry
-            .determines(solved.solution.dimensions(), &no_parameters, &diagonal)
+            .determines(
+                solved.solution.dimensions(),
+                &no_parameters,
+                &diagonal,
+                &never
+            )
             .unwrap()
     );
 }
@@ -272,4 +291,106 @@ fn a_distance_from_a_pinned_spline_to_a_free_point_is_not_determined() {
             value: mm(wanted),
         }
     ));
+}
+
+fn zigzag_chain(count: usize) -> (Sketch, Vec<EntityId>) {
+    const SAG: f64 = 0.1;
+
+    let mut sketch = Sketch::new(Plane::XY);
+    let run = (1.0 - SAG * SAG).sqrt();
+    let corner = |index: usize| Point2::new(index as f64 * run, (index % 2) as f64 * SAG);
+
+    let mut hand = EntityId::ORIGIN;
+    let mut lines = Vec::new();
+
+    for index in 0..count {
+        let line = sketch.add_line(corner(index), corner(index + 1));
+        let (start, end) = ends(&sketch, line);
+
+        sketch
+            .add_constraint(Constraint::Coincident(hand, start))
+            .unwrap();
+        sketch
+            .add_constraint(Constraint::Distance {
+                from: start,
+                to: end,
+                value: mm(1.0),
+            })
+            .unwrap();
+        hand = end;
+        lines.push(line);
+    }
+    (sketch, lines)
+}
+
+#[test]
+fn a_dimension_on_a_2000_line_chain_is_judged_in_work_linear_in_the_chain() {
+    const LINES: usize = 2_000;
+    const WORK_PER_LINE: usize = 60;
+
+    let (sketch, lines) = zigzag_chain(LINES);
+
+    let solved = solved(&sketch);
+    let middle = *lines.get(LINES / 2).unwrap();
+    let next = *lines.get(LINES / 2 + 1).unwrap();
+    let (_, hand) = ends(&sketch, *lines.last().unwrap());
+
+    let dimensions = [
+        (length_of(&sketch, middle, 1.0), true),
+        (
+            Constraint::Angle {
+                from: middle,
+                to: next,
+                reversed: false,
+                value: Expression::Measure(170.0, Unit::Degree),
+            },
+            false,
+        ),
+        (
+            Constraint::Distance {
+                from: EntityId::ORIGIN,
+                to: hand,
+                value: mm(1_990.0),
+            },
+            false,
+        ),
+    ];
+
+    for (dimension, expected) in dimensions {
+        let (determined, work) = super::tally::measure(|| {
+            solved
+                .geometry
+                .determines(
+                    solved.solution.dimensions(),
+                    &no_parameters,
+                    &dimension,
+                    &never,
+                )
+                .unwrap()
+        });
+
+        assert_eq!(determined, expected, "{dimension:?}");
+        assert!(
+            work < WORK_PER_LINE * LINES,
+            "{work} units for {dimension:?}"
+        );
+    }
+}
+
+#[test]
+fn a_cancelled_judgement_stops_without_an_answer() {
+    let Floating { sketch, lines, .. } = floating_rectangle();
+    let [_, _, top, _] = lines;
+
+    let solved = solved(&sketch);
+
+    assert_eq!(
+        solved.geometry.determines(
+            solved.solution.dimensions(),
+            &no_parameters,
+            &length_of(&sketch, top, 40.0),
+            &|| true,
+        ),
+        Err(SketchError::Cancelled)
+    );
 }

@@ -78,7 +78,7 @@ use crate::{
     overlay::Overlay,
     pair_reading::PairReading,
     palette::{self, Palette},
-    panels::{self, PanelState, TreeContext},
+    panels::{self, Focus, PanelState, TreeContext},
     parameter_table,
     preferences::{
         self, Appearance, AssistantPrefsView, ExportMemory, PreferenceChange, Preferences,
@@ -98,7 +98,8 @@ use crate::{
     selection_sets::{self, SetsDraft},
     shell_tools,
     shortcut_editor::{self, ShortcutEditor},
-    sketch_pattern_panel, sketch_toolbar, sketch_tools,
+    sketch_pattern_panel, sketch_toolbar,
+    sketch_tools::{self, EnteredDimension, ValueEntry},
     startup_check::StartupCheck,
     status_bar::{self, StatusContext},
     system_settings, text_panel,
@@ -2318,6 +2319,7 @@ pub fn perform(
 
     let rerun = run_due(model, workspace);
 
+    enter_measured_dimension(model, workspace);
     workspace.editing.sync(model);
     workspace
         .editing
@@ -2373,6 +2375,25 @@ fn settle_principal_view(model: &mut Model, workspace: &Workspace) {
         &needs,
         previewed,
     ));
+}
+
+fn enter_measured_dimension(model: &mut Model, workspace: &mut Workspace) {
+    let Some(EnteredDimension {
+        feature,
+        constraint,
+        entry,
+    }) = model.take_entered_dimension()
+    else {
+        return;
+    };
+
+    match entry {
+        ValueEntry::Canvas => workspace.viewport.edit_dimension(feature, constraint),
+        ValueEntry::Panel => workspace.panels.request_focus(Focus::Dimension {
+            feature,
+            constraint,
+        }),
+    }
 }
 
 fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {

@@ -9,7 +9,10 @@ use super::{
     edit_free_sketch, entities_of_kind, entity_pickables, line_ends, near, only_constraint,
     run_from_palette, sketch_entity, type_point,
 };
-use crate::{annotations, dimensioning, editing::Tool, selection::Pickable};
+use crate::{
+    annotations, dimensioning, editing::Tool, selection::Pickable,
+    sketch_tools::MEASURED_IN_PLACE_ITEMS,
+};
 
 fn add_distance_to_a_line(harness: &mut Harness) -> (FeatureId, EntityId, Id) {
     let mut sketch = Sketch::new(Plane::XY);
@@ -1073,4 +1076,153 @@ fn right_clicking_a_dimension_label_toggles_reference_and_the_stacked_pill_lists
     harness.frame();
 
     assert_eq!(harness.workspace.viewport.selection().iter().count(), 1);
+}
+
+struct Crowded {
+    sketch: Sketch,
+    right: EntityId,
+    top: EntityId,
+}
+
+fn crowded_rectangle() -> Crowded {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(5.0, 5.0),
+        Point2::new(45.0, 5.0),
+        Point2::new(45.0, 25.0),
+        Point2::new(5.0, 25.0),
+    ];
+
+    let sides = [0, 1, 2, 3].map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]));
+    let [bottom, right, top, left] = sides;
+
+    for (index, side) in sides.iter().enumerate() {
+        let (_, end) = line_ends(&sketch, *side);
+        let (next, _) = line_ends(&sketch, sides[(index + 1) % 4]);
+
+        sketch
+            .add_constraint(Constraint::Coincident(end, next))
+            .unwrap();
+    }
+
+    let (start, end) = line_ends(&sketch, bottom);
+
+    for constraint in [
+        Constraint::Horizontal(bottom),
+        Constraint::Vertical(right),
+        Constraint::Horizontal(top),
+        Constraint::Vertical(left),
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        },
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    for index in 0..=MEASURED_IN_PLACE_ITEMS {
+        sketch.add_point(Point2::new(
+            10.0 + (index % 50) as f64 * 0.6,
+            10.0 + (index / 50) as f64 * 0.5,
+        ));
+    }
+    Crowded { sketch, right, top }
+}
+
+#[test]
+fn a_dimension_on_a_large_sketch_is_judged_off_the_interface_and_held_as_a_reference_when_determined()
+ {
+    let mut harness = Harness::new();
+    let Crowded { sketch, top, .. } = crowded_rectangle();
+
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.settle();
+
+    let before = harness.sketch(feature).constraints().count();
+
+    harness.select([sketch_entity(feature, top)]);
+    harness.use_tool(Key::D);
+    harness.frame();
+    harness.model.hold_sketch_results(true);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    let measuring = harness.model.is_checking_constraints();
+    let unchanged = harness.sketch(feature).constraints().count();
+
+    harness.model.hold_sketch_results(false);
+    harness.frame();
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let (added, _) = sketch.constraints().last().unwrap();
+
+    assert!(measuring);
+    assert_eq!(unchanged, before);
+    assert_eq!(sketch.constraints().count(), before + 1);
+    assert!(!sketch.is_active(added));
+    assert_eq!(harness.model.undo_label(), Some("Add reference Distance"));
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("already determined"))
+    );
+    assert_ne!(
+        harness.focused(),
+        Some(annotations::field_id(feature, added))
+    );
+}
+
+#[test]
+fn a_driving_dimension_on_a_large_sketch_opens_its_field_once_judged() {
+    let mut harness = Harness::new();
+    let Crowded { sketch, right, .. } = crowded_rectangle();
+
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.settle();
+    harness.select([sketch_entity(feature, right)]);
+    harness.use_tool(Key::D);
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let (added, _) = sketch.constraints().last().unwrap();
+
+    assert!(sketch.is_active(added));
+    assert_eq!(harness.model.undo_label(), Some("Add Distance"));
+    assert_eq!(
+        harness.focused(),
+        Some(annotations::field_id(feature, added))
+    );
+}
+
+#[test]
+fn a_dimension_button_on_a_large_sketch_focuses_its_driving_value_once_judged() {
+    let mut harness = Harness::new();
+    let Crowded { sketch, right, .. } = crowded_rectangle();
+
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.settle();
+    harness.select([sketch_entity(feature, right)]);
+    harness.key(Key::D, Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let (added, _) = sketch.constraints().last().unwrap();
+
+    assert!(sketch.is_active(added));
+    assert_eq!(harness.model.undo_label(), Some("Add Distance"));
+    assert_eq!(
+        harness.focused(),
+        Some(annotations::field_id(feature, added))
+    );
 }

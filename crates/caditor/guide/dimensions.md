@@ -64,5 +64,8 @@ across a rectangle from its dimensioned side, while the rectangle can still move
 measured size, in parentheses; it is a reference. {command:sketch.toggle_constraint_active} makes it drive the
 geometry instead, or turns a driving dimension into a reference.
 
+On a very large sketch caditor works this out in the background, so the new dimension appears, and
+its value opens for typing, a moment after you add it while everything else keeps responding.
+
 {command:sketch.toggle_first_dimension_scales} makes the first dimension of an unconstrained
 drawing scale the whole sketch, which sizes a traced or imported outline in one step.

@@ -18,6 +18,7 @@ impl Sketch {
         dimensions: &DimensionValues,
         parameters: &dyn Fn(ParameterId) -> Result<Quantity, EvalError>,
         dimension: &Constraint,
+        cancelled: &dyn Fn() -> bool,
     ) -> Result<bool, SketchError> {
         let (Some(expression), Some(kind)) = (dimension.dimension(), dimension.dimension_kind())
         else {
@@ -28,6 +29,10 @@ impl Sketch {
             return Ok(false);
         };
 
+        if cancelled() {
+            return Err(SketchError::Cancelled);
+        }
+
         let mut probed = self.clone();
 
         let added = probed.add_constraint(dimension.clone())?;
@@ -35,12 +40,11 @@ impl Sketch {
         let system = System::build(&probed, &dimensions)?;
         let parts = Parts::of(&system);
 
-        let never = || false;
         let held = BTreeSet::new();
 
         let solver = Solver {
             system: &system,
-            cancelled: &never,
+            cancelled,
             stiff: &held,
             stiffness: STIFF,
             retrying: true,

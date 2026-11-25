@@ -329,7 +329,12 @@ paths:
   variables of its own (a curve parameter or hidden point, `System::parameters` and `targets`) adds
   rank through them: those columns are reached by no other row, so the rank its rows add beyond the
   rank of their own-variable columns (`own_variables_rank`) is what the measurement adds to the
-  geometry, and the dimension is determined when that is zero.
+  geometry, and the dimension is determined when that is zero. It takes the caller's `cancelled`,
+  checked before building the system and by the solver per part (`SketchError::Cancelled`). Its
+  work is linear in the sketch: on a 2,000-line zig-zag chain a length, an angle or the distance
+  across the chain costs about 104,000 work units and 6 to 7 ms (system 2 ms, parts 0.6 ms, rank
+  3 ms; `determined_tests.rs` bounds it at 60 units per line), so the app measures large sketches
+  off the UI thread (`app-sketching.md`).
 - Above `DENSE_LIMIT` the analysis (`sparse::Triangular`) merges the normalised rows, in
   constraint order, into an upper-triangular basis by Givens rotations, columns in minimum-degree
   order, so fill stays within the symbolic Cholesky structure and a closed chain analyses in

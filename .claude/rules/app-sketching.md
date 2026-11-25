@@ -956,7 +956,19 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   recompute is pending), or else when `Sketch::determines` finds its measurement held by the other
   constraints on the settled geometry (`sketch-solver.md`), so a rectangle's width across from its
   dimensioned side is determined while the rectangle still moves. It is added inactive in the same
-  transaction ("Add reference ...") with a notice, and takes no focus (`sketch_tools::determines`).
+  transaction ("Add reference ...") with a notice, and takes no focus (`sketch_tools::Measuring`).
+  The cheap answers (not a dimension, rho, every entity held still) are `Determination::Known` on
+  the UI thread; `Sketch::determines` runs there too only while the settled sketch has at most
+  `MEASURED_IN_PLACE_ITEMS` entities and constraints together (under a millisecond, its cost
+  being linear in the sketch, `sketch-solver.md`). On a larger sketch `add_constraints` returns
+  `Adding::Measuring`, and `Action::MeasureDimension` measures it on the constraint trial worker
+  (`Trials::measure`, `Checked::Dimension`), cancellable, its revision kept and refused as busy
+  exactly as a trial; nothing is added until the answer (`Verdict::Measured`) builds the one
+  transaction from it (`Measuring::added`) with the notice, and the driving dimension's value then
+  opens where the add came from (`ValueEntry`: the canvas field for Smart dimension, the panel's
+  focus for a dimension button) through `Model::take_entered_dimension`, which `app::perform` hands
+  on. Past `PATIENCE` a dimension still unmeasured drives, as when measuring fails; with no thread to
+  start it is measured in place (`ui_tests/sketch_dimensions.rs`).
 - Smart dimension (`Tool::Dimension`, `dimensioning.rs`) takes the geometry clicked after it and
   what was selected when it started: the selection holds its picks, keeps only what the tool can
   pick (`dimensioning::picks`: the edited sketch's entities and body items) when it starts, and is
@@ -983,7 +995,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   takes the distance between them (`Sketch::ellipse_gap`), an elliptical arc and a line sharing an end
   the angle; more picks are refused in words, its centre and axis points dimensioning the rest. A lone
   conic takes its rho (`Constraint::Rho`, through the Radius candidates), never added as a reference,
-  as rho is no freedom other constraints could take up (`sketch_tools::determines`). A point and a
+  as rho is no freedom other constraints could take up (`sketch_tools::determination`). A point and a
   construction line wait for placement (`dimensioning::about_axis`): across the line the diameter
   (`Constraint::AxisDiameter`, labelled Ø), on the point's side the distance. A spline waits for a
   point, line, circle, arc or ellipse, whose distance is the dimension (from a curve, the gap where

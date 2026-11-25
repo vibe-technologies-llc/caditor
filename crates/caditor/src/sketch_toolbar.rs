@@ -31,7 +31,7 @@ use crate::{
     sketch_drag::{self, MoveError, Moving, SelectionError},
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
-        self, ActivityChange, BreakChange, ConstraintOfferError, ConstraintTool,
+        self, ActivityChange, Added, Adding, BreakChange, ConstraintOfferError, ConstraintTool,
         ConstructionChange, DegreeChange, DegreeStep, HandleChange, RespaceChange,
         SketchChangeError, SplinePointChange, SplitChange, UnlinkChange,
     },
@@ -454,6 +454,44 @@ pub struct BarContext<'a> {
     pub escape_finishes: bool,
 }
 
+fn constraints_added(
+    feature: FeatureId,
+    tool: ConstraintTool,
+    added: Added,
+    panels: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
+    if tool.is_dimension()
+        && let Some(constraint) = added.driving()
+    {
+        panels.request_focus(Focus::Dimension {
+            feature,
+            constraint,
+        });
+    }
+
+    let referenced = !added.references.is_empty();
+
+    if tool.is_dimension() {
+        actions.push(Action::Apply(added.transaction));
+    } else {
+        actions.push(Action::Trial(ConstraintTrial {
+            feature,
+            intent: Intent::Added,
+            touched: added
+                .constraints
+                .iter()
+                .copied()
+                .filter(|constraint| !added.references.contains(constraint))
+                .collect(),
+            transaction: added.transaction,
+        }));
+    }
+    if referenced {
+        actions.push(Action::Inform(Notice::info(REFERENCE_ADDED)));
+    }
+}
+
 pub fn show(
     ui: &mut Ui,
     model: &Model,
@@ -631,35 +669,9 @@ pub fn show(
                 .map(|staged| staged.projections)
                 .unwrap_or_default()
         };
-        let added =
-            sketch_tools::add_constraints(model, feature.id(), tool, constraints, &projections);
-
-        if tool.is_dimension()
-            && let Some(constraint) = added.constraints.first()
-            && !added.references.contains(constraint)
-        {
-            panels.request_focus(Focus::Dimension {
-                feature: feature.id(),
-                constraint: *constraint,
-            });
-        }
-        if tool.is_dimension() {
-            actions.push(Action::Apply(added.transaction));
-        } else {
-            actions.push(Action::Trial(ConstraintTrial {
-                feature: feature.id(),
-                intent: Intent::Added,
-                touched: added
-                    .constraints
-                    .iter()
-                    .copied()
-                    .filter(|constraint| !added.references.contains(constraint))
-                    .collect(),
-                transaction: added.transaction,
-            }));
-        }
-        if !added.references.is_empty() {
-            actions.push(Action::Inform(Notice::info(REFERENCE_ADDED)));
+        match sketch_tools::add_constraints(model, feature.id(), tool, constraints, &projections) {
+            Adding::Added(added) => constraints_added(feature.id(), tool, added, panels, actions),
+            Adding::Measuring(measuring) => actions.push(Action::MeasureDimension(measuring)),
         }
     }
     if request.construction {
