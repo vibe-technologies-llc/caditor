@@ -7,6 +7,7 @@ use caditor_sketch::{Constraint, Entity, FitSpacing, Sketch, SplineKind};
 use crate::{
     seeded::{for_each_case, replay_case},
     sketch::{no_parameters, regraded, sketch},
+    sketch_edit::{EditKind, Tally, edited_sketch},
 };
 
 const POLL_LIMIT: u64 = 5_000_000;
@@ -14,6 +15,8 @@ const SOLVING_CASES: u64 = 3000;
 const FEWEST_SOLVED: usize = 300;
 const LARGEST_SHIFT: f64 = 1e-3;
 const REPEATED_POINT_GAP: f64 = 1e-3;
+const EDITING_CASES: u64 = 1500;
+const FEWEST_EDITS_APPLIED: usize = 20;
 
 fn has_a_closed_spaced_spline_through_one_point_twice(sketch: &Sketch) -> bool {
     sketch.entities().any(|(_, entity)| match entity {
@@ -314,4 +317,24 @@ fn a_sketch_spline_degree_is_never_one_the_kernel_cannot_hold() {
         caditor_sketch::MAX_DEGREE,
         caditor_kernel::MAX_SPLINE_DEGREE
     );
+}
+
+#[test]
+fn every_sketch_edit_keeps_its_use_counts_or_refuses_without_a_change() {
+    let mut tally = Tally::default();
+
+    for_each_case("sketch edits", EDITING_CASES, |_, input| {
+        if let Ok(case) = edited_sketch(input, Plane::XY) {
+            tally.add(&case);
+        }
+    });
+
+    for kind in EditKind::ALL {
+        let applied = tally.applied.get(&kind).copied().unwrap_or_default();
+
+        assert!(
+            applied >= FEWEST_EDITS_APPLIED,
+            "only {applied} edits of kind {kind:?} were applied, so the generators no longer reach enough"
+        );
+    }
 }

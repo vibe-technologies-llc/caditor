@@ -1977,6 +1977,27 @@ fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_toleranc
 }
 
 #[test]
+fn a_spline_whose_control_points_all_lie_on_one_point_has_no_length_to_offset() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let point = sketch.add_point(Point2::new(-12.0, -12.0));
+    let spline = sketch
+        .add_entity(Entity::Spline {
+            points: vec![point, point],
+            kind: SplineKind::Control { closed: false },
+        })
+        .unwrap();
+    let before = sketch.clone();
+
+    let refused = sketch
+        .offset(&[spline], Side::Left, 2.0, mm(2.0))
+        .unwrap_err();
+
+    assert!(matches!(refused, OffsetError::NoLength { entity, .. } if entity == spline));
+    assert_eq!(sketch, before);
+}
+
+#[test]
 fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
     let mut sketch = Sketch::new(Plane::XY);
 

@@ -215,7 +215,7 @@ where
                 rebuilt(self.node(left, 0), self.node(right, 0))
             }
             BinaryOperator::Power => {
-                let scaled = rebuilt(self.node(left, 0), right.clone());
+                let scaled = rebuilt(self.node(left, 0), self.node(right, 0));
                 if context != 0 && self.is_plain(node) {
                     scaled.times_number(self.times(context))
                 } else {
@@ -262,6 +262,7 @@ fn same_kind(function: Function) -> bool {
             | Function::Mod
             | Function::Hypot
             | Function::Clamp
+            | Function::Atan2
     )
 }
 
@@ -305,6 +306,20 @@ mod tests {
         assert_eq!(scaled("$0 / 2 + 1 mm", 1), "$0 / 2 + 2 mm");
         assert_eq!(scaled("max($0, 3)", 1), "max($0, 6)");
         assert_eq!(scaled("(5 + 3) * 2", 1), "(10 + 6) * 2");
+    }
+
+    #[test]
+    fn an_exponent_keeps_its_value_when_the_lengths_in_it_scale() {
+        assert_eq!(scaled("2^($0 / 1 mm)", 0), "2^($0 / 2 mm)");
+        assert_eq!(scaled("$0^2", 2), "$0^2");
+        assert_eq!(scaled("2^$1", 1), "2^$1 * 2");
+    }
+
+    #[test]
+    fn a_plain_number_paired_with_a_length_in_atan2_takes_its_power() {
+        assert_eq!(scaled("atan2(3 m, 4)", 0), "atan2(6 m, 8)");
+        assert_eq!(scaled("atan2($0, $1)", 0), "atan2($0, $1 * 2)");
+        assert_eq!(scaled("atan2(3, 4)", 1), "atan2(6, 8)");
     }
 
     #[test]

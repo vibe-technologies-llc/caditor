@@ -1,11 +1,15 @@
 pub mod document;
+pub mod expression;
 pub mod invariants;
 pub mod profile;
 pub mod seeded;
 pub mod sketch;
+pub mod sketch_edit;
 
 #[cfg(test)]
 mod document_tests;
+#[cfg(test)]
+mod expression_tests;
 #[cfg(test)]
 mod kernel_tests;
 #[cfg(test)]

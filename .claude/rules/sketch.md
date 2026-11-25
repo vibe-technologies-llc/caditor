@@ -618,7 +618,9 @@ relative to the extent.
   of the curve's reach (at most `MAX_FIT_POINTS`); closed for a whole ellipse or a closed spline,
   open end to end otherwise. Inward past the tightest bend (sampled signed curvature times the
   distance reaching one, `collapses_under`) is `Collapses`; a spline whose fitted offset crosses
-  itself (sampled segments properly crossing, `crosses_itself`) is `CrossesItself`. The spline has
+  itself (sampled segments properly crossing, `crosses_itself`) is `CrossesItself`, and one whose
+  control points all lie within `TOLERANCE` of the first (`has_length`) is `NoLength`, since its
+  offset never fits and would otherwise be `MAX_FIT_POINTS` coincident points. The spline has
   no constraint to the original (none could hold along its length), so it adds its fit points'
   degrees of freedom and the app says it will not follow; an open spline's free ends are not held.
   A spline of any kind (fit or control point) is read as its curve. Such a curve chosen with a

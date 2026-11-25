@@ -13,6 +13,8 @@ mod degree;
 mod entity;
 mod fillet;
 mod fit;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod gear;
 mod handle;
 mod id;

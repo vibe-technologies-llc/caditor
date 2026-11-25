@@ -60,9 +60,12 @@ paths:
 - `with_lengths_scaled` multiplies each literal by the factor to its length power (`mm²` by the
   square, angles never), and a plain literal by the power it is read at: the field's when the
   whole expression is plain, else the power of what it is added to, compared with or paired with
-  in a same-kind function; a plain product or quotient carries it on its plain operand, and a
-  plain value that cannot carry it (a parameter, a function) is multiplied by the factor. The
-  caller checks the result and falls back when it does not agree (`document.md`).
+  in a same-kind function (`atan2` among them); a plain product or quotient carries it on its
+  plain operand, and a plain value that cannot carry it (a parameter, a function) is multiplied
+  by the factor. An exponent is read at power 0, so the lengths inside it scale and its value
+  stays. The caller checks the result and falls back when it does not agree (`document.md`); the
+  `expression` fuzz target holds it to the factor wherever no comparison or stepless rounding
+  could tell the scaled values apart (`ci.md`).
   Every node's result is worked out once, bottom up, by the evaluator's own step (`evaluate_over`), so
   `if`, `and` and `or` keep their laziness and a parameter is read once per occurrence; the
   rebuilt tree then recurses within the tree depth limit.

@@ -2052,8 +2052,13 @@ impl Sketch {
         }
     }
 
-    #[cfg(test)]
-    fn counted_from_scratch(&self) -> BTreeMap<EntityId, usize> {
+    #[cfg(feature = "fuzzing")]
+    pub(crate) fn kept_uses(&self) -> &BTreeMap<EntityId, usize> {
+        &self.uses
+    }
+
+    #[cfg(any(test, feature = "fuzzing"))]
+    pub(crate) fn counted_from_scratch(&self) -> BTreeMap<EntityId, usize> {
         let mut fresh = Self::new(self.plane);
         let used: Vec<EntityId> = self
             .entities

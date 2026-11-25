@@ -490,6 +490,7 @@ jobs:
           - { target: profile_sweep, seeds: structured, dictionary: none, max_len: 4096 }
           - { target: boolean, seeds: structured, dictionary: none, max_len: 4096 }
           - { target: sketch_solve, seeds: structured, dictionary: none, max_len: 4096 }
+          - { target: sketch_edit, seeds: structured, dictionary: none, max_len: 4096 }
           - { target: document, seeds: structured, dictionary: none, max_len: 4096 }
           - { target: save_load, seeds: structured, dictionary: none, max_len: 4096 }
     steps:

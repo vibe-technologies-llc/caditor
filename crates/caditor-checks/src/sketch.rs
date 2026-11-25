@@ -13,13 +13,13 @@ const MOST_CONSTRAINTS: usize = 12;
 const MOST_SPLINE_POINTS: usize = 5;
 const MOST_CORNERS: usize = 5;
 const CLOSED_FEWEST_DEGREE: usize = 2;
-const STRANGE_LENGTHS: [f64; 4] = [0.0, -1.0, 1e-9, 2e6];
+pub(crate) const STRANGE_LENGTHS: [f64; 4] = [0.0, -1.0, 1e-9, 2e6];
 
 pub fn no_parameters(_: ParameterId) -> std::result::Result<Quantity, EvalError> {
     Err(EvalError::ParameterMissing)
 }
 
-fn points(sketch: &Sketch) -> Vec<EntityId> {
+pub(crate) fn points(sketch: &Sketch) -> Vec<EntityId> {
     sketch
         .entities()
         .filter(|(_, entity)| matches!(entity, Entity::Point(_)))
@@ -133,7 +133,7 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
     })
 }
 
-fn any_entity(input: &mut Unstructured, sketch: &Sketch) -> Result<EntityId> {
+pub(crate) fn any_entity(input: &mut Unstructured, sketch: &Sketch) -> Result<EntityId> {
     let mut candidates: Vec<EntityId> = sketch.entities().map(|(id, _)| id).collect();
 
     candidates.extend(EntityId::REFERENCES);

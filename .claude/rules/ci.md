@@ -4,6 +4,7 @@ paths:
   - "fuzz/**"
   - "deny.toml"
   - "crates/caditor-file/src/fuzzing.rs"
+  - "crates/caditor-sketch/src/fuzzing.rs"
 ---
 
 # CI, dependency policy and fuzzing
@@ -116,7 +117,7 @@ paths:
   meshes, preferences, recent files, parameter files, configuration files, environment pictures, and `mcp`: JSON-RPC lines through the MCP server's reader and
   tool argument decoding, `caditor::fuzzing::mcp_lines`); `model_sealed` and the resealed journal target recompute chunk
   checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged tail torn.
-- Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `document`, `save_load`) decode bytes
+- Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `sketch_edit`, `document`, `save_load`) decode bytes
   with `arbitrary::Unstructured` through the generators in `crates/caditor-checks` (`checks.md`), biased to near-coincident and
   aligned geometry. They hold the invariants of their subject: an `Ok` solid validates, each
   transaction is undone exactly by its inverse, every saved version loads back.
@@ -136,8 +137,24 @@ paths:
   the journal is written, read and replayed (`replay_journal`), and must replay every entry with no
   issue to the same document. A document state that saves or journals differently from what the
   document holds is a finding: the document settles what loading would (`document.md`).
+- `expression` checks each text that parses, typed or stored (`caditor_checks::expression`,
+  with `width` a length, `count` plain and `turn` an angle): its stored and its display text
+  parse back to the same tree (a refusal only for length or depth), it evaluates without
+  panicking, and `with_lengths_scaled` by 2 at plain powers 0 to 2 stores back and, when the text
+  has no comparison or stepless rounding and no subnormal value inside it, evaluates to the old
+  value times 2 to its length power within `AGREEMENT` of its largest inner value. Scaling by a
+  power of two is exact in floating point, so any other difference is the rewrite's.
+- `sketch_edit` (`caditor_checks::sketch_edit`) draws a random sketch, then trims, extends, splits,
+  breaks, offsets (one side and both), fillets, chamfers, joins at crossings and places points on
+  curves at random picks. A refused edit must leave the sketch equal to what it was (edits work
+  on a copy, `sketch.md`); an applied one must keep use counts equal to a count from scratch,
+  read through `caditor_sketch::fuzzing` (behind the crate's `fuzzing` feature, which
+  `caditor-checks` turns on), with every entity in use still in the sketch. It offsets no spline
+  of more than `MOST_OFFSET_SPLINE_POINTS` points, since each such offset takes seconds
+  (`PERFORMANCE.md`) and would starve the target.
 - Kernel and solver work runs under `WORK_BUDGET`, so slow inputs cancel instead of tripping
-  libFuzzer's timeout: the structured targets and both STEP targets (`step`, `step_import`). Every
+  libFuzzer's timeout: the structured targets but `sketch_edit` (sketch edits take no interrupt)
+  and both STEP targets (`step`, `step_import`). Every
   panic counts, including ones recompute would contain.
 - The byte entry points are `caditor_file::fuzzing` and `caditor::fuzzing`, behind their `fuzzing`
   features.

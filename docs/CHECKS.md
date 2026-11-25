@@ -6,9 +6,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [medium · medium] Fuzzing misses the shapes that break the readers: the crafted STEP, 3MF and
   SVG files in `BUGS.md` need depth and fan-out that no committed seed has, so they need seeds
-  built by code and bounded by `tally`; no target edits sketches (trim, split, break, offset,
-  fillet) checking use counts against `counted_from_scratch`; and `expression` only round-trips
-  stored text, not display text through `parse`, evaluation or `with_lengths_scaled`.
+  built by code and bounded by `tally`.
 - [high · medium · blocked by: the Autodesk app (`DECISIONS.md`)] The Fusion 360 calls follow
   Autodesk's published documentation and are tested against JSON of the shapes it describes
   (`caditor-cloud`'s `fusion/tests.rs`), never against Autodesk's servers with a registered app.

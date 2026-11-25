@@ -29,7 +29,7 @@ caditor-expression.workspace = true
 caditor-file = { workspace = true, features = ["fuzzing"] }
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
-caditor-sketch.workspace = true
+caditor-sketch = { workspace = true, features = ["fuzzing"] }
 caditor-step.workspace = true
 
 arbitrary.workspace = true

@@ -151,6 +151,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching and expressions
 
+- [medium · medium] A spline lying along a line is cut at hundreds of crossings: with a line from
+  (-12, 0) to (-12, -12) and a straight spline from (-12, -4) to (-12, -10) on it (two control
+  points, or three fit points), `break_curve` on the spline gives 255 pieces and on the line 257,
+  a cut every 1/32 mm where the overlap should be one stretch or a refusal. Found by the
+  `sketch_edit` fuzz target. Break takes its cuts from trim's (`open_cuts`), which find a
+  spline's crossings as roots of the line's side function (`spline_roots`), zero all along an
+  overlap; the trim pieces there are the same 1/32 mm stretches.
 - [low · medium] A sketch's entity adders (`add_point` and the other infallible ones) still count
   into the unstorable range once the id counter reaches `FIRST_UNSTORABLE_ID`: only
   `add_constraint`, `add_text` and `add_parametric_gear` refuse as `SketchError::IdsExhausted`, and

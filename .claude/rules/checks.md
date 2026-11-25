@@ -6,9 +6,10 @@ paths:
 # Checks
 
 `caditor-checks` holds what `cargo test` and the fuzz targets share: the generators that turn bytes into
-documents, sketches and profiles (`document/`, `sketch.rs`, `profile.rs`, `arbitrary::Unstructured`,
-biased to near-coincident and aligned geometry), the invariant checks (`invariants.rs`, `check_solid`)
-and the seeded property suites (`*_tests.rs`). `fuzz/` re-exports it, so a generator is written once
+documents, sketches, sketch edits and profiles (`document/`, `sketch.rs`, `sketch_edit.rs`,
+`profile.rs`, `arbitrary::Unstructured`, biased to near-coincident and aligned geometry), the
+invariant checks (`invariants.rs`, `check_solid`, the expression target's `expression.rs`) and the
+seeded property suites (`*_tests.rs`). `fuzz/` re-exports it, so a generator is written once
 and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
 
 - Its lint list is the workspace's without `panic`, since an assertion that fails is its job
@@ -53,6 +54,10 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   them. `regraded` gives those sketches splines of random degrees, open and closed, after they are drawn (so the
   pinned seeds keep their meaning), and a solved one must stay put too; one test holds
   `caditor_sketch::MAX_DEGREE` equal to the kernel's `MAX_SPLINE_DEGREE`.
+- `sketch_tests.rs` also runs the `sketch_edit` fuzz target's check over seeded cases: a refused
+  edit leaves the sketch as it was and an applied one keeps its use counts equal to a count from
+  scratch, with at least `FEWEST_EDITS_APPLIED` applied edits of every `EditKind`.
+- `expression_tests.rs` runs the `expression` fuzz target's check over its committed seeds.
 - `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
   `every_input_kept_in_the_regression_folder_still_holds` through the same checks. A crash libFuzzer
   finds in `document` is copied there (`fuzz/artifacts` is not tracked), next to the fix.

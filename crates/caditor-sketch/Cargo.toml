@@ -8,6 +8,9 @@ publish.workspace = true
 [lib]
 doctest = false
 
+[features]
+fuzzing = []
+
 [lints]
 workspace = true
 

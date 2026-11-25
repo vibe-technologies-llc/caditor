@@ -136,6 +136,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "sketch_edit"
+path = "fuzz_targets/sketch_edit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "document"
 path = "fuzz_targets/document.rs"
 test = false

@@ -7,7 +7,7 @@ use crate::{
     entity::{Entity, SplineKind},
     id::EntityId,
     intersect,
-    offset::{Chain, OffsetError, Side},
+    offset::{Chain, OffsetError, Side, TOLERANCE},
     sketch::{Sketch, SketchError},
 };
 
@@ -127,6 +127,20 @@ impl Free {
         })
     }
 
+    fn has_length(&self) -> bool {
+        let Self::Spline { curve, .. } = self else {
+            return true;
+        };
+        let points = curve.control_points();
+
+        points.first().is_some_and(|first| {
+            let tolerance = TOLERANCE * first.abs().max_element().max(1.0);
+            points
+                .iter()
+                .any(|point| point.distance(*first) > tolerance)
+        })
+    }
+
     fn may_cross_itself(&self) -> bool {
         matches!(self, Self::Spline { .. })
     }
@@ -175,6 +189,13 @@ impl Around {
     ) -> Result<Vec<Point2>, OffsetError> {
         if !(distance.is_finite() && distance > 0.0) {
             return Err(OffsetError::NotPositive);
+        }
+
+        if !self.shape.has_length() {
+            return Err(OffsetError::NoLength {
+                entity: self.curve,
+                label: label.to_owned(),
+            });
         }
 
         let by = side.sign() * distance;
