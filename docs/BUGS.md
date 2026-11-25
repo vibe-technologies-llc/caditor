@@ -151,6 +151,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching and expressions
 
+- [low · medium] Two splines lying along each other are cut at many close crossings by trim and
+  break: overlap runs (`intersect.rs`) are found only against a line, arc or circle, and an overlap
+  shorter than two sample steps (about 1/128 of the spline) is still searched as crossings, so it
+  can give a few close cuts.
 - [low · medium] A sketch's entity adders (`add_point` and the other infallible ones) still count
   into the unstorable range once the id counter reaches `FIRST_UNSTORABLE_ID`: only
   `add_constraint`, `add_text` and `add_parametric_gear` refuse as `SketchError::IdsExhausted`, and
