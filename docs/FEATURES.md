@@ -219,7 +219,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · small] An import's unit and scale are not remembered with its centring and plane
   (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
   override could silently misread the next file. It needs the reader to report that first.
-- [low · medium] No zoom to a dragged box; the view zooms by the wheel, the keys and Fit only.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.

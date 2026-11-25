@@ -21,6 +21,13 @@ orbiting always turn about the view's centre, and either orbit direction turn th
 Double-click the middle button to fit the view, as {command:view.fit} does. This works in every
 input mode, since none of them uses the middle button's double-click for anything else.
 
+To look closer at one part, choose {command:view.zoom_box} from the View menu, the view's context
+menu or the command palette, then drag a box around that part: when you let go the view zooms so
+the box fills it, centred on the box's middle and toward the surface under it. It works the same
+inside a sketch you are editing. It takes only the next drag; a click, a box too small to tell or
+Esc ends it without changing the view, and Esc during the drag drops the box.
+{command:view.previous} goes back to the view before the zoom.
+
 ## With the keyboard
 
 - {command:view.orbit_left}, {command:view.orbit_up} and the other arrows orbit;
@@ -42,10 +49,10 @@ pressing {command:view.front} and then {command:view.fit} ends looking from the 
 ## Going back
 
 {command:view.previous} goes back to the view before the last change: a standard or saved view,
-a fit, looking at a face or sketch, opening a sketch, or an orbit, pan or zoom with the mouse or
-keys. Press it again to keep going back; caditor remembers the last 32 views while the model is
-open. Finishing a sketch leaves the view facing it, so one press of {command:view.previous}
-afterwards brings back the view you had before you opened the sketch.
+a fit, a zoom to a box, looking at a face or sketch, opening a sketch, or an orbit, pan or zoom
+with the mouse or keys. Press it again to keep going back; caditor remembers the last 32 views
+while the model is open. Finishing a sketch leaves the view facing it, so one press of
+{command:view.previous} afterwards brings back the view you had before you opened the sketch.
 
 {command:view.next} goes forward again to the view you stepped back from, one view for each press.
 Changing the view yourself after going back, with a standard view, an orbit, a fit or anything else,

@@ -281,6 +281,7 @@ pub fn command(command: Command) -> &'static str {
         Command::NewDrawing => ADD,
         Command::ExportDrawingSheet => phosphor::FILE_PDF,
         Command::FitView => phosphor::FRAME_CORNERS,
+        Command::ZoomToBox => phosphor::CORNERS_OUT,
         Command::PreviousView => phosphor::ARROW_BEND_UP_LEFT,
         Command::NextView => phosphor::ARROW_BEND_UP_RIGHT,
         Command::Measure => MEASURE,

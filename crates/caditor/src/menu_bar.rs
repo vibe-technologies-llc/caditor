@@ -806,6 +806,7 @@ impl Menus<'_> {
                 ui,
                 [
                     Command::FitView,
+                    Command::ZoomToBox,
                     Command::PreviousView,
                     Command::NextView,
                     Command::LookAtFace,

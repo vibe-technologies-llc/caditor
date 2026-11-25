@@ -305,8 +305,8 @@ paths:
 - Go back to the previous view (`Command::PreviousView`, Alt+Left) steps back through
   `view_history::ViewHistory`, the session's last `KEPT_VIEWS` viewpoints in `ViewportState`.
   `ViewportState::go_to` keeps the camera's destination before every animated change the user asks
-  for (standard views, the cube, fit, Show where, looking at a face or sketch, a saved view,
-  entering a sketch), never the fit after opening. An orbit, pan or zoom is a `Gesture` kept once,
+  for (standard views, the cube, fit, a zoom to a box, Show where, looking at a face or sketch, a
+  saved view, entering a sketch), never the fit after opening. An orbit, pan or zoom is a `Gesture` kept once,
   from where it started, when it ends: a drag when no button is down, wheel and key gestures when
   another kind starts or after `IDLE_SECONDS`, and any pending one before a jump or a step back.
   Views equal to the last kept are not kept, stepping back skips views equal to the current one, a
@@ -410,6 +410,18 @@ paths:
   `KEYBOARD_ORBIT_FRACTION` of the view's height times the orbit speed preference. The view cube
   takes focus like a button and arrows step to the neighbouring view (`app-look.md`). Sketch
   commands are in `app-sketching.md`.
+- Zoom to box (`Command::ZoomToBox`, `view.zoom_box`; View menu beside Fit, the view's context
+  menu, the palette; no default key, bindable like any view command) arms a one-shot box
+  (`ViewportState::box_zoom`, `BoxZoom::Armed`): the next primary drag in the view, in a sketch or
+  any tool included, is a `PrimaryDrag::ZoomBox`, drawn as a window box, ahead of every other drag
+  kind and of drawing presses. On release a box of at least `SMALLEST_BOX` points goes to
+  `View::zoomed_to_box` (`render.md`) at the depth under its middle (`depth_under`: the nearest face
+  `Scene::hits_through` meets there, else any pickable, else the edited sketch's plane, else the
+  orbit centre's) through `go_to`, so it animates, follows reduced motion and is kept in view
+  history. It is one-shot: the release (`BoxZoom::Ending` swallows that frame's click), a plain
+  click or Escape (armed or mid-drag, `ViewportState::escape`) ends it; the canvas prompt
+  (`ZOOM_BOX_PROMPT`, `ZOOM_BOX_RELEASE_PROMPT`) says what to do. No modifier drag starts it: Shift
+  and Ctrl add to a selection and Alt reaches through or navigates.
 - Highlight next and previous step a keyboard highlight through the scene's pickables in pick-table
   order (drawn and described like hover; a pointer move or Escape clears it), then, while a sketch
   is edited, through the body corners, round-edge centres and edges Select and Smart dimension pick

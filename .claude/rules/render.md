@@ -702,6 +702,12 @@ paths:
   smoothly instead of restarting from rest. Both durations are multiplied by
   `Camera::set_transition_scale` (the View changes preference); a scale of zero lands every
   transition at once, one under way included.
+- `View::zoomed_to_box` gives the viewpoint in which a dragged screen box fills the view: same
+  orientation, the target the point under the box's middle at the given view depth, the distance
+  scaled by the box's larger share of the view's width or height (the depth itself in perspective,
+  so the plane square to the view at that depth is what fills it; the current distance in
+  orthographic, whose scale is the distance). A box of no size, a non-finite one or a depth not
+  drawn gives nothing.
 - The vertical field of view is `DEFAULT_FIELD_OF_VIEW_DEGREES` (30°) unless `Camera::set_field_of_view`
   sets another, clamped to 10° to 90°; `Camera::view_from` carries it into each `View`
   (`View::with_field_of_view`), whose projection, rays, pixel sizes, plane projections, fitting and

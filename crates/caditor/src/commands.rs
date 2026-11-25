@@ -199,6 +199,7 @@ pub enum Command {
     NewDrawing,
     ExportDrawingSheet,
     FitView,
+    ZoomToBox,
     PreviousView,
     NextView,
     Measure,
@@ -828,6 +829,7 @@ plain_commands! {
     Redo,
     RepeatLast,
     FitView,
+    ZoomToBox,
     PreviousView,
     NextView,
     ToggleProjection,
@@ -1293,6 +1295,7 @@ impl Command {
             Self::NewDrawing => "model.new_drawing",
             Self::ExportDrawingSheet => "file.export_drawing_sheet",
             Self::FitView => "view.fit",
+            Self::ZoomToBox => "view.zoom_box",
             Self::PreviousView => "view.previous",
             Self::NextView => "view.next",
             Self::Measure => "view.measure",
@@ -1642,6 +1645,7 @@ impl Command {
             Self::NewDrawing => "New drawing",
             Self::ExportDrawingSheet => "Export drawing sheet…",
             Self::FitView => "Fit view",
+            Self::ZoomToBox => "Zoom to box",
             Self::PreviousView => "Go back to the previous view",
             Self::NextView => "Go forward to the next view",
             Self::Measure => "Measure",
@@ -1842,6 +1846,13 @@ impl Command {
                 "zoom to fit",
                 "frame",
                 "fit all",
+            ],
+            Self::ZoomToBox => &[
+                "zoom window",
+                "zoom area",
+                "zoom region",
+                "box zoom",
+                "rubber band zoom",
             ],
             Self::View(StandardView::Isometric) => &["home", "default view"],
             Self::ToggleCosmeticThreads => &[
@@ -2141,6 +2152,7 @@ impl Command {
             | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
             Self::FitView
+            | Self::ZoomToBox
             | Self::PreviousView
             | Self::NextView
             | Self::Measure
@@ -2721,6 +2733,7 @@ impl Command {
             | Self::ReplaceImport
             | Self::ReloadImport
             | Self::ReloadFromDisk
+            | Self::ZoomToBox
             | Self::DismissOutsideChange
             | Self::DismissNotice
             | Self::DismissTip

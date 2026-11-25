@@ -85,7 +85,7 @@ use crate::{
     selection_sets,
     shape_modes::ShapeMode,
     shell_tools,
-    sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
+    sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, ScreenBox, Transform, Transforming},
     sketch_handles::{self, SketchGrip, SketchHandleDrag, SketchHandleTypingError, SketchHandles},
     sketch_pattern_arrows::{self, PatternArrowDrag, PatternArrows, PatternGrip},
     sketch_placement::{DatumTarget, FaceChoice},
@@ -167,6 +167,8 @@ const BOX_GAP: f32 = 4.0;
 const THROUGH_STROKE_WIDTH: f32 = 4.0;
 pub const TAKING_SEEN_PROMPT: &str = "Taking only what can be seen";
 pub const TAKING_HIDDEN_PROMPT: &str = "Taking what is hidden behind too";
+pub const ZOOM_BOX_PROMPT: &str = "Drag a box around what to zoom in on";
+pub const ZOOM_BOX_RELEASE_PROMPT: &str = "Let go to zoom in on the box";
 pub const HOLD_ALT_HINT: &str = "Alt: also take what is hidden";
 pub const LET_GO_OF_ALT_HINT: &str = "Alt: let go to take only what can be seen";
 const SELECT_THROUGH_ON_HINT: &str = "Select through is on: View › Selection tools turns it off";
@@ -356,6 +358,9 @@ enum PrimaryDrag {
     ModelBox {
         area: ScreenArea,
     },
+    ZoomBox {
+        area: ScreenArea,
+    },
     Paint(Painting),
     Trim {
         feature: FeatureId,
@@ -463,6 +468,7 @@ pub struct ViewportState {
     snap_held: bool,
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
+    box_zoom: BoxZoom,
     hovered_in_tree: Option<Pickable>,
     principal_fade: PrincipalFade,
     previewed: Vec<Pickable>,
@@ -549,6 +555,14 @@ enum Described {
     Highlighted(String),
     Hovered(String),
     Tool(String),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum BoxZoom {
+    #[default]
+    Off,
+    Armed,
+    Ending,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -767,6 +781,13 @@ struct LitRowsBasis {
     evaluation: u64,
 }
 
+fn nearest_drawn(view: &View, depths: impl IntoIterator<Item = f64>) -> Option<f64> {
+    depths
+        .into_iter()
+        .filter(|depth| view.is_drawn_at(*depth))
+        .min_by(f64::total_cmp)
+}
+
 fn hides_what_lies_behind(pickable: Pickable) -> bool {
     matches!(pickable, Pickable::Face { .. } | Pickable::ShellFace { .. })
 }
@@ -943,6 +964,7 @@ impl ViewportState {
             snap_held: false,
             scrubbing: false,
             primary: None,
+            box_zoom: BoxZoom::Off,
             hovered_in_tree: None,
             principal_fade: PrincipalFade::default(),
             previewed: Vec::new(),
@@ -1768,6 +1790,9 @@ impl ViewportState {
         self.clock = ui.input(|input| input.time);
         if commands.available(Command::FitView) {
             self.fit_requested = Some(FitAsked::ByUser);
+        }
+        if commands.available(Command::ZoomToBox) {
+            self.box_zoom = BoxZoom::Armed;
         }
         if self.session != model.session() {
             self.session = model.session();
@@ -2648,6 +2673,11 @@ impl ViewportState {
         if self.scrubbing && self.drawing.is_scrubbing() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         }
+        if self.box_zoom == BoxZoom::Armed && response.hovered()
+            || matches!(self.primary, Some(PrimaryDrag::ZoomBox { .. }))
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
+        }
 
         let (pointer, moved) = ui.input(|input| {
             (
@@ -2820,6 +2850,64 @@ impl ViewportState {
         self.camera.pan(drag, view.units_per_pixel_at(depth));
     }
 
+    fn zoom_to_box(&mut self, model: &Model, editing: &SketchEditing, area: &ScreenArea) {
+        let Some(view) = self.view() else {
+            return;
+        };
+
+        if !box_selection::is_a_box(area) {
+            return;
+        }
+
+        let pixels_per_point = f64::from(self.pixels_per_point);
+        let (low, high) = area.bounds();
+
+        let (from, to) = (low * pixels_per_point, high * pixels_per_point);
+
+        let depth = self
+            .depth_under(model, editing, &view, (from + to) * 0.5)
+            .unwrap_or(view.viewpoint().distance);
+        if let Some(viewpoint) = view.zoomed_to_box(from, to, depth) {
+            self.go_to(viewpoint);
+        }
+    }
+
+    fn depth_under(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        view: &View,
+        pixel: Vector2,
+    ) -> Option<f64> {
+        let reached = self
+            .scenes
+            .built()
+            .map(|built| {
+                let hits = built.scene.hits_through(view, pixel, self.pixels_per_point);
+                built.picks.within_reach(&hits)
+            })
+            .unwrap_or_default();
+        let depth_of = |(_, hit): &(Pickable, PickHit)| view.view_depth(hit.position);
+
+        let on_surface = nearest_drawn(
+            view,
+            reached
+                .iter()
+                .filter(|(pickable, _)| hides_what_lies_behind(*pickable))
+                .map(depth_of),
+        );
+        let on_anything = || nearest_drawn(view, reached.iter().map(depth_of));
+        let on_sketch = || {
+            let plane =
+                scene::sketch_plane(model.document(), model.evaluation(), editing.feature()?)?;
+            let ray = view.ray_through(pixel)?;
+
+            let along = ray.intersect_plane(&plane)?;
+            nearest_drawn(view, [view.view_depth(ray.at(along))])
+        };
+        on_surface.or_else(on_anything).or_else(on_sketch)
+    }
+
     fn track_sketch_cursor(&mut self, model: &Model, editing: &SketchEditing) {
         self.sketch_cursor = self
             .cursor
@@ -2885,11 +2973,14 @@ impl ViewportState {
                 .take()
                 .filter(|_| !navigating)
                 .map(|press| self.caught_up(press));
-            let arcing = press.is_some_and(|press| self.arc_from_press(model, editing, press));
+            let zooming = self.box_zoom == BoxZoom::Armed;
+            let arcing =
+                !zooming && press.is_some_and(|press| self.arc_from_press(model, editing, press));
 
             self.draw_press = press
                 .filter(|_| {
-                    editing.active().is_some_and(|active| active.tool.draws())
+                    !zooming
+                        && editing.active().is_some_and(|active| active.tool.draws())
                         && (arcing || !self.drawing.in_progress())
                 })
                 .map(|press| press.cursor);
@@ -3007,7 +3098,11 @@ impl ViewportState {
                     actions.push(Action::Drag(command));
                 }
             }
-            Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) => {
+            Some(
+                PrimaryDrag::Box { area, .. }
+                | PrimaryDrag::ModelBox { area }
+                | PrimaryDrag::ZoomBox { area },
+            ) => {
                 if let Some(cursor) = cursor {
                     area.reach(cursor / f64::from(self.pixels_per_point));
                 }
@@ -3037,6 +3132,10 @@ impl ViewportState {
                 }
                 Some(PrimaryDrag::ModelBox { area }) => {
                     self.select_in_model(model, editing, &area, toggle);
+                }
+                Some(PrimaryDrag::ZoomBox { area }) => {
+                    self.box_zoom = BoxZoom::Ending;
+                    self.zoom_to_box(model, editing, &area);
                 }
                 Some(PrimaryDrag::Trim { .. }) => {
                     actions.extend(outcome_action(self.trimming.finish_path(model)));
@@ -3530,6 +3629,13 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
     ) -> Option<PrimaryDrag> {
+        if self.box_zoom == BoxZoom::Armed {
+            let at = press.cursor / f64::from(self.pixels_per_point);
+
+            return Some(PrimaryDrag::ZoomBox {
+                area: ScreenArea::starting_at(at, false),
+            });
+        }
         if editing.feature().is_none()
             && editing.solid().is_none()
             && editing.picking().is_none()
@@ -3980,6 +4086,12 @@ impl ViewportState {
             }
             return;
         }
+        if self.box_zoom == BoxZoom::Ending {
+            if !ui.input(|input| input.pointer.primary_down()) {
+                self.box_zoom = BoxZoom::Off;
+            }
+            return;
+        }
 
         let drawing = editing
             .active()
@@ -4008,6 +4120,10 @@ impl ViewportState {
             toggle: ui.input(|input| input.modifiers.shift || input.modifiers.command),
         };
 
+        if self.box_zoom == BoxZoom::Armed && click.primary {
+            self.box_zoom = BoxZoom::Off;
+            return;
+        }
         if (!click.double && !click.primary)
             || self.manipulator_hover.is_some()
             || self.context_menu.is_some()
@@ -5057,6 +5173,7 @@ impl ViewportState {
 
         if self.pick_list.is_some()
             || self.primary.is_some()
+            || self.box_zoom != BoxZoom::Off
             || self.manipulator_hover.is_some()
             || self.sketch_handle_hover.is_some()
             || self.pattern_arrow_hover.is_some()
@@ -6775,11 +6892,16 @@ impl ViewportState {
                     draft: None,
                 }),
                 PrimaryDrag::Paint(painting) => self.selection = painting.before,
+                PrimaryDrag::ZoomBox { .. } => self.box_zoom = BoxZoom::Ending,
                 PrimaryDrag::Box { .. }
                 | PrimaryDrag::ModelBox { .. }
                 | PrimaryDrag::Pull { .. }
                 | PrimaryDrag::Unmovable { .. } => {}
             }
+            return;
+        }
+        if self.box_zoom == BoxZoom::Armed {
+            self.box_zoom = BoxZoom::Off;
             return;
         }
         if self.typed_point.is_waiting() {
@@ -7039,6 +7161,16 @@ impl ViewportState {
                 let through = self.reach_matters() && self.reaches_through();
 
                 paint_area(painter, rect, area, through);
+            }
+            Some(PrimaryDrag::ZoomBox { area }) => {
+                let (from, to) = area.bounds();
+
+                paint_area(
+                    painter,
+                    rect,
+                    &ScreenArea::Box(ScreenBox { from, to }),
+                    false,
+                );
             }
             _ => {}
         }
@@ -7643,7 +7775,9 @@ impl ViewportState {
         key_hints: &KeyHints,
     ) -> Option<(String, HintList)> {
         let document = model.document();
-        if let Some(reach) = self.reach_prompt(key_hints) {
+        if let Some(zooming) = self.box_zoom_prompt() {
+            Some(zooming)
+        } else if let Some(reach) = self.reach_prompt(key_hints) {
             Some(reach)
         } else if editing.is_choosing_plane() {
             Some((
@@ -7830,6 +7964,16 @@ impl ViewportState {
         }
         Some((SELECT_PROMPT.to_owned(), keys))
     }
+
+    fn box_zoom_prompt(&self) -> Option<(String, HintList)> {
+        let text = match (&self.primary, self.box_zoom) {
+            (Some(PrimaryDrag::ZoomBox { .. }), _) => ZOOM_BOX_RELEASE_PROMPT,
+            (_, BoxZoom::Armed) => ZOOM_BOX_PROMPT,
+            _ => return None,
+        };
+        Some((text.to_owned(), HintList::parsed(CHOOSE_PLANE_HINT)))
+    }
+
     fn reaches_through(&self) -> bool {
         self.select_through || self.through_held
     }

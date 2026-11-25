@@ -546,6 +546,7 @@ fn model_space(ui: &mut Ui, entries: &mut MenuEntries<'_>, selected: bool) {
     let fit = if selected { FIT_SELECTION } else { FIT_ALL };
 
     entries.titled_item(ui, Command::FitView, fit);
+    entries.item(ui, Command::ZoomToBox);
     entries.item(ui, Command::PreviousView);
     entries.item(ui, Command::NextView);
     menu_bar::submenu(
@@ -617,6 +618,7 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool, held: &Held
     } else {
         entries.titled_item(ui, Command::PasteGeometry, "Paste");
         entries.item(ui, Command::FitView);
+        entries.item(ui, Command::ZoomToBox);
         entries.item(ui, Command::LookAtSketch);
     }
     ui.separator();

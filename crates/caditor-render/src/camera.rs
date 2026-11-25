@@ -500,6 +500,26 @@ impl View {
         }
     }
 
+    pub fn zoomed_to_box(&self, from: DVec2, to: DVec2, depth: f64) -> Option<Viewpoint> {
+        let extent = (to - from).abs();
+        let share = (extent / self.size).max_element();
+
+        if !share.is_finite() || share <= 0.0 || !self.is_drawn_at(depth) {
+            return None;
+        }
+
+        let target = self.unproject((from + to) * 0.5, depth)?;
+        let distance = match self.projection {
+            Projection::Perspective => depth,
+            Projection::Orthographic => self.viewpoint.distance,
+        } * share;
+        Some(Viewpoint {
+            target,
+            orientation: self.viewpoint.orientation,
+            distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
+        })
+    }
+
     fn fitting_distance(&self, bounds: Aabb, radius: f64) -> f64 {
         let to_view = self.viewpoint.orientation.inverse();
         let tan_y = self.tan_half_fov_y();
@@ -1075,6 +1095,52 @@ mod tests {
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
         assert_close(fitted.viewpoint().target, bounds.center(), 1e-12);
+    }
+
+    #[test]
+    fn zooming_to_a_box_spreads_it_across_the_view_about_its_centre_in_both_projections() {
+        let from = DVec2::new(500.0, 100.0);
+        let to = DVec2::new(300.0, 280.0);
+        let depth = 90.0;
+
+        for projection in Projection::ALL {
+            let view = View::new(isometric(), WIDTH, HEIGHT).with_projection(projection);
+
+            let corners = [from, to].map(|pixel| view.unproject(pixel, depth).unwrap());
+            let middle = view.unproject((from + to) * 0.5, depth).unwrap();
+
+            let zoomed = View::new(view.zoomed_to_box(from, to, depth).unwrap(), WIDTH, HEIGHT)
+                .with_projection(projection);
+
+            let [first, second] = corners.map(|corner| zoomed.project(corner).unwrap());
+
+            assert_close(
+                zoomed.project(middle).unwrap().extend(0.0),
+                DVec3::new(WIDTH / 2.0, HEIGHT / 2.0, 0.0),
+                1e-6,
+            );
+            assert_close(zoomed.viewpoint().target, middle, 1e-9);
+
+            assert!((first.x - second.x).abs() < WIDTH + 1e-6);
+            assert!(((first.y - second.y).abs() - HEIGHT).abs() < 1e-6);
+            assert_eq!(zoomed.viewpoint().orientation, view.viewpoint().orientation);
+        }
+    }
+
+    #[test]
+    fn zooming_to_a_box_of_no_size_or_behind_the_eye_changes_nothing() {
+        let view = View::new(isometric(), WIDTH, HEIGHT);
+        let at = DVec2::new(200.0, 200.0);
+
+        assert!(view.zoomed_to_box(at, at, 90.0).is_none());
+        assert!(
+            view.zoomed_to_box(at, at + DVec2::new(50.0, 40.0), -5.0)
+                .is_none()
+        );
+        assert!(
+            view.zoomed_to_box(at, DVec2::new(f64::NAN, 10.0), 90.0)
+                .is_none()
+        );
     }
 
     #[test]
