@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use caditor_document::Document;
 use caditor_file::{Start, Storage, StorageConfig};
 use caditor_sketch::Entity;
@@ -431,6 +433,15 @@ fn a_recent_model_whose_folder_is_gone_too_stays_listed() {
     harness.wait_until("the file is closed", |harness| {
         harness.model.path().is_none()
     });
+    harness.wait_until(
+        "the closed model's storage has let go of its folder",
+        |harness| {
+            harness
+                .model
+                .storage_handover()
+                .is_some_and(|handover| handover.wait(Duration::ZERO))
+        },
+    );
 
     std::fs::rename(&drive, root.as_path().join("unplugged")).unwrap();
     harness.command(FileCommand::OpenPath(path.clone()));

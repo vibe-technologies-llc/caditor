@@ -12,7 +12,7 @@ use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2};
 use caditor_render::{CutFace, SurfaceTarget, ViewportFrame, ViewportRenderer};
 use caditor_sketch::{Constraint, Sketch};
-use egui::{Event, Key, KeyboardShortcut, Modifiers};
+use egui::{Event, Key, KeyboardShortcut, Modifiers, Pos2};
 use tempfile::TempDir;
 
 use super::{
@@ -676,13 +676,22 @@ fn screenshots() {
             }
             run_from_palette(&mut model, "repeat sketch geometry in a grid");
             model.frame();
+
+            let over_the_panel = model.position_of(crate::sketch_pattern_panel::RECTANGULAR_ABOUT);
+
             for choice in ["Both sides", "Extent"] {
+                scroll_until_shown(&mut model, over_the_panel, choice);
                 model.click(choice);
                 model.frame();
             }
+            scroll_until_shown(&mut model, over_the_panel, crate::patterning::ADD_DIRECTION);
             model.click(crate::patterning::ADD_DIRECTION);
             model.frame();
-            model.click(&crate::patterning::Direction::FIRST.choose_label());
+
+            let choose_first = crate::patterning::Direction::FIRST.choose_label();
+
+            scroll_until_shown(&mut model, over_the_panel, &choose_first);
+            model.click(&choose_first);
             model.frame();
             model.frame();
             shoot(&mut model, &gpu, &out, "sketch-pattern-choosing", look);
@@ -1267,6 +1276,27 @@ fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.frame();
 }
 
+fn scroll_until_shown(harness: &mut Harness, over: Pos2, label: &str) {
+    harness.events.push(Event::PointerMoved(over));
+    harness.frame();
+    for wheel in [Wheel::Down, Wheel::Up] {
+        for _ in 0..super::WHEEL_TRIES {
+            if harness.fully_shown(label) {
+                return;
+            }
+            harness.events.push(Event::MouseWheel {
+                source: egui::MouseWheelSource::Unknown,
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, wheel.delta()),
+                phase: egui::TouchPhase::Move,
+                modifiers: harness.held,
+            });
+            harness.let_animations_finish();
+        }
+    }
+    panic!("'{label}' never came into view");
+}
+
 fn principal_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.still();
     shoot(harness, gpu, out, "principal-empty", look);
@@ -1295,6 +1325,10 @@ fn principal_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     }
     harness.select([]);
     harness.still();
+
+    let over_the_tree = harness.position_of("Circular pattern 1");
+
+    harness.wheel_until_shown(over_the_tree, crate::principal_tree::GROUP_TITLE, Wheel::Up);
     harness.click_beside(crate::icons::HIDE, crate::principal_tree::GROUP_TITLE);
     harness.still();
     shoot(harness, gpu, out, "principal-kept", look);

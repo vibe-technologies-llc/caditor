@@ -14,13 +14,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (`caditor-cloud`'s `fusion/tests.rs`), never against Autodesk's servers with a registered app.
   With one, run once a sign-in, a team hub with several projects, a nested folder, a conversion
   and a download of a large design, and keep any shape that differs as a test.
-- [low · small] The ignored `screenshots` test still stops at the 200% looks (`dark-200`,
-  `light-200`), now in `principal_scenes`: `click_beside` for the Principal planes group title finds
-  no text, which the feature tree has scrolled or wrapped out of view at that scale, so the scenes
-  after the principal ones (`move_scene`, the reference picture, body group and drawings scenes)
-  render only at the other looks. Bring the row into view before the click.
-- [low · small] `ui_tests::opening_and_saving::a_recent_model_whose_folder_is_gone_too_stays_listed`
-  failed once on the Windows runner (CI run for 2f128acf) with "Access is denied" renaming the
-  model's folder right after New, and passed on the next run: something (most likely the closed
-  model's storage worker or journal) still held a handle in the folder. Wait in the test until the
-  closed model's storage has let go of the folder, or make New wait for it, before renaming.
