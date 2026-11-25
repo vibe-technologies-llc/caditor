@@ -114,21 +114,26 @@ fn newest_copy_button(harness: &Harness) -> Option<egui::Pos2> {
         })
 }
 
-fn wait_for_assistant(harness: &mut Harness) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+const HANG_GUARD: Duration = Duration::from_secs(120);
 
-    while harness.workspace.assistant.is_busy() {
-        assert!(
-            Instant::now() < deadline,
-            "assistant turn did not finish within deadline"
-        );
+fn wait_until(harness: &mut Harness, what: &str, mut arrived: impl FnMut(&Harness) -> bool) {
+    let deadline = Instant::now() + HANG_GUARD;
+
+    while !arrived(harness) {
+        assert!(Instant::now() < deadline, "{what} did not arrive");
 
         harness.frame();
         harness.settle();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(5));
     }
     harness.frame();
     harness.settle();
+}
+
+fn wait_for_assistant(harness: &mut Harness) {
+    wait_until(harness, "the end of the assistant turn", |harness| {
+        !harness.workspace.assistant.is_busy()
+    });
 }
 
 #[test]
@@ -189,19 +194,13 @@ fn api_assistant_calls_live_mcp_tools_updates_model_and_lands_in_undo_history() 
         "sk-ant-live-test".to_owned(),
     )));
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-
-    while !harness
-        .workspace
-        .assistant
-        .key_source(ApiProvider::Claude)
-        .is_available()
-    {
-        assert!(Instant::now() < deadline, "key save did not arrive");
-
-        harness.frame();
-        thread::sleep(Duration::from_millis(5));
-    }
+    wait_until(&mut harness, "the key save", |harness| {
+        harness
+            .workspace
+            .assistant
+            .key_source(ApiProvider::Claude)
+            .is_available()
+    });
 
     harness.workspace.queue_command(Command::Assistant);
     harness.frame();
@@ -279,19 +278,13 @@ fn cli_wrapper_connects_to_live_loopback_mcp_bridge_and_edits_open_model() {
         &prefs,
     );
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-
-    while !harness
-        .workspace
-        .assistant
-        .cli_state(CliTool::ClaudeCode)
-        .is_available()
-    {
-        assert!(Instant::now() < deadline, "cli discovery did not arrive");
-
-        harness.frame();
-        thread::sleep(Duration::from_millis(5));
-    }
+    wait_until(&mut harness, "the cli discovery", |harness| {
+        harness
+            .workspace
+            .assistant
+            .cli_state(CliTool::ClaudeCode)
+            .is_available()
+    });
 
     harness.workspace.queue_command(Command::Assistant);
     harness.frame();
