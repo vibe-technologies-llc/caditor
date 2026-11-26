@@ -1309,6 +1309,24 @@ impl BSplineSurface {
             .unwrap_or_else(hull)
     }
 
+    pub(crate) fn bezier_net(&self, u: Interval, v: Interval) -> Option<Vec<[f64; 4]>> {
+        let first_of = |knots: &[f64], degree: usize, count: usize, range: Interval| {
+            let index = knots
+                .partition_point(|knot| *knot <= range.middle())
+                .checked_sub(1)?
+                .clamp(degree, count.checked_sub(1)?);
+            let inside =
+                *knots.get(index)? <= range.start() && range.end() <= *knots.get(index + 1)?;
+            inside.then(|| index - degree)
+        };
+        let u_first = first_of(&self.u_knots, self.u_degree, self.columns, u)?;
+        let v_first = first_of(&self.v_knots, self.v_degree, self.rows, v)?;
+        self.restricted_net(
+            (u_first, u_first + self.u_degree, u.start(), u.end()),
+            (v_first, v_first + self.v_degree, v.start(), v.end()),
+        )
+    }
+
     fn restricted_net(
         &self,
         (u_first, u_last, u_low, u_high): (usize, usize, f64, f64),

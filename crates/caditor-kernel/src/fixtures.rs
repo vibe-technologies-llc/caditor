@@ -256,7 +256,7 @@ pub(crate) fn bumped_block(side: f64, height: f64, nodes: usize, bump: f64) -> S
     block_topped_by(side, height, bumped_sheet(side, height, nodes, bump))
 }
 
-fn block_topped_by(side: f64, height: f64, top: BSplineSurface) -> Solid {
+pub(crate) fn block_topped_by(side: f64, height: f64, top: BSplineSurface) -> Solid {
     let mut fixture = Fixture::new();
 
     let vertices = cuboid_vertices(&mut fixture, Point3::ZERO, Point3::new(side, side, height));

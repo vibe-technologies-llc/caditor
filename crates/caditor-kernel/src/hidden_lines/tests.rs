@@ -1579,3 +1579,306 @@ fn crossings_are_found_on_many_threads_as_on_one_and_can_be_cancelled_anywhere()
 
     assert!(polls > 1);
 }
+
+const BUMP_SIDE: f64 = 100.0;
+const BUMP_KNOTS: [f64; 13] = [
+    0.0, 0.0, 0.0, 0.0, 0.51, 0.515, 0.52, 0.525, 0.53, 1.0, 1.0, 1.0, 1.0,
+];
+
+fn bumped_between_grid_nodes() -> Solid {
+    let count = BUMP_KNOTS.len() - 4;
+    let greville = |index: usize| {
+        BUMP_SIDE * (BUMP_KNOTS[index + 1] + BUMP_KNOTS[index + 2] + BUMP_KNOTS[index + 3]) / 3.0
+    };
+
+    let control_points = (0..count)
+        .flat_map(|row| {
+            (0..count).map(move |column| {
+                let raised = row == count / 2 && column == count / 2;
+                Point3::new(
+                    greville(column),
+                    greville(row),
+                    if raised { 10.5 } else { 10.0 },
+                )
+            })
+        })
+        .collect();
+    let sheet = crate::surface::BSplineSurface::new(
+        3,
+        3,
+        BUMP_KNOTS.to_vec(),
+        BUMP_KNOTS.to_vec(),
+        count,
+        control_points,
+        None,
+    )
+    .unwrap();
+    crate::fixtures::block_topped_by(BUMP_SIDE, 10.0, sheet)
+}
+
+fn points_along(piece: &ViewPiece) -> Vec<Point2> {
+    (0..=32)
+        .map(|step| piece.curve.point(piece.range.at(step as f64 / 32.0)))
+        .collect()
+}
+
+fn closes_up(pieces: &[&ViewPiece]) -> bool {
+    let ends: Vec<Point2> = pieces
+        .iter()
+        .flat_map(|piece| {
+            let (start, end) = ends(piece);
+            [start, end]
+        })
+        .collect();
+    ends.iter().enumerate().all(|(index, end)| {
+        ends.iter()
+            .enumerate()
+            .filter(|(other, _)| *other != index)
+            .any(|(_, other)| other.distance(*end) <= 1e-6)
+    })
+}
+
+#[test]
+fn a_bump_between_the_nodes_of_the_grid_on_a_spline_sheet_draws_its_closed_outline() {
+    let solid = bumped_between_grid_nodes();
+    let view = tilted_from_axis(80.0);
+
+    let lines = lines_of(&solid, &view);
+
+    let outline = silhouettes(&lines);
+    let bump = view
+        .frame()
+        .to_local(Point3::new(0.52 * BUMP_SIDE, 0.52 * BUMP_SIDE, 10.0));
+
+    assert!(
+        !outline.is_empty(),
+        "the bump's far slope turns away from the view"
+    );
+    assert!(
+        closes_up(&outline),
+        "the bump's outline is a closed loop: {outline:#?}"
+    );
+
+    for piece in &outline {
+        for point in points_along(piece) {
+            assert!(point.distance(bump) < 2.0, "{point:?} is not on the bump");
+        }
+    }
+    edge_totals(&solid, &lines, &view);
+}
+
+const DIP_ELEVATION: f64 = 80.0;
+const DIP_DEPTH: f64 = 5e-4;
+const DIP_CURVING: f64 = 10.0;
+const DIP_HEIGHT: f64 = -0.5 + 12.5 / 24.0;
+
+fn dip_slope() -> f64 {
+    (1.0 - DIP_DEPTH) * (90.0 - DIP_ELEVATION).to_radians().tan_libm()
+}
+
+fn dipping_profile() -> crate::bspline::BSpline<Point3> {
+    let shift = 0.5 + DIP_HEIGHT;
+    let slope = dip_slope();
+
+    let power = [
+        3.0 + slope * shift + DIP_CURVING / 3.0 * shift.powi(3),
+        -slope - DIP_CURVING * shift * shift,
+        DIP_CURVING * shift,
+        -DIP_CURVING / 3.0,
+    ];
+    let radii = [
+        power[0],
+        power[0] + power[1] / 3.0,
+        power[0] + 2.0 * power[1] / 3.0 + power[2] / 3.0,
+        power[0] + power[1] + power[2] + power[3],
+    ];
+    let control_points = radii
+        .iter()
+        .enumerate()
+        .map(|(index, radius)| Point3::new(*radius, 0.0, -0.5 + index as f64 / 3.0))
+        .collect();
+    crate::bspline::BSpline::new(
+        3,
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        control_points,
+    )
+    .unwrap()
+}
+
+fn level(height: f64) -> caditor_geometry::Plane {
+    caditor_geometry::Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X)
+        .unwrap()
+}
+
+fn dipping_turned_body(bottom: f64) -> Solid {
+    let profile = dipping_profile();
+    let surface =
+        crate::surface::Revolution::new(Curve::BSpline(profile.clone()), Point3::ZERO, Vector3::Z)
+            .unwrap();
+    let mut fixture = Fixture::new();
+
+    let (low, high) = (profile.point(bottom), profile.point(1.0));
+    let low_vertex = fixture.vertex(low);
+    let high_vertex = fixture.vertex(high);
+
+    let rim = |fixture: &mut Fixture, at: Point3, vertex| {
+        fixture.edge(
+            crate::curve::Circle::new(level(at.z), at.x).unwrap(),
+            Interval::FULL_TURN,
+            vertex,
+            vertex,
+        )
+    };
+    let lower = rim(&mut fixture, low, low_vertex);
+    let upper = rim(&mut fixture, high, high_vertex);
+    let seam = fixture.edge(
+        Curve::BSpline(profile),
+        Interval::new(bottom, 1.0).unwrap(),
+        low_vertex,
+        high_vertex,
+    );
+
+    fixture.face(
+        surface,
+        crate::sense::Sense::Same,
+        &[vec![
+            (lower, crate::sense::Sense::Same),
+            (seam, crate::sense::Sense::Same),
+            (upper, crate::sense::Sense::Reversed),
+            (seam, crate::sense::Sense::Reversed),
+        ]],
+    );
+    fixture.face(
+        crate::surface::PlaneSurface::new(level(high.z)).unwrap(),
+        crate::sense::Sense::Same,
+        &[vec![(upper, crate::sense::Sense::Same)]],
+    );
+    fixture.face(
+        crate::surface::PlaneSurface::new(level(low.z).flipped()).unwrap(),
+        crate::sense::Sense::Same,
+        &[vec![(lower, crate::sense::Sense::Reversed)]],
+    );
+    fixture.build()
+}
+
+fn looking_down_towards(azimuth: f64) -> HiddenLineView {
+    let (sin, cos) = (90.0 - DIP_ELEVATION).to_radians().sin_cos_libm();
+    let (across, along) = azimuth.sin_cos_libm();
+    HiddenLineView::new(
+        Vector3::new(sin * along, sin * across, -cos),
+        Vector3::new(cos * along, cos * across, sin),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_turned_dip_between_the_rows_of_the_grid_draws_its_closed_outline() {
+    let solid = dipping_turned_body(0.0);
+    let view = looking_down_towards(FRAC_PI_2);
+
+    let lines = lines_of(&solid, &view);
+
+    let outline = silhouettes(&lines);
+    let profile = dipping_profile();
+    let dip = profile.point(0.5 + DIP_HEIGHT);
+    let back = view.frame().to_local(Point3::new(0.0, dip.x, dip.z));
+
+    assert!(
+        !outline.is_empty(),
+        "the dip turns the back away from the view"
+    );
+    assert!(
+        closes_up(&outline),
+        "the dip's outline is a closed loop: {outline:#?}"
+    );
+
+    for piece in &outline {
+        for point in points_along(piece) {
+            assert!(point.distance(back) < 0.5, "{point:?} is not at the dip");
+        }
+    }
+    edge_totals(&solid, &lines, &view);
+}
+
+#[test]
+fn a_contour_folding_between_two_samples_of_a_rim_stops_at_the_rim() {
+    let rim_height = DIP_HEIGHT - 1e-3;
+    let solid = dipping_turned_body(0.5 + rim_height);
+    let profile = dipping_profile();
+
+    let radius = profile.point(0.5 + rim_height).x;
+    let rim = Curve::Circle(crate::curve::Circle::new(level(rim_height), radius).unwrap());
+    let samples = super::contour::sample_parameters(&rim, Interval::FULL_TURN, &tolerance());
+    let gap = samples
+        .windows(2)
+        .find(|pair| pair[0] <= FRAC_PI_2 && FRAC_PI_2 < pair[1])
+        .unwrap();
+    let view = looking_down_towards(0.5 * (gap[0] + gap[1]));
+
+    let scene = Scene::of(&[&solid]);
+    let (tracks, failed) = tracks_of_scene(&scene, view.frame(), &tolerance(), 1).unwrap();
+
+    let contours: Vec<&Track> = tracks
+        .iter()
+        .filter(|track| matches!(track.own, Own::Contour(_)))
+        .collect();
+
+    assert_eq!(failed, 0);
+    assert!(
+        !contours.is_empty(),
+        "the part of the dip inside the face is drawn"
+    );
+
+    for track in &contours {
+        for step in 0..=64 {
+            let point = track.curve.point(track.flat.range.at(step as f64 / 64.0));
+
+            assert!(
+                point.z >= rim_height - 1e-4,
+                "{point:?} lies past the rim at {rim_height}"
+            );
+        }
+    }
+
+    let lines = lines_of(&solid, &view);
+
+    edge_totals(&solid, &lines, &view);
+}
+
+#[test]
+fn looking_for_small_loops_and_folds_costs_normal_curved_parts_a_small_share_of_their_work() {
+    let views = [
+        from_front(),
+        from_above(),
+        tilted_from_axis(30.0),
+        tilted_from_axis(65.0),
+        oblique_over_a_plate(),
+    ];
+    let solids = [
+        ("spline dome", spline_topped_block(10.0, 4.0, 6.0)),
+        ("turned dome", dome_of_revolution()),
+        ("extruded spline", extruded_spline(5.0)),
+        (
+            "bumped block",
+            crate::fixtures::bumped_block(10.0, 4.0, 12, 2.0),
+        ),
+        ("perforated plate", perforated_plate(8, 0)),
+        ("sphere", sphere(3.0)),
+        ("torus", torus(4.0, 1.0)),
+    ];
+
+    for (name, solid) in &solids {
+        for view in &views {
+            let ((_, searched), work) = tally::measure(|| {
+                tally::measure_searched(|| {
+                    hidden_lines_on(&[solid], view, &tolerance(), 1).unwrap()
+                })
+            });
+
+            assert!(
+                5 * searched <= work,
+                "{name}: looking for what the samples miss took {searched} of {work} units"
+            );
+        }
+    }
+}

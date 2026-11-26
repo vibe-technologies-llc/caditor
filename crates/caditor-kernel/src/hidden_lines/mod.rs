@@ -1,8 +1,10 @@
+mod bernstein;
 mod contour;
 mod crossings;
 mod events;
 mod flatten;
 mod outline;
+mod small_loops;
 #[cfg(test)]
 mod tests;
 mod trace;

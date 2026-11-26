@@ -125,10 +125,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   resolve to the other edge without `Ambiguous` (`kernel-naming.md` calls the grid coarse enough
   never to swap them). Unreproduced; an order from the feature itself (the profile entity, the
   parameter along the generating curve) would not depend on placement.
-- [low · hard] A traced silhouette in `hidden_lines` on a revolution or spline face misses a closed
-  loop smaller than a cell of its grid (`hidden_lines/trace.rs`, `MAX_CELLS` a side), and a contour
-  folding in the gap between two samples of a bounding edge can run past the edge there
-  (`roots_among` brackets by sign changes at sampled points).
+- [low · hard] A traced silhouette in `hidden_lines` still misses a closed loop the search between
+  the grid's nodes passes by (`hidden_lines/small_loops.rs`): a second loop in one cell, one in or
+  next to a cell a contour crosses, one on a spline face of more than `MAX_BOUNDED_SPANS` spans or
+  past the `MAX_SEARCH_POINTS` and `MAX_FOUND` budgets, and on a revolution whose profile is not a
+  B-spline one between two rows where `n·d` shows no turn at them. A contour folding across a
+  bounding edge between two samples is cut only where the slopes at both samples show the turn
+  (`turning_points`), not where two folds share the gap.
 
 ## Sketch solver
 

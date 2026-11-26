@@ -63,13 +63,40 @@ paths:
   a saddle decided by its centre, keys wrapped across a periodic side so a contour closes round a
   seam) into chains, each crossing bisected on its grid side and corrected by Newton on
   `(Su × Sv)·d` (`on_contour`), and each chord halved while the corrected middle lies past the
-  tolerance (`refined`, `REFINE_DEPTH`, `MAX_CHAIN_POINTS`). A closed contour smaller than a grid
-  cell can be missed. A flat region counts as positive (`FLAT_FACING`), so a face seen wholly
-  edge-on has no contour and a partly flat one is outlined where it curves away.
+  tolerance (`refined`, `REFINE_DEPTH`, `MAX_CHAIN_POINTS`). A flat region counts as positive
+  (`FLAT_FACING`), so a face seen wholly edge-on has no contour and a partly flat one is outlined
+  where it curves away.
+- What lies between the grid's nodes is looked for before marching (`small_loops.rs`): a row and a
+  column are put through each point found, so a node carries it (the grid's lines need not be
+  evenly spaced, `step` is the widest gap). On a spline face `n·d` times positive factors is a
+  polynomial on each knot span, `(Su × Sv)·d` from the span's Bezier net
+  (`BSplineSurface::bezier_net`), `w (Au × Av)·d − wu (A × Av)·d + wv (A × Au)·d` in the homogeneous
+  `A`, `w` of a rational one, kept in Bernstein form (`bernstein.rs`), so its coefficients bound
+  its sign on any part of the span; `Quadrants` halves it, memoised, only where that bound is
+  mixed. A span is first settled from its B-spline net, every pair of the two hodographs' control
+  vectors (`net_bound`, non-rational), and its polynomial built only where those pairs disagree
+  (measured against one evaluation: a net bound costs about 1.5, a polynomial 10, a restriction 2).
+  A cell whose surrounding 4×4 nodes all share a class, so no contour crosses it or a neighbour
+  (where refining already follows a contour bulging past a grid line), and whose bound allows the
+  other class is searched by quarters to `MAX_SEARCH_DEPTH`, each centre evaluated, the first of
+  the other class kept. Bounds allow `BOUND_SLACK` of the factors' magnitudes, so a face seen
+  edge-on is not searched. On a revolution `n·d` round a parallel is `α + β cos(u − φ)`, so every
+  region of one class reaches a meridian facing the view most or least, or an end of a partial
+  turn: those meridians are grid columns (`meridians`), and each gap between two rows whose nodes
+  on them share a class is searched by halves under the profile's polynomial
+  `r (z′ (R(u) e_r)·d − r′ (axis·d))` (`R (c (Z′W − ZW′) − d_z (R′W − RW′))` for a rational profile)
+  when the profile is a B-spline, by the turning points of `n·d` between rows (below) otherwise.
+  Budgets: `MAX_SEARCH_POINTS` evaluations and `MAX_FOUND` points a face, and no search on a spline
+  face of more than `MAX_BOUNDED_SPANS` spans in its box. `tally::measure_searched` counts this work
+  and the turning points'.
 - Contours run past the face and are cut to it (`kept_ranges`): the roots of `n·d` along every
   bounding edge (`roots_among`, bisected) are the only places a contour can cross the boundary, so
   they are mapped onto it (when within reach) and the stretch between two is kept when its middle
-  lies strictly inside the face. A contour lying along an edge reads `OnBoundary` and is dropped,
+  lies strictly inside the face. Besides sign changes at the samples, a gap where `|n·d|` falls
+  leaving one sample and rises into the next (slopes by a forward difference of `SLOPE_STEP` of the
+  gap, `turning_points`) holds a turn, found by safeguarded cubic Hermite steps on the two values
+  and slopes (`TURN_STEPS`, `TURN_GUARD`); a turn of the other sign gives a root either side, so a
+  contour folding across the edge between two samples is cut at the edge. A contour lying along an edge reads `OnBoundary` and is dropped,
   since the edge draws it. The same roots split the edge.
 
 ## Crossings (`crossings.rs`)
@@ -161,4 +188,10 @@ paths:
   block holds crossings to the lines on its front face seen and on its back face hidden, blocks
   sharing face planes, touching or resting on each other and cylinders against or lying on a block
   to none, and `crossings_are_found_on_many_threads_as_on_one_and_can_be_cancelled_anywhere` the
-  crossing stage to the serial answer and to cancelling at every poll.
+  crossing stage to the serial answer and to cancelling at every poll. A bump on a spline sheet
+  between the grid's nodes, a dip of a turned profile between its rows, and that dip crossing the
+  rim between two of the rim's samples hold the search and the turning points to closed outlines
+  and to a contour stopping at the rim; `small_loops.rs` holds the span and profile polynomials to
+  the sign of `facing` on plain and rational surfaces, and
+  `looking_for_small_loops_and_folds_costs_normal_curved_parts_a_small_share_of_their_work` keeps
+  that work within a fifth of the tally on every curved fixture from five views.

@@ -7,8 +7,9 @@ use caditor_geometry::{Aabb2, Point2, Point3, Vector3};
 
 use super::{
     HiddenLineError,
-    contour::{Contour, chord_distance, facing},
+    contour::{Contour, chord_distance},
     flatten::polyline_curve,
+    small_loops::{self, Lattice, SAME_LINE, is_positive},
 };
 use crate::{
     curve::Curve, interrupt, interval::Domain, surface::Surface, tally,
@@ -21,7 +22,6 @@ const MAX_CELLS: usize = 128;
 const CELLS_PER_SPAN: usize = 4;
 const CELLS_PER_TURN: f64 = 64.0;
 const CROSSING_BISECTIONS: usize = 40;
-const FLAT_FACING: f64 = 1e-10;
 const NEWTON_STEPS: usize = 8;
 const ON_CONTOUR: f64 = 1e-11;
 const NEARLY_ON_CONTOUR: f64 = 1e-8;
@@ -101,6 +101,30 @@ fn cell_counts(surface: &Surface, low: Point2, high: Point2) -> (usize, usize) {
     }
 }
 
+fn with_lines(values: &[f64], extra: impl IntoIterator<Item = f64>) -> Vec<f64> {
+    let (Some(first), Some(last)) = (values.first().copied(), values.last().copied()) else {
+        return values.to_vec();
+    };
+
+    let apart = SAME_LINE * (last - first).abs();
+    let mut merged = values.to_vec();
+
+    for value in extra {
+        let inside = value > first + apart && value < last - apart;
+        if inside && merged.iter().all(|known| (known - value).abs() > apart) {
+            merged.push(value);
+        }
+    }
+    merged.sort_by(f64::total_cmp);
+    merged
+}
+
+fn index_of(values: &[f64], value: f64) -> Option<usize> {
+    values
+        .binary_search_by(|known| known.total_cmp(&value))
+        .ok()
+}
+
 impl<'a> Grid<'a> {
     fn new(surface: &'a Surface, uv_box: Aabb2, toward: Vector3) -> Result<Self, HiddenLineError> {
         let (u_low, u_high, wraps_u) = axis_range(
@@ -124,16 +148,26 @@ impl<'a> Grid<'a> {
         let us = axis_values(u_low, u_high, across);
         let vs = axis_values(v_low, v_high, along);
 
+        let ends = |values: &[f64]| {
+            (
+                values.first().copied().unwrap_or(0.0),
+                values.last().copied().unwrap_or(0.0),
+            )
+        };
+        let meridians = small_loops::meridians(surface, toward, ends(&us), ends(&vs));
+        let us = with_lines(&us, meridians);
+
         let mut positive = Vec::with_capacity(us.len() * vs.len());
 
         for v in &vs {
             interrupt::check()?;
             for u in &us {
                 tally::add(1);
-                positive.push(facing(surface, Point2::new(*u, *v), toward) >= -FLAT_FACING);
+                positive.push(is_positive(surface, Point2::new(*u, *v), toward));
             }
         }
-        Ok(Self {
+
+        let mut grid = Self {
             surface,
             toward,
             us,
@@ -141,7 +175,54 @@ impl<'a> Grid<'a> {
             wraps_u,
             wraps_v,
             positive,
-        })
+        };
+
+        let missed = small_loops::missed(&grid.lattice())?;
+
+        grid.insert(&missed)?;
+        Ok(grid)
+    }
+
+    fn lattice(&self) -> Lattice<'_> {
+        Lattice {
+            surface: self.surface,
+            toward: self.toward,
+            us: &self.us,
+            vs: &self.vs,
+            positive: &self.positive,
+            wraps_u: self.wraps_u,
+        }
+    }
+
+    fn insert(&mut self, points: &[Point2]) -> Result<(), HiddenLineError> {
+        if points.is_empty() {
+            return Ok(());
+        }
+
+        let us = with_lines(&self.us, points.iter().map(|point| point.x));
+        let vs = with_lines(&self.vs, points.iter().map(|point| point.y));
+
+        let mut positive = Vec::with_capacity(us.len() * vs.len());
+
+        for v in &vs {
+            interrupt::check()?;
+
+            let known_row = index_of(&self.vs, *v);
+            for u in &us {
+                let known = known_row
+                    .zip(index_of(&self.us, *u))
+                    .map(|(row, column)| self.sign(column, row));
+
+                positive.push(known.unwrap_or_else(|| {
+                    tally::add(1);
+                    is_positive(self.surface, Point2::new(*u, *v), self.toward)
+                }));
+            }
+        }
+        self.us = us;
+        self.vs = vs;
+        self.positive = positive;
+        Ok(())
     }
 
     fn sign(&self, column: usize, row: usize) -> bool {
@@ -156,11 +237,16 @@ impl<'a> Grid<'a> {
     }
 
     fn step(&self) -> f64 {
-        let step = |values: &[f64]| match values {
-            [first, second, ..] => (second - first).abs(),
-            _ => 0.0,
+        let widest = |values: &[f64]| {
+            values
+                .windows(2)
+                .map(|pair| match pair {
+                    [first, second] => (second - first).abs(),
+                    _ => 0.0,
+                })
+                .fold(0.0, f64::max)
         };
-        step(&self.us).max(step(&self.vs))
+        widest(&self.us).max(widest(&self.vs))
     }
 
     fn key(&self, side: Side, column: usize, row: usize) -> Key {
@@ -187,7 +273,7 @@ impl<'a> Grid<'a> {
     }
 
     fn positive_at(&self, uv: Point2) -> bool {
-        facing(self.surface, uv, self.toward) >= -FLAT_FACING
+        is_positive(self.surface, uv, self.toward)
     }
 
     fn crossing(&self, key: Key) -> Option<Point2> {

@@ -8,6 +8,7 @@ use crate::{
     interrupt,
     interval::Interval,
     surface::{Cone, Cylinder, Extrusion, Sphere, Surface, Torus},
+    tally,
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{FaceContainment, FaceId, SolidClassifier},
 };
@@ -15,6 +16,10 @@ use crate::{
 const SEEN_ALONG_AXIS: f64 = 1e-9;
 const ZERO_FACING: f64 = 1e-10;
 const BISECTIONS: usize = 60;
+const TURN_STEPS: usize = 8;
+const TURN_GUARD: f64 = 0.05;
+const FLAT_CUBIC: f64 = 1e-12;
+const SLOPE_STEP: f64 = 1e-7;
 const MIN_ROOT_SAMPLES: usize = 8;
 const BOX_MARGIN_SHARE: f64 = 1e-3;
 const BOX_MARGIN: f64 = 1e-3;
@@ -42,9 +47,13 @@ pub(super) fn roots_among(parameters: &[f64], mut value: impl FnMut(f64) -> f64)
         .iter()
         .map(|parameter| (*parameter, value(*parameter)))
         .collect();
+
+    tally::add(values.len());
+
+    let turns = turning_points(&values, &mut value);
     let mut roots = Vec::new();
 
-    for pair in values.windows(2) {
+    for (index, pair) in values.windows(2).enumerate() {
         let [(start, at_start), (end, at_end)] = pair else {
             continue;
         };
@@ -56,15 +65,183 @@ pub(super) fn roots_among(parameters: &[f64], mut value: impl FnMut(f64) -> f64)
             roots.push(*end);
         } else if !start_zero && !end_zero && at_start * at_end < 0.0 {
             roots.push(bisected(*start, *end, *at_start, &mut value));
+        } else if let Some(turn) = turns.iter().find(|turn| {
+            turn.after == index && turn.value.abs() > ZERO_FACING && turn.value * at_start < 0.0
+        }) {
+            roots.push(bisected(*start, turn.parameter, *at_start, &mut value));
+            roots.push(bisected(turn.parameter, *end, turn.value, &mut value));
         }
     }
     roots.dedup();
     roots
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Turn {
+    pub after: usize,
+    pub parameter: f64,
+    pub value: f64,
+}
+
+fn slope_step(values: &[(f64, f64)], index: usize) -> Option<f64> {
+    let at = |index: usize| values.get(index).map(|(parameter, _)| *parameter);
+    let here = at(index)?;
+    match at(index + 1) {
+        Some(next) => Some(SLOPE_STEP * (next - here)),
+        None => Some(-SLOPE_STEP * (here - at(index.checked_sub(1)?)?)),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Probe {
+    parameter: f64,
+    value: f64,
+    slope: f64,
+}
+
+pub(super) fn turning_points(
+    values: &[(f64, f64)],
+    value: &mut impl FnMut(f64) -> f64,
+) -> Vec<Turn> {
+    let mut slopes: Vec<Option<f64>> = vec![None; values.len()];
+
+    let mut probe_at = |index: usize, value: &mut dyn FnMut(f64) -> f64| {
+        let (parameter, at) = values.get(index).copied()?;
+
+        if let Some(Some(slope)) = slopes.get(index) {
+            return Some(Probe {
+                parameter,
+                value: at,
+                slope: *slope,
+            });
+        }
+
+        let step = slope_step(values, index)?;
+
+        tally::add_searched(1);
+
+        let slope = (value(parameter + step) - at) / step;
+
+        if let Some(slot) = slopes.get_mut(index) {
+            *slot = Some(slope);
+        }
+        Some(Probe {
+            parameter,
+            value: at,
+            slope,
+        })
+    };
+    let mut turns = Vec::new();
+
+    for index in 0..values.len().saturating_sub(1) {
+        let (Some((_, at_start)), Some((_, at_end))) = (values.get(index), values.get(index + 1))
+        else {
+            continue;
+        };
+
+        if at_start * at_end <= 0.0 {
+            continue;
+        }
+
+        let Some(low) = probe_at(index, value).filter(|probe| probe.slope * probe.value < 0.0)
+        else {
+            continue;
+        };
+        let Some(high) = probe_at(index + 1, value).filter(|probe| probe.slope * probe.value > 0.0)
+        else {
+            continue;
+        };
+
+        turns.push(turned(index, low, high, value));
+    }
+    turns
+}
+
+fn hermite_turn(low: Probe, high: Probe) -> f64 {
+    let width = high.parameter - low.parameter;
+    let (start_slope, end_slope) = (low.slope * width, high.slope * width);
+
+    let square = 3.0 * (2.0 * (low.value - high.value) + start_slope + end_slope);
+    let linear = 2.0 * (3.0 * (high.value - low.value) - 2.0 * start_slope - end_slope);
+
+    let fraction = if square.abs() <= FLAT_CUBIC * (linear.abs() + start_slope.abs()) {
+        -start_slope / linear
+    } else {
+        let discriminant = linear * linear - 4.0 * square * start_slope;
+        let root = discriminant.max(0.0).sqrt();
+        [
+            (-linear - root) / (2.0 * square),
+            (-linear + root) / (2.0 * square),
+        ]
+        .into_iter()
+        .filter(|fraction| *fraction > 0.0 && *fraction < 1.0)
+        .fold(f64::NAN, f64::min)
+    };
+    if fraction.is_finite() {
+        fraction.clamp(TURN_GUARD, 1.0 - TURN_GUARD)
+    } else {
+        0.5
+    }
+}
+
+fn turned(
+    after: usize,
+    mut low: Probe,
+    mut high: Probe,
+    value: &mut impl FnMut(f64) -> f64,
+) -> Turn {
+    let sign = low.value;
+    let step = SLOPE_STEP * (high.parameter - low.parameter);
+
+    for _ in 0..TURN_STEPS {
+        if high.parameter - low.parameter <= 4.0 * step {
+            break;
+        }
+
+        let parameter = low.parameter + (high.parameter - low.parameter) * hermite_turn(low, high);
+
+        tally::add_searched(1);
+
+        let at = value(parameter);
+
+        if at * sign <= 0.0 {
+            return Turn {
+                after,
+                parameter,
+                value: at,
+            };
+        }
+
+        tally::add_searched(1);
+
+        let probe = Probe {
+            parameter,
+            value: at,
+            slope: (value(parameter + step) - at) / step,
+        };
+        if probe.slope * sign < 0.0 {
+            low = probe;
+        } else {
+            high = probe;
+        }
+    }
+
+    let nearest = if low.value.abs() <= high.value.abs() {
+        low
+    } else {
+        high
+    };
+    Turn {
+        after,
+        parameter: nearest.parameter,
+        value: nearest.value,
+    }
+}
+
 fn bisected(mut low: f64, mut high: f64, at_low: f64, value: &mut impl FnMut(f64) -> f64) -> f64 {
     let sign = at_low.signum();
 
+    tally::add(BISECTIONS);
     for _ in 0..BISECTIONS {
         let middle = 0.5 * (low + high);
         if value(middle).signum() == sign {
