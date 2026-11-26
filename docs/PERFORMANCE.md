@@ -42,17 +42,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Skipping the leaves of a branch already found needs that branch traced during subdivision,
   ahead of the hints and of the isolated-touch search, which today see every seed before
   anything is traced, so it was left for the 2 ms it would save at most.
-- [low · medium] Exact mass of a swept or threaded face still spends a 15-point rule each way per
-  piece: `measure/swept_tests.rs` measures a 1 mm round pipe along three turns of a 10 mm, 4 mm
-  pitch helix in about 1.4 million evaluations (0.3 s in the test build), along three turns of a
-  flat spiral in 2.8 million (0.6 s) and a threaded M4×20 shaft in 3.0 million, against 25, 20 and
-  25 million before, when three, one and one of their faces were given up to the mesh. The pipes
-  pay for the fit's 512 cubic spans a turn (1,024 for the spiral), crossed by a 15-point strip at
-  each node of the section edges; the shaft's 60 flanks are 2.6 million of it, their crest edges'
-  150 marched pieces a turn each taking a 15-point strip across the ruling. A Gauss rule of the
-  moments' polynomial degree along a non-rational direction, and a closed-form area across a
-  ruling (the normal is linear there, so every moment is a polynomial and the area the integral of
-  a quadratic's root), would cut these by about half and four times.
+- [low · medium] Exact mass along a marched boundary still spends a 15-point rule per piece:
+  `measure/swept_tests.rs` measures a threaded M4×20 shaft in about 615 thousand evaluations
+  (3.0 million while strips took a 15-point rule too), half of them the nodes of its 20,500
+  boundary estimates, mostly along the crest edges of its flanks and crest band (150 marched pieces
+  a turn), the other half the one-evaluation ruled strips at those nodes. A smaller Gauss–Kronrod
+  pair along intersection curves, whose marched pieces are short, might halve that again if it
+  keeps the boundary tolerance. The pipes along three helix turns (751 thousand, from 1.4 million)
+  and a flat spiral (1.5 million, from 2.8) are the exact 8-point strips across the 256 cubic spans
+  (512 on the spiral) between each turn's middle and the 120 nodes of its section edges.
 - [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
   points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
   its triangles in twelve: each strip triangulates its core and a reach of about the widest empty

@@ -7,17 +7,18 @@ use crate::{
     boolean::{BooleanOperation, boolean},
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
     fixtures::{
-        bumped_block, bumped_sheet, cone, cuboid, cylinder, extruded_spline, holed_block, sphere,
-        spline_profile, torus,
+        CUBOID_FACES, Fixture, bumped_block, bumped_sheet, cone, cuboid, cuboid_vertices, cylinder,
+        extruded_spline, holed_block, sphere, spline_profile, torus,
     },
     interval::Interval,
     numeric::integrate,
     profile::{Profile, Region, Selection},
-    surface::Surface,
+    sense::Sense,
+    surface::{BSplineSurface, Surface},
     tessellation::{MassProperties, SecondMoment},
     test_support::{line, spline},
     tolerance::SamplingTolerance,
-    topology::Solid,
+    topology::{FaceId, Solid},
 };
 
 const RELATIVE: f64 = 1e-9;
@@ -579,4 +580,127 @@ fn extents_find_a_bump_inside_a_spline_face() {
 
     assert!(bounds.max().z >= highest);
     assert!(bounds.max().z - highest < 1e-9);
+}
+
+const PINCH_SIDE: f64 = 10.0;
+const PINCH_HEIGHT: f64 = 3.0;
+const PINCH_BUMP: f64 = 2.5;
+const PINCH_AT: f64 = 0.3;
+const PINCH_SPEED: f64 = 1e-3;
+const PINCH_WEIGHT: f64 = 0.8;
+const PINCH_AREA: f64 = 1e-10;
+
+fn pinched_sheet() -> BSplineSurface {
+    let cube = |at: f64| (at - PINCH_AT).powi(3) + PINCH_SPEED * (at - PINCH_AT);
+    let scale = PINCH_SIDE / (cube(1.0) - cube(-1.0));
+    let along_rate = |at: f64| 2.0 * scale * (3.0 * (at - PINCH_AT).powi(2) + PINCH_SPEED);
+    let lean = 2.0 * PINCH_AT / (1.0 - 3.0 * PINCH_AT * PINCH_AT);
+
+    let along = [
+        0.0,
+        along_rate(-1.0) / 3.0,
+        PINCH_SIDE - along_rate(1.0) / 3.0,
+        PINCH_SIDE,
+    ];
+    let rise = [
+        0.0,
+        4.0 * PINCH_BUMP * (1.0 - lean) / 3.0,
+        4.0 * PINCH_BUMP * (1.0 + lean) / 3.0,
+        0.0,
+    ];
+    let (across, lift) = ([0.0, 0.5, 1.0], [0.0, 2.0, 0.0]);
+
+    let control_points = across
+        .iter()
+        .zip(lift)
+        .flat_map(|(across, lift)| {
+            along.iter().zip(rise).map(move |(along, rise)| {
+                Point3::new(*along, PINCH_SIDE * across, PINCH_HEIGHT + rise * lift)
+            })
+        })
+        .collect();
+    let weights = [1.0, PINCH_WEIGHT, 1.0]
+        .into_iter()
+        .flat_map(|weight| [weight; 4])
+        .collect();
+    BSplineSurface::new(
+        3,
+        2,
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        4,
+        control_points,
+        Some(weights),
+    )
+    .unwrap()
+}
+
+fn block_under(top: BSplineSurface) -> (Solid, FaceId) {
+    let mut fixture = Fixture::new();
+
+    let vertices = cuboid_vertices(
+        &mut fixture,
+        Point3::ZERO,
+        Point3::new(PINCH_SIDE, PINCH_SIDE, PINCH_HEIGHT),
+    );
+    let mut top_face = None;
+
+    for (index, face) in CUBOID_FACES.iter().enumerate() {
+        let corners: Vec<_> = face.iter().map(|corner| vertices[*corner]).collect();
+        if index == 1 {
+            let coedges = fixture.polygon_loop(&corners);
+
+            top_face = Some(fixture.face(top.clone(), Sense::Same, &[coedges]));
+        } else {
+            fixture.polygon(&corners, &[]);
+        }
+    }
+    (fixture.build(), top_face.unwrap())
+}
+
+fn graded_breaks(around: f64, uniform: usize) -> Vec<f64> {
+    let mut breaks: Vec<f64> = (0..=uniform)
+        .map(|step| step as f64 / uniform as f64)
+        .collect();
+
+    for doubling in 0..30 {
+        let reach = 1e-9 * 2.0_f64.powi(doubling);
+
+        breaks.extend(
+            [around - reach, around + reach]
+                .into_iter()
+                .filter(|at| (0.0..=1.0).contains(at)),
+        );
+    }
+    breaks.push(around);
+    breaks.sort_by(f64::total_cmp);
+    breaks.dedup();
+    breaks
+}
+
+#[test]
+fn a_spline_face_whose_normal_nearly_vanishes_inside_a_span_measures_its_area_exactly() {
+    let top = pinched_sheet();
+    let (solid, face) = block_under(top.clone());
+
+    let pinch = 0.5 * (1.0 + PINCH_AT);
+    let (along, across) = (graded_breaks(pinch, 64), graded_breaks(0.5, 16));
+    let surface = Surface::from(top);
+
+    let pinched = surface.evaluate(pinch, 0.5);
+    let open = surface.evaluate(0.1, 0.5);
+
+    let expected = integrate(&along, |u| {
+        integrate(&across, |v| {
+            let at = surface.evaluate(u, v);
+            at.du.cross(at.dv).length()
+        })
+    });
+    let found = face_area(&solid, face).unwrap().unwrap();
+
+    assert!(pinched.du.length() < 1e-2 * open.du.length());
+    assert!(
+        (found - expected).abs() <= PINCH_AREA * expected,
+        "{found} against {expected}"
+    );
 }

@@ -384,32 +384,52 @@ paths:
   coedge's projected end to the next one's start (about 1e-10 on a torus cut by its shifted copy)
   adds the strip at its middle times the step (`gap_integral`), unless wider than `GAP_LIMIT` of
   the domain (a period across a seam). With both, that face measures the same either way within
-  5e-11 of its volume, so neighbours may strip in different directions. Both integrals are
-  adaptive Gauss–Kronrod (`quadrature.rs`, 15 points, bisecting until the 7-point error is within
-  a relative tolerance of its own magnitude or an absolute floor scaled to the body), broken at
-  quarter turns, curve and surface knots and where a boundary crosses a knot line, so each piece is
-  smooth. A boundary running along a knot line within `KINK_SLACK` (a pipe's seam on its periodic
-  knot) crosses nothing, and breaks within `SLIVER` (1e-9 of the range) of an end or of each other
-  merge, so no piece is a rounding-sized sliver bisected to depth 30. A strip across a rational
-  spline halves each span first (the 7-point estimate on a rational quarter circle is 2e-11 off),
-  and one across a direction in which every component is at most cubic (a plane, a cylinder's or
-  extrusion's v) is two-point Gauss, exact. Values are about the centre of the box of edges, which
-  keeps second moments from cancelling. A face that does not converge within `FACE_EVALUATIONS`,
-  or meets a non-finite value, takes its mesh triangles instead and is listed in
-  `SolidMass::meshed_faces`. The boundary integrand (a strip integral times the rate of the
-  projected edge point) carries noise of about 1e-11 of its largest value, however small it is
-  where the boundary turns, so a piece is also accepted when its error is within `BOUNDARY_NOISE`
-  (1e-10) of the largest density seen so far times its length (`Tolerance::noise`; strips have
-  none). Without it a thin sphere lens (a sphere 1.6e-4 off centre in a torus's inner equator)
-  bisected to depth 30 at every such turn, spent the budget and went to the mesh, which read its
-  mass 8e-3 off in 474. Every evaluation is counted in the `tally`: `measure/swept_tests.rs` holds
-  a 1 mm round pipe along three helix turns to 1.5 million (about 1.4), along three turns of a flat
-  spiral to 3 million (2.8) and a threaded M4×20 shaft to 3.3 million (3.0), none meshed, the
-  pipes within 1e-6 of their analytic volumes (the path's own approximation) and 1e-10 of a tensor
-  Gauss rule over their faces' knot cells, the shaft within 1e-6 of the analytic groove.
-  `mass_properties_tessellating` takes a sampling tolerance and tessellates only when some face does
-  not converge (failure is `MeasureError::Meshing`). `face_area` is the same integral for one face
-  (`None` when it gives up).
+  5e-11 of its volume, so neighbours may strip in different directions. The boundary integral is
+  adaptive Gauss–Kronrod (`quadrature.rs`, 15 points, bisecting until the 7-point error is within a
+  relative tolerance of its own magnitude or an absolute floor scaled to the body), and so is a
+  strip across a direction where the surface is not polynomial; both are broken at quarter turns,
+  curve and surface knots and where a boundary crosses a knot line, so each piece is smooth. A
+  boundary running along a knot line within `KINK_SLACK` (a pipe's seam on its periodic knot)
+  crosses nothing, and breaks within `SLIVER` (1e-9 of the range) of an end or of each other merge,
+  so no piece is a rounding-sized sliver bisected to depth 30. A strip across a rational spline
+  halves each span first (the 7-point estimate on a rational quarter circle is 2e-11 off). Across a
+  polynomial direction a strip takes a fixed rule per piece instead (`StripKind`): with the point of
+  degree p and the normal of degree q along it (`degrees_across`: a spline direction whose weights
+  do not vary along it is p and 2p − 1, an extrusion's u on a line or non-rational spline profile p
+  and p − 1, a revolution's v on one p and 2p − 1), every moment is a polynomial of degree at most
+  3p + q (the second moments' x x (x · n)), so Gauss–Legendre with (3p + q)/2 + 1 points
+  (`gauss_legendre`, Newton on the Legendre recurrence) is exact on each piece between knots, 8
+  points across a cubic instead of 15 or more. The area's density, the root of a polynomial, takes
+  the same points while the normal's length varies by at most `AREA_SPREAD` (5%) over them, which
+  keeps it within 5e-15 even when that variation is a complex zero of the squared normal close to
+  the piece (the pipes' areas are within 1e-13 of a tensor rule on half spans, and no piece of
+  theirs varies more); a piece that varies more, its normal nearly vanishing inside it or the
+  surface bending, takes the adaptive 15-point rule for its area alone, the moments staying on the
+  exact rule. Without it a cubic patch whose normal nearly vanishes inside its span read its area
+  1e-3 off (`mass_tests.rs`, within 1e-10 with it). A rule of 15 points or more stays adaptive.
+  Across a ruling (p and q at most 1: a plane, a cylinder's, cone's or extrusion's v, a thread
+  flank's degree-one v) one evaluation at the middle of the piece gives the point and the normal
+  along the whole ruling, the point moving by the ruling's derivative and the normal turning by the
+  ruling crossed with the mixed derivative, so the moments are three-point Gauss (`QUARTIC_RULE`,
+  exact to degree 5) on those lines and the area the closed form of a quadratic's root
+  (`mean_length`, split into the normal's part along its change and the height square to it, so it
+  neither cancels when the normal barely turns nor divides by zero where the normal passes through
+  it). Values are about the centre of the box of edges, which keeps second moments from cancelling.
+  A face that does not converge within `FACE_EVALUATIONS`, or meets a non-finite value, takes its
+  mesh triangles instead and is listed in `SolidMass::meshed_faces`. The boundary integrand (a strip
+  integral times the rate of the projected edge point) carries noise of about 1e-11 of its largest
+  value, however small it is where the boundary turns, so a piece is also accepted when its error is
+  within `BOUNDARY_NOISE` (1e-10) of the largest density seen so far times its length
+  (`Tolerance::noise`; strips have none). Without it a thin sphere lens (a sphere 1.6e-4 off centre
+  in a torus's inner equator) bisected to depth 30 at every such turn, spent the budget and went to
+  the mesh, which read its mass 8e-3 off in 474. Every evaluation is counted in the `tally`:
+  `measure/swept_tests.rs` holds a 1 mm round pipe along three helix turns to 800 thousand (about
+  751), along three turns of a flat spiral to 1.6 million (1.5) and a threaded M4×20 shaft to 650
+  thousand (615), none meshed, the pipes' volumes within 1e-6 of their analytic ones (the path's own
+  approximation) and their volumes and areas within 1e-10 of a tensor Gauss rule over their faces'
+  knot cells, the shaft within 1e-6 of the analytic groove. `mass_properties_tessellating` takes a
+  sampling tolerance and tessellates only when some face does not converge (failure is
+  `MeasureError::Meshing`). `face_area` is the same integral for one face (`None` when it gives up).
 - `extent` is the tight box, not a bound like `Solid::bounding_box`: vertices, conic edges'
   closed-form extremes, spline and intersection edges' critical points along each axis, sphere and
   torus extremes inside their faces, and for revolution and spline faces whose hull reaches past

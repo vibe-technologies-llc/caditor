@@ -4,7 +4,10 @@ use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
 
 use super::{
     MeasureError,
-    quadrature::{self, Budget, COMPONENTS, Quadrature, Tolerance, Values, scaled},
+    quadrature::{
+        self, Budget, COMPONENTS, KRONROD_EVALUATIONS, QUARTIC_RULE, Quadrature, Tolerance, Values,
+        scaled,
+    },
 };
 use crate::{
     curve::Curve,
@@ -28,6 +31,8 @@ const BISECTION_EPSILON: f64 = 1e-15;
 const KINK_SLACK: f64 = 1e-9;
 const LEVEL_SLACK: f64 = 1e-10;
 const GAP_LIMIT: f64 = 1e-6;
+const RULED_EVALUATIONS: usize = 1;
+const AREA_SPREAD: f64 = 1.05;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SolidMass {
@@ -204,11 +209,19 @@ fn face_moments(
         Parameter::V => (v_range, u_range),
     };
 
+    let rule = match StripKind::of(surface, across) {
+        StripKind::Ruled => StripRule::Ruled,
+        StripKind::Gauss(points) => StripRule::Gauss {
+            rule: quadrature::gauss_legendre(points),
+            fallback: frame.strip_tolerance(along_range),
+        },
+        StripKind::Adaptive => StripRule::Adaptive(frame.strip_tolerance(along_range)),
+    };
     let domain = Domain {
         surface,
         across,
         middle: strip_range.middle(),
-        strip: frame.strip_tolerance(along_range),
+        rule,
         u_kinks: surface_u_kinks(surface, u_range),
         v_kinks: surface_v_kinks(surface, v_range),
     };
@@ -300,7 +313,7 @@ struct Domain<'a> {
     surface: &'a Surface,
     across: Parameter,
     middle: f64,
-    strip: Tolerance,
+    rule: StripRule,
     u_kinks: Vec<f64>,
     v_kinks: Vec<f64>,
 }
@@ -318,7 +331,7 @@ fn strip_parameter(
     let cost = |across: Parameter, range: Interval, along: Interval| {
         let strip = strip_pieces(surface, across, range)
             .len()
-            .saturating_mul(strip_evaluations(surface, across));
+            .saturating_mul(StripKind::of(surface, across).evaluations());
 
         coedges
             .iter()
@@ -576,15 +589,25 @@ fn strip(domain: &Domain<'_>, uv: Point2, reference: Point3, budget: &Budget) ->
     };
 
     let pieces = strip_pieces(surface, across, range);
-    let integrand = |parameter: f64| {
-        let at = across.with(uv, parameter);
-        density(&surface.evaluate(at.x, at.y), reference)
-    };
+    let integrand =
+        |parameter: f64| surface_density(surface, across.with(uv, parameter), reference);
 
-    let found = if is_linear_across(surface, across) {
-        quadrature::integrate_cubic(pieces, budget, integrand)
-    } else {
-        quadrature::integrate(pieces, &domain.strip, budget, integrand)
+    let found = match &domain.rule {
+        StripRule::Ruled => {
+            quadrature::integrate_pieces(pieces, RULED_EVALUATIONS, budget, |piece| Quadrature {
+                values: ruled_piece(surface, across, uv, piece, reference),
+                converged: true,
+            })
+        }
+        StripRule::Gauss { rule, fallback } => {
+            quadrature::integrate_pieces(pieces, rule.len(), budget, |piece| {
+                let fallback = fallback.shared(piece.length() / range.length());
+                polynomial_piece(piece, rule, &fallback, budget, integrand)
+            })
+        }
+        StripRule::Adaptive(tolerance) => {
+            quadrature::integrate(pieces, tolerance, budget, integrand)
+        }
     };
     Quadrature {
         values: scaled(&found.values, sign),
@@ -621,10 +644,7 @@ fn is_rational_across(spline: &BSplineSurface, across: Parameter) -> bool {
     let columns = spline.columns().max(1);
 
     match across {
-        Parameter::U => weights.chunks(columns).any(|row| {
-            row.windows(2)
-                .any(|pair| matches!(pair, [first, second] if first != second))
-        }),
+        Parameter::U => weights.chunks(columns).any(varies),
         Parameter::V => (0..columns).any(|column| {
             let mut down = weights.iter().skip(column).step_by(columns);
             down.next()
@@ -633,25 +653,217 @@ fn is_rational_across(spline: &BSplineSurface, across: Parameter) -> bool {
     }
 }
 
-fn strip_evaluations(surface: &Surface, across: Parameter) -> usize {
-    if is_linear_across(surface, across) {
-        quadrature::CUBIC_EVALUATIONS
-    } else {
-        quadrature::KRONROD_EVALUATIONS
+#[derive(Clone, Debug, PartialEq)]
+enum StripRule {
+    Ruled,
+    Gauss {
+        rule: Vec<(f64, f64)>,
+        fallback: Tolerance,
+    },
+    Adaptive(Tolerance),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StripKind {
+    Ruled,
+    Gauss(usize),
+    Adaptive,
+}
+
+impl StripKind {
+    fn of(surface: &Surface, across: Parameter) -> Self {
+        let Some(degrees) = degrees_across(surface, across) else {
+            return Self::Adaptive;
+        };
+
+        if degrees.point <= 1 && degrees.normal <= 1 {
+            return Self::Ruled;
+        }
+
+        let moments = degrees
+            .point
+            .saturating_mul(3)
+            .saturating_add(degrees.normal);
+        let points = moments / 2 + 1;
+
+        if points < KRONROD_EVALUATIONS {
+            Self::Gauss(points)
+        } else {
+            Self::Adaptive
+        }
+    }
+
+    fn evaluations(self) -> usize {
+        match self {
+            Self::Ruled => RULED_EVALUATIONS,
+            Self::Gauss(points) => points,
+            Self::Adaptive => KRONROD_EVALUATIONS,
+        }
     }
 }
 
-fn is_linear_across(surface: &Surface, across: Parameter) -> bool {
-    matches!(
-        (surface, across),
-        (Surface::Plane(_), _) | (Surface::Cylinder(_) | Surface::Extrusion(_), Parameter::V)
-    )
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Degrees {
+    point: usize,
+    normal: usize,
 }
 
-fn density(at: &SurfaceDerivatives, reference: Point3) -> Values {
-    let normal = at.du.cross(at.dv);
-    let x = at.point - reference;
+impl Degrees {
+    const FLAT: Self = Self {
+        point: 1,
+        normal: 0,
+    };
 
+    fn extruded(profile: usize) -> Self {
+        Self {
+            point: profile,
+            normal: profile.saturating_sub(1),
+        }
+    }
+
+    fn swept(along: usize) -> Self {
+        Self {
+            point: along,
+            normal: along.saturating_mul(2).saturating_sub(1),
+        }
+    }
+}
+
+fn degrees_across(surface: &Surface, across: Parameter) -> Option<Degrees> {
+    match (surface, across) {
+        (Surface::Plane(_), _) | (Surface::Cylinder(_) | Surface::Extrusion(_), Parameter::V) => {
+            Some(Degrees::FLAT)
+        }
+        (Surface::Cone(_), Parameter::V) => Some(Degrees::swept(1)),
+        (Surface::Extrusion(extrusion), Parameter::U) => {
+            polynomial_degree(extrusion.profile()).map(Degrees::extruded)
+        }
+        (Surface::Revolution(revolution), Parameter::V) => {
+            polynomial_degree(revolution.profile()).map(Degrees::swept)
+        }
+        (Surface::BSpline(spline), Parameter::U) if !is_rational_across(spline, across) => {
+            Some(Degrees::swept(spline.u_degree()))
+        }
+        (Surface::BSpline(spline), Parameter::V) if !is_rational_across(spline, across) => {
+            Some(Degrees::swept(spline.v_degree()))
+        }
+        _ => None,
+    }
+}
+
+fn polynomial_degree(curve: &Curve) -> Option<usize> {
+    match curve {
+        Curve::Line(_) => Some(1),
+        Curve::BSpline(spline) if !spline.weights().is_some_and(varies) => Some(spline.degree()),
+        Curve::BSpline(_) | Curve::Circle(_) | Curve::Ellipse(_) | Curve::Intersection(_) => None,
+    }
+}
+
+fn varies(values: &[f64]) -> bool {
+    values
+        .windows(2)
+        .any(|pair| matches!(pair, [first, second] if first != second))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Linear {
+    centre: Vector3,
+    slope: Vector3,
+}
+
+impl Linear {
+    fn at(self, node: f64) -> Vector3 {
+        self.centre + self.slope * node
+    }
+}
+
+fn ruled_piece(
+    surface: &Surface,
+    across: Parameter,
+    uv: Point2,
+    piece: Interval,
+    reference: Point3,
+) -> Values {
+    let half = 0.5 * piece.length();
+    let middle = across.with(uv, piece.middle());
+    let at = surface.evaluate(middle.x, middle.y);
+
+    let (ruling, turning) = match across {
+        Parameter::U => (at.du, at.du.cross(at.duv)),
+        Parameter::V => (at.dv, at.duv.cross(at.dv)),
+    };
+    let offset = Linear {
+        centre: at.point - reference,
+        slope: ruling * half,
+    };
+    let normal = Linear {
+        centre: at.du.cross(at.dv),
+        slope: turning * half,
+    };
+    let mut values = [0.0; COMPONENTS];
+
+    for (node, weight) in QUARTIC_RULE {
+        quadrature::add(
+            &mut values,
+            &density(offset.at(node), normal.at(node)),
+            weight * half,
+        );
+    }
+    if let Some(area) = values.first_mut() {
+        *area = quadrature::mean_length(normal.at(-1.0), normal.at(1.0)) * piece.length();
+    }
+    values
+}
+
+fn polynomial_piece(
+    piece: Interval,
+    rule: &[(f64, f64)],
+    fallback: &Tolerance,
+    budget: &Budget,
+    integrand: impl Fn(f64) -> Values,
+) -> Quadrature {
+    let (mut least, mut most) = (f64::INFINITY, 0.0_f64);
+
+    let mut values = quadrature::gauss(piece, rule, |parameter| {
+        let found = integrand(parameter);
+        let area = found.first().copied().unwrap_or(0.0);
+
+        least = least.min(area);
+        most = most.max(area);
+        found
+    });
+
+    if most <= AREA_SPREAD * least {
+        return Quadrature {
+            values,
+            converged: true,
+        };
+    }
+
+    let area = quadrature::integrate([piece], fallback, budget, |parameter| {
+        let mut found = [0.0; COMPONENTS];
+
+        if let (Some(area), Some(density)) = (found.first_mut(), integrand(parameter).first()) {
+            *area = *density;
+        }
+        found
+    });
+
+    if let (Some(kept), Some(adaptive)) = (values.first_mut(), area.values.first()) {
+        *kept = *adaptive;
+    }
+    Quadrature {
+        values,
+        converged: area.converged,
+    }
+}
+
+fn surface_density(surface: &Surface, uv: Point2, reference: Point3) -> Values {
+    let at = surface.evaluate(uv.x, uv.y);
+    density(at.point - reference, at.du.cross(at.dv))
+}
+
+fn density(x: Vector3, normal: Vector3) -> Values {
     let flux = x.dot(normal);
     let (third, quarter, fifth) = (flux / 3.0, flux / 4.0, flux / 5.0);
     [

@@ -1,4 +1,6 @@
-use std::cell::Cell;
+use std::{cell::Cell, f64::consts::PI};
+
+use caditor_geometry::{Maths, Vector3};
 
 use crate::{interval::Interval, tally};
 
@@ -37,10 +39,15 @@ const GAUSS_WEIGHTS: [f64; 8] = [
 ];
 const MAX_DEPTH: usize = 30;
 pub(crate) const KRONROD_EVALUATIONS: usize = 15;
-pub(crate) const CUBIC_EVALUATIONS: usize = CUBIC_NODES.len();
 const MAX_STEPS: usize = 4096;
 const SLIVER: f64 = 1e-9;
-const CUBIC_NODES: [f64; 2] = [-0.577_350_269_189_625_8, 0.577_350_269_189_625_8];
+const NEWTON_STEPS: usize = 64;
+const NODE_STEP: f64 = 1e-16;
+pub(crate) const QUARTIC_RULE: [(f64, f64); 3] = [
+    (-0.774_596_669_241_483_4, 0.555_555_555_555_555_6),
+    (0.0, 0.888_888_888_888_888_8),
+    (0.774_596_669_241_483_4, 0.555_555_555_555_555_6),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Tolerance {
@@ -51,6 +58,13 @@ pub(crate) struct Tolerance {
 }
 
 impl Tolerance {
+    pub(crate) fn shared(&self, share: f64) -> Self {
+        Self {
+            floor: scaled(&self.floor, share),
+            ..*self
+        }
+    }
+
     fn accepts(&self, error: &Values, magnitude: &Values, share: f64, noise: &Values) -> bool {
         let reach = magnitude.first().copied().unwrap_or(0.0);
         error
@@ -206,30 +220,129 @@ pub(crate) fn integrate(
     Quadrature { values, converged }
 }
 
-pub(crate) fn integrate_cubic(
+pub(crate) fn integrate_pieces(
     pieces: impl IntoIterator<Item = Interval>,
+    evaluations: usize,
     budget: &Budget,
-    mut integrand: impl FnMut(f64) -> Values,
+    mut piece_integral: impl FnMut(Interval) -> Quadrature,
 ) -> Quadrature {
     let mut values = [0.0; COMPONENTS];
+    let mut converged = true;
 
     for piece in pieces {
-        if !budget.spend(CUBIC_EVALUATIONS) {
+        if !budget.spend(evaluations) {
             return Quadrature {
                 values,
                 converged: false,
             };
         }
 
-        let half = 0.5 * piece.length();
+        let found = piece_integral(piece);
 
-        for node in CUBIC_NODES {
-            add(&mut values, &integrand(piece.middle() + half * node), half);
-        }
+        converged &= found.converged;
+        add(&mut values, &found.values, 1.0);
     }
     Quadrature {
-        converged: values.iter().all(|value| value.is_finite()),
+        converged: converged && values.iter().all(|value| value.is_finite()),
         values,
+    }
+}
+
+pub(crate) fn gauss(
+    piece: Interval,
+    rule: &[(f64, f64)],
+    mut integrand: impl FnMut(f64) -> Values,
+) -> Values {
+    let half = 0.5 * piece.length();
+    let mut values = [0.0; COMPONENTS];
+
+    for (node, weight) in rule {
+        add(
+            &mut values,
+            &integrand(piece.middle() + half * node),
+            weight * half,
+        );
+    }
+    values
+}
+
+pub(crate) fn gauss_legendre(count: usize) -> Vec<(f64, f64)> {
+    let order = count as f64;
+
+    (0..count)
+        .rev()
+        .map(|index| {
+            let mut node = (PI * (index as f64 + 0.75) / (order + 0.5)).cos_libm();
+
+            for _ in 0..NEWTON_STEPS {
+                let (value, slope) = legendre(count, node);
+
+                let step = value / slope;
+
+                node -= step;
+                if step.abs() <= NODE_STEP {
+                    break;
+                }
+            }
+
+            let (_, slope) = legendre(count, node);
+            (node, 2.0 / ((1.0 - node * node) * slope * slope))
+        })
+        .collect()
+}
+
+fn legendre(count: usize, at: f64) -> (f64, f64) {
+    let (mut previous, mut current) = (1.0, at);
+
+    for degree in 2..=count {
+        let degree = degree as f64;
+        let next = ((2.0 * degree - 1.0) * at * current - (degree - 1.0) * previous) / degree;
+
+        previous = current;
+        current = next;
+    }
+    (
+        current,
+        count as f64 * (at * current - previous) / (at * at - 1.0),
+    )
+}
+
+pub(crate) fn mean_length(start: Vector3, end: Vector3) -> f64 {
+    let (first, last) = (start.length(), end.length());
+
+    let sum = first + last;
+
+    let Some(direction) = (end - start).try_normalize() else {
+        return first;
+    };
+
+    if sum == 0.0 {
+        return 0.0;
+    }
+
+    let (from, to) = (start.dot(direction), end.dot(direction));
+    let height = start.cross(direction).length();
+
+    let along = from + to;
+
+    let root = if height == 0.0 {
+        0.0
+    } else if from * to >= 0.0 {
+        let spread = along / (to * first + from * last);
+        let ratio = asinh_ratio((to - from) * spread);
+        0.5 * height * height * spread * ratio
+    } else {
+        let change = (to / height).asinh_libm() - (from / height).asinh_libm();
+        0.5 * height * height * change / (to - from)
+    };
+    0.25 * sum + 0.25 * along * along / sum + root
+}
+
+fn asinh_ratio(value: f64) -> f64 {
+    if value == 0.0 {
+        1.0
+    } else {
+        value.asinh_libm() / value
     }
 }
 

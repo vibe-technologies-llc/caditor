@@ -9,7 +9,7 @@ use crate::{
     fixtures,
     interval::Interval,
     numeric::GAUSS_LEGENDRE,
-    surface::{BSplineSurface, Surface},
+    surface::{BSplineSurface, Surface, SurfaceDerivatives},
     tally,
     tessellation::MassProperties,
     thread::{Handedness, ThreadEnd, ThreadForm, ThreadSpec, ThreadedFace, thread},
@@ -24,6 +24,7 @@ const MODELLED_PATH: f64 = 1e-6;
 const DIRECT_REFERENCE: f64 = 1e-10;
 const THREAD_REFERENCE: f64 = 1e-6;
 const SPLIT_RATIONAL_SPANS: usize = 4;
+const SPLIT_POLYNOMIAL_SPANS: usize = 2;
 
 fn flat() -> Plane {
     Plane::with_x_axis(Point3::ZERO, Vector3::Z, Vector3::X).unwrap()
@@ -112,24 +113,28 @@ fn spans(knots: &[f64], domain: Interval, split: usize) -> Vec<(f64, f64)> {
         .collect()
 }
 
-fn spline_flux(spline: &BSplineSurface) -> f64 {
+fn over_cells(
+    spline: &BSplineSurface,
+    along_split: usize,
+    integrand: impl Fn(&SurfaceDerivatives) -> f64,
+) -> f64 {
     let across = spans(spline.u_knots(), spline.u_domain(), SPLIT_RATIONAL_SPANS);
-    let along = spans(spline.v_knots(), spline.v_domain(), 1);
-    let mut flux = 0.0;
+    let along = spans(spline.v_knots(), spline.v_domain(), along_split);
+    let mut sum = 0.0;
 
     for (u, u_weight) in &across {
         for (v, v_weight) in &along {
-            let at = spline.evaluate(*u, *v);
-
-            flux += u_weight * v_weight * (at.point - Point3::ZERO).dot(at.du.cross(at.dv));
+            sum += u_weight * v_weight * integrand(&spline.evaluate(*u, *v));
         }
     }
-    flux
+    sum
 }
 
 fn face_flux(face: &Face) -> f64 {
     let flux = match face.surface() {
-        Surface::BSpline(spline) => spline_flux(spline),
+        Surface::BSpline(spline) => over_cells(spline, 1, |at| {
+            (at.point - Point3::ZERO).dot(at.du.cross(at.dv))
+        }),
         Surface::Plane(plane) => {
             let frame = plane.frame();
             (frame.origin() - Point3::ZERO).dot(frame.normal()) * SECTION_AREA
@@ -139,9 +144,23 @@ fn face_flux(face: &Face) -> f64 {
     flux * face.sense().sign()
 }
 
+fn pipe_face_area(face: &Face) -> f64 {
+    match face.surface() {
+        Surface::BSpline(spline) => over_cells(spline, SPLIT_POLYNOMIAL_SPANS, |at| {
+            at.du.cross(at.dv).length()
+        }),
+        Surface::Plane(_) => SECTION_AREA,
+        other => panic!("a pipe face on {other:?}"),
+    }
+}
+
 fn direct_volume(solid: &Solid) -> f64 {
     let flux: f64 = solid.faces().map(|(_, face)| face_flux(face)).sum();
     flux / 3.0
+}
+
+fn direct_area(solid: &Solid) -> f64 {
+    solid.faces().map(|(_, face)| pipe_face_area(face)).sum()
 }
 
 fn measured_exactly(name: &str, solid: &Solid, most_evaluations: usize) -> MassProperties {
@@ -162,6 +181,7 @@ fn measured_exactly(name: &str, solid: &Solid, most_evaluations: usize) -> MassP
 fn assert_pipe_volume(name: &str, solid: &Solid, found: &MassProperties, modelled: f64) {
     assert_close(name, found.volume, modelled, MODELLED_PATH);
     assert_close(name, found.volume, direct_volume(solid), DIRECT_REFERENCE);
+    assert_close(name, found.area, direct_area(solid), DIRECT_REFERENCE);
 }
 
 #[test]
@@ -171,7 +191,7 @@ fn a_pipe_along_a_helix_measures_exactly_in_few_evaluations() {
 
     let turn = (TAU * spec.radius).hypot_libm(spec.pitch);
     let length = spec.turns * turn;
-    let found = measured_exactly("helix", &solid, 1_500_000);
+    let found = measured_exactly("helix", &solid, 800_000);
 
     assert_pipe_volume("helix", &solid, &found, SECTION_AREA * length);
     assert_close(
@@ -195,7 +215,7 @@ fn a_pipe_along_a_flat_spiral_measures_exactly_in_few_evaluations() {
         + growth * spec.radius * sweep * sweep / 2.0)
         / reach;
 
-    let found = measured_exactly("spiral", &solid, 3_000_000);
+    let found = measured_exactly("spiral", &solid, 1_600_000);
 
     assert_pipe_volume("spiral", &solid, &found, SECTION_AREA * swept);
 }
@@ -239,7 +259,7 @@ fn a_threaded_m4_shaft_measures_exactly_in_few_evaluations() {
 
     let expected =
         PI * radius * radius * length - groove_per_length(&form, form.root_radius, radius) * length;
-    let found = measured_exactly("M4x20", &threaded, 3_300_000);
+    let found = measured_exactly("M4x20", &threaded, 650_000);
 
     assert_close("M4x20", found.volume, expected, THREAD_REFERENCE);
 }
