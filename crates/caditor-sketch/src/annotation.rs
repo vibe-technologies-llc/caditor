@@ -1,5 +1,5 @@
 use std::{
-    f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI},
+    f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU},
     ops::RangeInclusive,
 };
 
@@ -19,6 +19,9 @@ pub const EXTENSION_GAP: f64 = 0.5;
 pub const EXTENSION_OVERSHOOT: f64 = 0.5;
 pub const ARROW_LENGTH: f64 = 1.0;
 pub const ARROW_HALF_ANGLE: f64 = PI / 12.0;
+pub const ARROW_CLEARANCE: f64 = 0.25;
+pub const ARROW_STUB: f64 = 0.5;
+pub const VALUE_CLEARANCE: f64 = 0.5;
 pub const TEXT_LIFT: f64 = 0.8;
 pub const LEADER_OVERSHOOT: f64 = 1.5;
 pub const LEADER_TEXT_GAP: f64 = 0.5;
@@ -46,6 +49,119 @@ pub fn extension_line(
 
 pub fn readable_angle(angle: f64) -> f64 {
     FRAC_PI_2 - (FRAC_PI_2 - angle).rem_euclid(PI)
+}
+
+pub fn arrow_fits(room: f64, height: f64) -> bool {
+    room >= (ARROW_LENGTH + ARROW_CLEARANCE) * height
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpanEnd {
+    Start,
+    End,
+}
+
+impl SpanEnd {
+    pub fn reading(along: Vector2, rightward: bool) -> Self {
+        let reads_toward_end =
+            Vector2::from_angle(readable_angle(along.y.atan2(along.x))).dot(along) > 0.0;
+
+        if reads_toward_end == rightward {
+            Self::End
+        } else {
+            Self::Start
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpanLayout {
+    pub length: f64,
+    pub arrows_outside: bool,
+    pub value_outside: Option<SpanEnd>,
+    pub line: (f64, f64),
+    pub value: f64,
+}
+
+impl SpanLayout {
+    pub fn new(length: f64, value_width: f64, height: f64, value_side: SpanEnd) -> Self {
+        let arrows_outside = !arrow_fits(length / 2.0, height);
+        let value_fits = length >= value_width + 2.0 * VALUE_CLEARANCE * height;
+
+        let (stub, past_arrows) = if arrows_outside {
+            ((ARROW_LENGTH + ARROW_STUB) * height, ARROW_LENGTH * height)
+        } else {
+            (0.0, 0.0)
+        };
+        let beyond = past_arrows + VALUE_CLEARANCE * height + value_width / 2.0;
+
+        let under_value = (beyond + value_width / 2.0).max(stub);
+
+        let (value_outside, value, line) = match (value_fits, value_side) {
+            (true, _) => (None, length / 2.0, (-stub, length + stub)),
+            (false, SpanEnd::Start) => {
+                (Some(SpanEnd::Start), -beyond, (-under_value, length + stub))
+            }
+            (false, SpanEnd::End) => (
+                Some(SpanEnd::End),
+                length + beyond,
+                (-stub, length + under_value),
+            ),
+        };
+        Self {
+            length,
+            arrows_outside,
+            value_outside,
+            line,
+            value,
+        }
+    }
+
+    pub fn arrows(&self) -> [(f64, f64); 2] {
+        let outward = if self.arrows_outside { -1.0 } else { 1.0 };
+        [(0.0, -outward), (self.length, outward)]
+    }
+
+    pub fn straight(&self, start: Point2, along: Vector2, height: f64) -> Vec<(Point2, Point2)> {
+        let at = |parameter: f64| start + along * parameter;
+        let arrows = self
+            .arrows()
+            .into_iter()
+            .flat_map(|(tip, pointing)| arrowhead(at(tip), along * pointing, height));
+
+        std::iter::once((at(self.line.0), at(self.line.1)))
+            .chain(arrows)
+            .collect()
+    }
+
+    pub fn swept(&self, radius: f64, start: f64) -> (f64, f64) {
+        let from = start + self.line.0 / radius;
+        (from, (start + self.line.1 / radius).min(from + TAU))
+    }
+
+    pub fn arc_arrows(
+        &self,
+        center: Point2,
+        radius: f64,
+        start: f64,
+        height: f64,
+    ) -> Vec<(Point2, Point2)> {
+        self.arrows()
+            .into_iter()
+            .flat_map(|(tip, pointing)| {
+                let angle = start + tip / radius;
+                arrowhead(
+                    center + Vector2::from_angle(angle) * radius,
+                    Vector2::from_angle(angle).perp() * pointing,
+                    height,
+                )
+            })
+            .collect()
+    }
+
+    pub fn value_angle(&self, radius: f64, start: f64) -> f64 {
+        start + self.value / radius
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -615,6 +731,48 @@ mod tests {
             actual.distance(expected) < 1e-9,
             "{actual} is not {expected}"
         );
+    }
+
+    #[test]
+    fn a_span_too_short_turns_its_arrows_in_from_outside_and_sets_its_value_beyond_one() {
+        let height = 2.0;
+        let roomy = SpanLayout::new(40.0, 6.0, height, SpanEnd::End);
+        let cramped = SpanLayout::new(2.0, 6.0, height, SpanEnd::Start);
+        let arrows_only = SpanLayout::new(6.0, 6.0, height, SpanEnd::End);
+
+        assert_eq!(roomy.arrows(), [(0.0, -1.0), (40.0, 1.0)]);
+        assert_eq!((roomy.value_outside, roomy.value), (None, 20.0));
+        assert_eq!(roomy.line, (0.0, 40.0));
+
+        let stub = (ARROW_LENGTH + ARROW_STUB) * height;
+        let beyond = (ARROW_LENGTH + VALUE_CLEARANCE) * height + 3.0;
+
+        assert_eq!(cramped.arrows(), [(0.0, 1.0), (2.0, -1.0)]);
+        assert_eq!(cramped.value_outside, Some(SpanEnd::Start));
+        assert_eq!(cramped.value, -beyond);
+        assert_eq!(cramped.line, (-beyond - 3.0, 2.0 + stub));
+
+        assert!(!arrows_only.arrows_outside);
+        assert_eq!(arrows_only.value_outside, Some(SpanEnd::End));
+        assert_eq!(arrows_only.value, 6.0 + VALUE_CLEARANCE * height + 3.0);
+        assert_eq!(
+            arrows_only.line,
+            (0.0, 6.0 + VALUE_CLEARANCE * height + 6.0)
+        );
+    }
+
+    #[test]
+    fn a_short_arc_sweeps_its_stubs_under_a_full_turn_and_reads_from_the_right() {
+        let layout = SpanLayout::new(1.0, 30.0, 1.0, SpanEnd::End);
+        let (from, to) = layout.swept(1.0, 0.0);
+        let arrows = layout.arc_arrows(Point2::ZERO, 1.0, 0.0, 1.0);
+
+        assert!(from < 0.0);
+        assert!(to - from <= TAU);
+        assert_eq!(arrows.len(), 4);
+        assert_eq!(SpanEnd::reading(Vector2::X, true), SpanEnd::End);
+        assert_eq!(SpanEnd::reading(-Vector2::X, true), SpanEnd::Start);
+        assert_eq!(SpanEnd::reading(-Vector2::Y, false), SpanEnd::End);
     }
 
     #[test]

@@ -3,10 +3,13 @@ use std::collections::BTreeMap;
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector2};
 use caditor_kernel::{Curve2, EdgeName, ViewSource};
-use caditor_sketch::Sketch;
+use caditor_sketch::{
+    Sketch,
+    annotation::{ARROW_CLEARANCE, ARROW_LENGTH, ARROW_STUB, VALUE_CLEARANCE},
+};
 
 use crate::{
-    combine_tests::{Pair, evaluate, pair},
+    combine_tests::{Pair, block, evaluate, pair},
     *,
 };
 
@@ -484,6 +487,184 @@ fn a_linear_dimension_is_laid_out_with_gapped_extension_lines_arrows_and_its_val
         plan.annotation_at(laid.texts[0].at, 0.1),
         Some(Annotation::Dimension(AnnotationId::from_raw(0)))
     );
+}
+
+struct BarDimension {
+    laid: SheetAnnotation,
+    plan: SheetPlan,
+    start: Point2,
+    end: Point2,
+}
+
+fn bar_dimension(width: f64, decimals: u8, place: Point2) -> BarDimension {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let bar = block(&mut transaction, "Bar", (0.0, 0.0), (width, 10.0), "4 mm");
+
+    document.apply(transaction.finish()).unwrap();
+
+    let mut drawing = front_only(Drawing::new(DrawingId::from_raw(0), "Drawing 1".into()));
+
+    drawing.bodies = vec![bar];
+    drawing.scale = DrawingScale::Ratio(ScaleRatio::new(1, 1));
+
+    let lines = lines_of(&document, &drawing, StandardView::Front);
+
+    drawing.dimensions = vec![DrawingDimension {
+        decimals,
+        ..dimension(0, length_of(top_edge(&lines)), place)
+    }];
+
+    let plan = annotated(&drawing, &lines);
+    let placed = *plan.placed(front(StandardView::Front)).unwrap();
+    let laid = plan.annotations[0].clone();
+    let (first, second) = (Point2::new(0.0, place.y), Point2::new(width, place.y));
+
+    assert_eq!(placed.scale, 1.0);
+    BarDimension {
+        laid,
+        plan,
+        start: placed.on_sheet(first),
+        end: placed.on_sheet(second),
+    }
+}
+
+impl BarDimension {
+    fn line(&self) -> (Point2, Point2) {
+        let SheetMark::Line(from, to) = self.laid.marks[2] else {
+            panic!(
+                "the third mark is the dimension line: {:?}",
+                self.laid.marks
+            );
+        };
+        if from.x <= to.x {
+            (from, to)
+        } else {
+            (to, from)
+        }
+    }
+
+    fn arrow_backs(&self) -> Vec<Point2> {
+        self.laid.marks[3..]
+            .iter()
+            .map(|mark| match *mark {
+                SheetMark::Line(_, back) => back,
+                _ => panic!("arrowheads are lines: {mark:?}"),
+            })
+            .collect()
+    }
+
+    fn arrows_point_in(&self) -> bool {
+        let backs = self.arrow_backs();
+        backs[..2].iter().all(|back| back.x < self.start.x)
+            && backs[2..].iter().all(|back| back.x > self.end.x)
+    }
+
+    fn arrows_point_out(&self) -> bool {
+        self.arrow_backs()
+            .iter()
+            .all(|back| back.x > self.start.x && back.x < self.end.x)
+    }
+
+    fn value_beside(&self) -> f64 {
+        let text = &self.laid.texts[0];
+        let [low, _, high, _] = text_corners(text);
+
+        let (left, right) = (low.x.min(high.x), low.x.max(high.x));
+
+        if left >= self.end.x {
+            left - self.end.x
+        } else if right <= self.start.x {
+            self.start.x - right
+        } else {
+            0.0
+        }
+    }
+
+    fn is_picked_by_its_value(&self) -> bool {
+        let text = &self.laid.texts[0];
+        let [low, _, high, _] = text_corners(text);
+        let bounds = self.laid.bounds().unwrap();
+
+        bounds.contains(low)
+            && bounds.contains(high)
+            && self.plan.annotation_at(text.at, 0.1)
+                == Some(Annotation::Dimension(AnnotationId::from_raw(0)))
+    }
+}
+
+#[test]
+fn a_dimension_too_short_for_its_arrows_and_value_puts_both_outside_toward_its_place() {
+    let height = DIMENSION_TEXT_HEIGHT;
+    let right = bar_dimension(2.0, 1, Point2::new(8.0, 9.0));
+    let left = bar_dimension(2.0, 1, Point2::new(-6.0, 9.0));
+
+    let text = &right.laid.texts[0];
+    let (from, to) = right.line();
+
+    assert_eq!(text.content, "2");
+    assert_eq!(text.angle, 0.0);
+    assert!(right.arrows_point_in());
+    assert!(from.x <= right.start.x - (ARROW_LENGTH + ARROW_STUB) * height + 1e-9);
+    assert!(to.x >= right.end.x + ARROW_LENGTH * height + text_width("2", height));
+    assert!(text.at.x > right.end.x + ARROW_LENGTH * height);
+    assert!(near(
+        right.value_beside(),
+        (ARROW_LENGTH + VALUE_CLEARANCE) * height
+    ));
+    assert!(text.at.y > right.start.y);
+    assert!(right.is_picked_by_its_value());
+
+    assert!(left.arrows_point_in());
+    assert!(left.laid.texts[0].at.x < left.start.x - ARROW_LENGTH * height);
+    assert!(near(
+        left.value_beside(),
+        (ARROW_LENGTH + VALUE_CLEARANCE) * height
+    ));
+    assert!(left.is_picked_by_its_value());
+
+    let Some(SheetMeasure::Linear { first, second, .. }) = right.laid.measure else {
+        panic!("a linear dimension is measured as one");
+    };
+
+    assert!(near(first.distance(second), 2.0));
+}
+
+#[test]
+fn a_dimension_with_room_for_its_arrows_but_not_its_value_puts_only_the_value_outside() {
+    let height = DIMENSION_TEXT_HEIGHT;
+    let width = 10.5;
+
+    assert!(width >= (2.0 * (ARROW_LENGTH + ARROW_CLEARANCE)) * height);
+    assert!(width < text_width("10.5", height) + 2.0 * VALUE_CLEARANCE * height);
+
+    let laid = bar_dimension(width, 1, Point2::new(10.0, 9.0));
+    let (from, to) = laid.line();
+
+    assert_eq!(laid.laid.texts[0].content, "10.5");
+    assert!(laid.arrows_point_out());
+    assert!(near(from.x, laid.start.x));
+    assert!(to.x > laid.end.x + text_width("10.5", height));
+    assert!(near(laid.value_beside(), VALUE_CLEARANCE * height));
+    assert!(laid.is_picked_by_its_value());
+}
+
+#[test]
+fn a_dimension_with_room_for_its_arrows_and_value_keeps_both_between_its_extension_lines() {
+    let laid = bar_dimension(40.0, 1, Point2::new(35.0, 9.0));
+    let (from, to) = laid.line();
+
+    assert_eq!(laid.laid.texts[0].content, "40");
+    assert_eq!(laid.laid.marks.len(), 2 + 1 + 4);
+    assert!(laid.arrows_point_out());
+    assert!(near(from.x, laid.start.x) && near(to.x, laid.end.x));
+    assert!(near(
+        laid.laid.texts[0].at.x,
+        (laid.start.x + laid.end.x) / 2.0
+    ));
+    assert_eq!(laid.value_beside(), 0.0);
 }
 
 fn disc_document() -> (Document, FeatureId) {

@@ -101,7 +101,12 @@ Dimensions are measured from the model, never typed: each one refers to edges of
 names the model gives them, the way features do, so it follows every edit and shows the length
 the model has now. They are drawn as ISO 129-1 asks: thin lines, open arrows, extension lines
 starting a little off the part and running a little past the dimension line, and the value above
-the line in the sheet's lettering, readable from the bottom or the right of the sheet.
+the line in the sheet's lettering, readable from the bottom or the right of the sheet. When a
+length is too short for its arrows, they move outside its extension lines and point in, each with
+a short stub of line beyond it; when it is too short for its value, the value moves outside too,
+beside the arrow on the side where you placed the dimension, above the line drawn on under it. An
+angle's arc too short does the same along the arc, and a circle too small for an arrow inside it
+takes its arrows from outside.
 
 {command:model.drawing_dimension} (or **Add a dimension** above the sheet) dimensions edges of a
 front, top, right, left, section or detail view; the isometric view is not drawn true to size, so

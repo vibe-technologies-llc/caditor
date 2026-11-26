@@ -762,3 +762,60 @@ fn a_crowded_sketch_exports_every_dimension() {
     assert_eq!(exported.dimensions, count);
     assert_eq!(text.matches("<text ").count(), count + 1);
 }
+
+#[test]
+fn a_sketch_dimension_too_short_for_its_arrows_and_value_sets_them_outside() {
+    use caditor_sketch::annotation::{ARROW_LENGTH, VALUE_CLEARANCE};
+
+    let height = 2.5;
+    let millimetres = |value: f64| Expression::Measure(value, Unit::Millimetre);
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let from = sketch.add_point(Point2::ZERO);
+    let to = sketch.add_point(Point2::new(1.0, 0.0));
+    let circle = sketch.add_circle(Point2::new(0.5, 20.0), 0.5);
+
+    for constraint in [
+        Constraint::HorizontalDistance {
+            from,
+            to,
+            value: millimetres(1.0),
+        },
+        Constraint::Diameter {
+            entity: circle,
+            value: millimetres(1.0),
+        },
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+
+    let bounds =
+        caditor_geometry::Aabb2::from_points([Point2::ZERO, Point2::new(1.0, 20.0)]).unwrap();
+    let dimensions = annotation::dimensions(&sketch, Construction::LeftOut, height, bounds);
+    let [gap, across] = dimensions.as_slice() else {
+        panic!("both dimensions are written: {dimensions:?}");
+    };
+    let backs = |dimension: &figure::Dimension, marks: std::ops::Range<usize>| -> Vec<Point2> {
+        dimension.marks[marks]
+            .iter()
+            .map(|mark| match *mark {
+                Shape::Line(_, back) => back,
+                _ => panic!("arrowheads are lines: {mark:?}"),
+            })
+            .collect()
+    };
+    let (low, _) = text_box(&gap.text);
+
+    assert_eq!(gap.text.content, "1");
+    assert!(backs(gap, 3..5).iter().all(|back| back.x < 0.0));
+    assert!(backs(gap, 5..7).iter().all(|back| back.x > 1.0));
+    assert!((low.x - 1.0 - (ARROW_LENGTH + VALUE_CLEARANCE) * height).abs() < 1e-9);
+
+    let centre = Point2::new(0.5, 20.0);
+
+    assert!(
+        backs(across, 1..5)
+            .iter()
+            .all(|back| back.distance(centre) > 0.5)
+    );
+}

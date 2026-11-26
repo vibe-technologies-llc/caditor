@@ -5,9 +5,10 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, Constraint, EntityId, Reference, Sketch,
     annotation::{
-        self, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP, EXTENSION_OVERSHOOT, Footprint,
-        LEADER_OVERSHOOT, LEADER_TEXT_GAP, Measured, Obstacles, RADIUS_PREFIX, TEXT_LIFT,
-        arrowhead, away_from, extension_line,
+        self, ARROW_LENGTH, ARROW_STUB, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP,
+        EXTENSION_OVERSHOOT, Footprint, LEADER_OVERSHOOT, LEADER_TEXT_GAP, Measured, Obstacles,
+        RADIUS_PREFIX, SpanEnd, SpanLayout, TEXT_LIFT, arrow_fits, arrowhead, away_from,
+        extension_line,
     },
 };
 
@@ -309,20 +310,25 @@ impl Style {
             })
             .collect();
 
-        marks.push(Shape::Line(start, end));
-        marks.extend(self.arrow(start, -span));
-        marks.extend(self.arrow(end, span));
-
         let angle = span.y.atan2(span.x);
-        let mut text = self.text(
-            (start + end) / 2.0 + normal * TEXT_LIFT * height,
-            angle,
-            content,
+        let mut text = self.text(start, angle, content);
+
+        let length = start.distance(end);
+        let layout = SpanLayout::new(
+            length,
+            text.width(),
+            height,
+            SpanEnd::reading(span, shift.slide >= 0.0),
         );
 
-        let room = ((start.distance(end) - text.width()) / 2.0 - LABEL_CLEARANCE * height).max(0.0);
+        marks.extend(strokes(layout.straight(start, span, height)));
 
-        text.at += span * room * shift.slide;
+        let room = match layout.value_outside {
+            Some(_) => 0.0,
+            None => ((length - text.width()) / 2.0 - LABEL_CLEARANCE * height).max(0.0),
+        };
+
+        text.at = start + span * (layout.value + room * shift.slide) + normal * TEXT_LIFT * height;
         Some(Dimension {
             measure: Measure::Linear {
                 first,
@@ -352,15 +358,21 @@ impl Style {
         text.at = reach + toward * (LEADER_TEXT_GAP * height + text.width() / 2.0);
 
         let far = center - toward * radius;
+        let (outward, stub) = if arrow_fits(radius, height) {
+            (toward, 0.0)
+        } else {
+            (-toward, (ARROW_LENGTH + ARROW_STUB) * height)
+        };
+
         let (measure, mut marks) = match leader {
             Leader::Radius => (
                 Measure::Radius { center, on_curve },
                 vec![Shape::Line(center, reach)],
             ),
             Leader::Diameter => {
-                let mut marks = vec![Shape::Line(far, reach)];
+                let mut marks = vec![Shape::Line(far - toward * stub, reach)];
 
-                marks.extend(self.arrow(far, -toward));
+                marks.extend(self.arrow(far, -outward));
                 (
                     Measure::Diameter {
                         near: on_curve,
@@ -371,7 +383,7 @@ impl Style {
             }
         };
 
-        marks.extend(self.arrow(on_curve, toward));
+        marks.extend(self.arrow(on_curve, outward));
         Dimension {
             measure,
             marks,
@@ -446,21 +458,29 @@ impl Style {
         mut marks: Vec<Shape>,
         content: String,
     ) -> Dimension {
+        let height = self.height;
         let end = start + sweep;
         let middle = start + sweep / 2.0;
+
+        let mut text = self.text(center, 0.0, content);
+
+        let layout = SpanLayout::new(radius * sweep, text.width(), height, SpanEnd::End);
+        let (from, to) = layout.swept(radius, start);
 
         marks.push(Shape::Arc {
             center,
             radius,
-            start,
-            end,
+            start: from,
+            end: to,
         });
+        marks.extend(strokes(layout.arc_arrows(center, radius, start, height)));
 
         let first = Shape::arc_point(center, radius, start);
         let second = Shape::arc_point(center, radius, end);
+        let value = layout.value_angle(radius, start);
 
-        marks.extend(self.arrow(first, -Vector2::from_angle(start).perp()));
-        marks.extend(self.arrow(second, Vector2::from_angle(end).perp()));
+        text.at = Shape::arc_point(center, radius + TEXT_LIFT * height, value);
+        text.angle = value - FRAC_PI_2;
         Dimension {
             measure: Measure::Angular {
                 vertex: center,
@@ -469,11 +489,7 @@ impl Style {
                 arc: Shape::arc_point(center, radius, middle),
             },
             marks,
-            text: self.text(
-                Shape::arc_point(center, radius + TEXT_LIFT * self.height, middle),
-                middle - FRAC_PI_2,
-                content,
-            ),
+            text,
             more: Vec::new(),
         }
     }
@@ -496,6 +512,10 @@ fn leader(sketch: &Sketch, entity: EntityId, shift: Shift) -> Option<(Point2, f6
         None => CIRCLE_LEADER_ANGLE + shift.turn,
     };
     Some((center, radius, Vector2::from_angle(angle)))
+}
+
+fn strokes(pairs: Vec<(Point2, Point2)>) -> impl Iterator<Item = Shape> {
+    pairs.into_iter().map(|(from, to)| Shape::Line(from, to))
 }
 
 fn line_of(sketch: &Sketch, id: EntityId) -> Option<(Point2, Vector2)> {

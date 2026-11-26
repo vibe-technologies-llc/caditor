@@ -7,9 +7,9 @@ use caditor_expression::format_decimals;
 use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_kernel::{Curve2, EdgeId, EdgeName, Interval, ViewSource};
 use caditor_sketch::annotation::{
-    CIRCLE_LEADER_DIRECTION, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP, EXTENSION_OVERSHOOT,
-    LEADER_OVERSHOOT, LEADER_TEXT_GAP, RADIUS_PREFIX, TEXT_LIFT, arrowhead, extension_line,
-    readable_angle,
+    ARROW_LENGTH, ARROW_STUB, CIRCLE_LEADER_DIRECTION, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP,
+    EXTENSION_OVERSHOOT, LEADER_OVERSHOOT, LEADER_TEXT_GAP, RADIUS_PREFIX, SpanEnd, SpanLayout,
+    TEXT_LIFT, arrow_fits, arrowhead, extension_line, readable_angle,
 };
 use thiserror::Error;
 
@@ -924,14 +924,24 @@ fn linear_on_sheet(
             marks.push(SheetMark::Line(from, to));
         }
     }
-    marks.push(SheetMark::Line(start, end));
-    marks.extend(lines_of(arrowhead(start, -span, height)));
-    marks.extend(lines_of(arrowhead(end, span, height)));
 
     let angle = readable_angle(span.y.atan2(span.x));
     let text_along = Vector2::from_angle(angle);
-    let at =
-        (start + end) / 2.0 + text_along * text_offset + text_along.perp() * TEXT_LIFT * height;
+
+    let rightward = (place - (start + end) / 2.0).dot(text_along) > -DEGENERATE;
+    let layout = SpanLayout::new(
+        start.distance(end),
+        value.width(),
+        height,
+        SpanEnd::reading(span, rightward),
+    );
+
+    marks.extend(lines_of(layout.straight(start, span, height)));
+
+    let at = start
+        + span * layout.value
+        + text_along * text_offset
+        + text_along.perp() * TEXT_LIFT * height;
     Some(Laid {
         marks,
         texts: value.texts(at, angle),
@@ -965,13 +975,18 @@ fn radial_on_sheet(
 
     let at = reach + toward * (LEADER_TEXT_GAP * height + width / 2.0 + text_offset);
 
+    let (outward, stub) = if arrow_fits(radius, height) {
+        (toward, 0.0)
+    } else {
+        (-toward, (ARROW_LENGTH + ARROW_STUB) * height)
+    };
     let mut marks = Vec::new();
 
     let measure = if diameter {
         let far = centre - toward * radius;
 
-        marks.push(SheetMark::Line(far, reach));
-        marks.extend(lines_of(arrowhead(far, -toward, height)));
+        marks.push(SheetMark::Line(far - toward * stub, reach));
+        marks.extend(lines_of(arrowhead(far, -outward, height)));
         SheetMeasure::Diameter {
             near: on_curve,
             far,
@@ -984,7 +999,7 @@ fn radial_on_sheet(
         }
     };
 
-    marks.extend(lines_of(arrowhead(on_curve, toward, height)));
+    marks.extend(lines_of(arrowhead(on_curve, outward, height)));
     Laid {
         marks,
         texts: value.texts(at, 0.0),
@@ -1005,12 +1020,26 @@ fn angle_on_sheet(
     let start = first.direction.y.atan2(first.direction.x);
     let end = start + sweep;
 
-    let middle = start + sweep / 2.0 + text_offset / radius;
+    let towards_end = (place - vertex).dot(Vector2::from_angle(start + sweep / 2.0).perp());
+    let layout = SpanLayout::new(
+        radius * sweep,
+        value.width(),
+        height,
+        if towards_end > -DEGENERATE {
+            SpanEnd::End
+        } else {
+            SpanEnd::Start
+        },
+    );
+
+    let middle = layout.value_angle(radius, start) + text_offset / radius;
+    let (from_angle, to_angle) = layout.swept(radius, start);
+
     let mut marks = vec![SheetMark::Arc {
         center: vertex,
         radius,
-        start,
-        end,
+        start: from_angle,
+        end: to_angle,
     }];
 
     for ray in [first, second] {
@@ -1033,16 +1062,7 @@ fn angle_on_sheet(
     let from = arc_point(vertex, radius, start);
     let to = arc_point(vertex, radius, end);
 
-    marks.extend(lines_of(arrowhead(
-        from,
-        -Vector2::from_angle(start).perp(),
-        height,
-    )));
-    marks.extend(lines_of(arrowhead(
-        to,
-        Vector2::from_angle(end).perp(),
-        height,
-    )));
+    marks.extend(lines_of(layout.arc_arrows(vertex, radius, start, height)));
     Laid {
         marks,
         texts: value.texts(

@@ -3375,6 +3375,184 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
 }
 
 #[test]
+fn a_dimension_too_short_for_its_value_is_written_with_the_value_where_the_sheet_shows_it() {
+    use caditor_document::{
+        Annotation, AnnotationId, DimensionDirection, DimensionMeasure, DrawingDimension,
+        DrawingScale, DrawnLines, DrawnView, EdgePoint, EdgeSpot, ScaleRatio, StandardView,
+        text_corners,
+    };
+    use caditor_kernel::{Curve2, ViewSource};
+
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(2.0, 0.0),
+        Point2::new(2.0, 20.0),
+        Point2::new(0.0, 20.0),
+    ];
+    let sides: Vec<ProfileCurve> = (0..4)
+        .map(|index| {
+            ProfileCurve::line(
+                index,
+                corners[index as usize],
+                corners[(index as usize + 1) % 4],
+            )
+        })
+        .collect();
+    let bar = extruded(&sides, 10.0);
+    let mut drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Short".to_owned(),
+    );
+
+    drawing.views = [StandardView::Front].into_iter().collect();
+    drawing.scale = DrawingScale::Ratio(ScaleRatio::new(1, 1));
+
+    let lines = sheet_lines(&drawing, &[&bar]);
+    let front_lines = &lines[0];
+    let top = front_lines
+        .pieces
+        .iter()
+        .find_map(|piece| match (piece.source, &piece.curve) {
+            (ViewSource::Edge { name, .. }, Curve2::Line(_))
+                if (piece.curve.point(piece.range.start()).y - 10.0).abs() < 1e-6
+                    && (piece.curve.point(piece.range.end()).y - 10.0).abs() < 1e-6 =>
+            {
+                Some(name)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let front = DrawnView::Standard(StandardView::Front);
+    let id = AnnotationId::from_raw(0);
+
+    drawing.dimensions = vec![DrawingDimension {
+        id,
+        view: front,
+        measure: DimensionMeasure::Linear {
+            from: EdgePoint {
+                edge: top,
+                spot: EdgeSpot::Start,
+            },
+            to: EdgePoint {
+                edge: top,
+                spot: EdgeSpot::End,
+            },
+            direction: DimensionDirection::Horizontal,
+        },
+        place: Point2::new(8.0, 16.0),
+        decimals: 2,
+        text_offset: 0.0,
+        tolerance: None,
+    }];
+
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let mut plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+
+    plan.annotate(
+        &drawing,
+        &DrawnLines::from([(front, front_lines)]),
+        &caditor_document::CalloutTexts::new(),
+    );
+
+    let placed = *plan.placed(front).unwrap();
+    let laid = plan.annotation(Annotation::Dimension(id)).unwrap().clone();
+    let shown = laid.texts[0].clone();
+    let [low, _, high, _] = text_corners(&shown);
+    let right_end = placed.on_sheet(Point2::new(2.0, 16.0)).x;
+
+    assert_eq!(placed.scale, 1.0);
+    assert_eq!(shown.content, "2");
+    assert!(low.x.min(high.x) > right_end);
+
+    let views = [SheetView {
+        placed,
+        lines: front_lines,
+    }];
+    let (figure, _) = super::drawing_sheet::sheet_figure(&plan, &views, false);
+    let written = figure
+        .shapes
+        .iter()
+        .find_map(|(_, shape)| match shape {
+            Shape::Dimension(dimension) => Some(dimension.text.at),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(written, shown.at);
+
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("short.{}", format.extension()));
+
+    for format in SheetFormat::ALL {
+        export_sheet(
+            &path(format),
+            &plan,
+            &views,
+            false,
+            format,
+            &CancelToken::never(),
+        )
+        .unwrap();
+    }
+
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+    let dxf = std::fs::read_to_string(path(SheetFormat::Dxf)).unwrap();
+    let pdf = String::from_utf8_lossy(&std::fs::read(path(SheetFormat::Pdf)).unwrap()).into_owned();
+    let close = |x: f64, y: f64| (x - shown.at.x).abs() < 1e-4 && (y - shown.at.y).abs() < 1e-4;
+
+    let svg_value = svg
+        .lines()
+        .find(|line| line.ends_with(">2</text>"))
+        .unwrap();
+    let attribute = |name: &str| -> f64 {
+        let start = svg_value.find(&format!(" {name}=\"")).unwrap() + name.len() + 3;
+        let rest = &svg_value[start..];
+        rest[..rest.find('"').unwrap()].parse().unwrap()
+    };
+
+    assert!(close(attribute("x"), -attribute("y")), "{svg_value}");
+
+    let dimension = &dxf[dxf.find("DIMENSION\n100\nAcDbEntity").unwrap()..];
+    let codes: Vec<&str> = dimension.lines().collect();
+    let value_of = |code: &str| -> f64 {
+        let at = codes.iter().position(|line| line.trim() == code).unwrap();
+        codes[at + 1].trim().parse().unwrap()
+    };
+
+    assert!(close(value_of("11"), value_of("21")), "{dimension}");
+
+    let (left, right) = (low.x.min(high.x), low.x.max(high.x));
+    let (bottom, top) = (low.y.min(high.y), low.y.max(high.y));
+
+    let lettered = pdf
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split(' ');
+
+            let x: f64 = words.next()?.parse().ok()?;
+            let y: f64 = words.next()?.parse().ok()?;
+            matches!(words.next(), Some("m" | "l")).then_some(Point2::new(x, y))
+        })
+        .filter(|point| {
+            (left..=right).contains(&point.x) && (bottom - 0.5..=top + 0.5).contains(&point.y)
+        })
+        .count();
+
+    assert!(
+        lettered > 0,
+        "no letter of the value is drawn beside the span"
+    );
+}
+
+#[test]
 fn a_diameter_dimension_keeps_its_sign_in_the_pdf_sheet() {
     use caditor_document::{
         AnnotationId, DimensionMeasure, DrawingDimension, DrawnLines, DrawnView, StandardView,

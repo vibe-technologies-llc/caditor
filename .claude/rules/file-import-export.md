@@ -451,7 +451,11 @@ paths:
   parallel to the gap with extension lines, horizontal and vertical ones along X or Y, radius and
   diameter as a leader through the centre, an ellipse's radii as an `R` leader along that axis,
   angles as an arc at the vertex, arc sweep and length as an arc beyond the arc; millimetres to
-  three decimals, degrees to two. Placement shares the canvas's `caditor_sketch::annotation`
+  three decimals, degrees to two. A span too short for its arrows or value is laid out by
+  `annotation::SpanLayout` as on drawing sheets (`drawings.md`): a linear value outside goes
+  beyond the reading-right end, or the left one when the slide tried is negative (no slide moves it
+  further); an arc's beyond its counter-clockwise end; a radius or diameter too small for an arrow
+  inside points its arrows in from outside. Placement shares the canvas's `caditor_sketch::annotation`
   (`sketch.md`) in drawing units scaled by the text height: overlapping distances on one side take
   lanes (`annotation::lanes`, `LANE_SPACING` apart), and each label is kept clear of earlier ones in
   constraint order through `Obstacles` of `LABEL_CELL` cells (footprints grown by

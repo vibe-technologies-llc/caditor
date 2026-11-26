@@ -183,7 +183,17 @@ lines, never a picture of the 3D view.
   dimension's line passes through the place, with extension lines only where a point is off it; a
   radial one leads from the centre (radius) or across (diameter) out past the arc toward the place,
   the value beyond; an angle is an arc through the place, with extension lines along each edge
-  where the arc runs past it. A lost dimension is laid out at its place as a short line and its
+  where the arc runs past it. A span too short is laid out by `annotation::SpanLayout` (ISO 129-1):
+  without room for two arrows and their `ARROW_CLEARANCE` its arrows stand outside pointing in,
+  the line running `ARROW_STUB` past each; without room for the value's width (`ValueLines::width`)
+  and a `VALUE_CLEARANCE` each side the value moves outside beyond the arrow on the end the place
+  lies toward along the line (the reading-right end from the middle), the line run on under it, at
+  the same readable angle; `text_offset` still slides it. An angle does the same along its arc
+  (the end the place lies toward from the arc's middle), the arc swept under a full turn; a radius
+  or diameter whose radius has no room for one arrow (`arrow_fits`) points its arrows in from
+  outside, a diameter's line run past the far side. The marks and texts hold the moved pieces, so
+  bounds, `distance_to`, picking and export follow, and the DXF dimension's text point is the
+  moved value's. A lost dimension is laid out at its place as a short line and its
   value as `?` (`R?`, `⌀?`, `?°`), with the problem; one whose view lines are still being worked
   out is left off until they are. A note stands at its place; a leader runs from a shoulder beside
   the text to the middle of its edge with an arrowhead, or is left out with the problem when the

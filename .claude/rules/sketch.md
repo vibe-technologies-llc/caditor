@@ -42,7 +42,9 @@ paths:
   middle) and `Obstacles` (label `Footprint`s in a grid of caller-chosen cell size, each overlap
   counted once, plus their `bounds`). Thinning thresholds stay with the canvas. It also holds the
   ISO 129-1 pieces drawing dimensions on sheets share with sketch export (`drawings.md`):
-  `arrowhead`, `extension_line` with its gap and overshoot, the value's lift, `readable_angle` and
+  `arrowhead`, `extension_line` with its gap and overshoot, the value's lift, `readable_angle`,
+  `SpanLayout` (arrows outside pointing in on a span too short for them, the value beyond one on a
+  span too short for it, `SpanEnd` picking the end, along a line or an arc) with `arrow_fits`, and
   the diameter, degree and radius signs, all in multiples of the text height.
 - Projected geometry (`Sketch::set_projected`, a set beside the entities, part of `same_geometry`)
   is a curve and its points, or a lone point, whose position the document supplies. The solver
