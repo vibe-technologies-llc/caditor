@@ -31,7 +31,10 @@ cannot be bound. Shortcuts shown in this guide are your current ones.
 
 The default keys follow a pattern while a sketch is edited: a letter alone picks a tool or runs
 a sketch command, such as {command:sketch.line} or {command:sketch.chamfer}, and Shift with a letter
-adds a [constraint](constraints), such as {command:constraint.horizontal}.
+adds a [constraint](constraints), such as {command:constraint.horizontal}. A command that has a
+counterpart on bodies answers to the same keys there: {command:sketch.move} moves the
+selected sketch geometry with the keys that run {command:model.move} outside a sketch, and
+mirroring, scaling, patterns, fillets and chamfers pair up the same way.
 
 ## In the view
 

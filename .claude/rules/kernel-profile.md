@@ -59,9 +59,15 @@ paths:
   loop left one whole circle or ellipse is named and ranged as an uncut one, so a disc crossed by
   diameters and chosen whole sweeps one side face, not one per sector. Keys are computed before
   joining, so they stay those of the arrangement.
-- `Region::triangulate` samples each loop into a polygon merging consecutive points closer than
-  `LINEAR_RESOLUTION` (an arc sampled from a crossing starts a rounding error off the line ending
-  there; keeping both made the constrained triangulation refuse the region).
+- `Region::triangulate` samples each loop into a polygon in which a piece gives every sample but
+  its last, the joint being the next piece's start, so two pieces meeting at a crossing share one
+  point however far apart rounding left their ends. Polygon points within `WELD_TOLERANCES`
+  arrangement tolerances of one another, across loops too, are one vertex of the triangulation
+  (`Welded`), and a boundary segment crossing another is split there rather than refused. A
+  circle tangent to a line within solver noise meets it at two crossings a micrometre apart, the
+  ends of the pieces between them further apart than `LINEAR_RESOLUTION`; unwelded, the loops
+  crossed themselves and the region got no mesh or triangles outside it, drawn as a wedge of
+  missing fill beside the tangent point.
 - `section_of` (and `Region::section`) gives area, perimeter, centroid and second moments about
   the centroid along the sketch axes (`AreaMoments`: Ix = ∫y², Iy = ∫x², Ixy, polar) with
   `PrincipalMoments` (no angle when the two agree within `ISOTROPIC_SHARE`). Green's theorem as

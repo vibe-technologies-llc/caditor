@@ -57,6 +57,11 @@ line, and a triangle round a dot for the centre of an outline.
   pointer alone does.
 - {command:view.toggle_snapping} turns snapping off for good; Alt still snaps, and the hint
   below the prompt says snapping is off.
+- {command:view.toggle_size_rounding}, on at first, moves a shape's size in round steps while you
+  draw: a rectangle's sides, a line's length, a circle's radius, a slot's width. The steps follow
+  the zoom, a millimetre at one zoom and a tenth of one closer in, and a size close to a rounder
+  one (25 rather than 24) settles on it. It applies to a point placed freely or along a direction
+  guide; a snap, a track, a typed value and Ctrl keep the size as it is.
 - {command:view.toggle_grid_snapping} puts free points on the grid's crossings. It snaps to the
   grid you see at the current zoom, the spacing named at the bottom of the view such as "Grid 10 mm",
   and to nothing finer: the faint lines between are left out until you zoom in far enough to

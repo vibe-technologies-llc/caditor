@@ -40,6 +40,7 @@ pub struct ToggleStates {
     pub style: DisplayStyle,
     pub snapping: bool,
     pub grid_snapping: bool,
+    pub size_rounding: bool,
     pub lasso: bool,
     pub paint: bool,
     pub select_through: bool,
@@ -80,6 +81,7 @@ impl ToggleStates {
             style: viewport.style(),
             snapping: viewport.snapping(),
             grid_snapping: viewport.grid_snapping(),
+            size_rounding: viewport.size_rounding(),
             lasso: viewport.lasso(),
             paint: viewport.paint(),
             select_through: viewport.select_through(),
@@ -129,6 +131,7 @@ impl ToggleStates {
             Command::AutomaticProjection => toggle(self.automatic_projection),
             Command::ToggleSnapping => toggle(self.snapping),
             Command::ToggleGridSnapping => toggle(self.grid_snapping),
+            Command::ToggleSizeRounding => toggle(self.size_rounding),
             Command::ToggleLasso => toggle(self.lasso),
             Command::TogglePaintSelection => toggle(self.paint),
             Command::ToggleSelectThrough => toggle(self.select_through),
@@ -175,6 +178,12 @@ pub fn quiet_toggle_notice(command: Command, on: bool) -> Option<&'static str> {
         (Command::ToggleGridSnapping, false) => {
             "Grid snapping off: free points land under the pointer."
         }
+        (Command::ToggleSizeRounding, true) => {
+            "Round sizes on: a shape's size moves in round steps while you draw."
+        }
+        (Command::ToggleSizeRounding, false) => {
+            "Round sizes off: a shape's size follows the pointer exactly."
+        }
         (Command::ToggleLasso, true) => {
             "Lasso selection on: dragging in the view draws a freehand outline."
         }
@@ -213,6 +222,7 @@ mod tests {
             style: DisplayStyle::ShadedWithEdges,
             snapping: true,
             grid_snapping: false,
+            size_rounding: true,
             lasso: false,
             paint: false,
             select_through: false,
@@ -267,6 +277,7 @@ mod tests {
         for command in [
             Command::ToggleSnapping,
             Command::ToggleGridSnapping,
+            Command::ToggleSizeRounding,
             Command::ToggleLasso,
             Command::TogglePaintSelection,
             Command::ToggleSelectThrough,

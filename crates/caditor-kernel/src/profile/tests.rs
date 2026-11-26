@@ -1674,3 +1674,92 @@ fn a_rectangle_divided_by_a_line_and_chosen_whole_keeps_its_four_sides_whole() {
 
     assert_eq!(ids, (1..=4).map(whole).collect::<Vec<_>>().iter().collect());
 }
+
+fn frame_round_a_tangent_circle(shift: f64, growth: f64) -> Vec<ProfileCurve> {
+    let mut curves = rectangle(1, (-12.5, 0.0), (12.5, 35.0));
+
+    curves.extend([
+        line(5, (-8.0, 0.0), (-8.0, 25.5)),
+        line(6, (8.0, 0.0), (8.0, 25.5)),
+        line(7, (-9.3, 25.5), (-8.0, 25.5)),
+        line(8, (-8.0, 25.5), (0.0, 25.5)),
+        line(9, (0.0, 25.5), (8.0, 25.5)),
+        line(10, (0.0, 25.5), (0.0, 12.0 - growth)),
+        circle(11, (shift, 20.0), 8.0 + growth),
+    ]);
+    curves
+}
+
+fn mesh_area_and_share_outside(region: &Region) -> (f64, f64) {
+    let extent = region.bounds().unwrap().size().length();
+    let mesh = region
+        .triangulate(&SamplingTolerance::for_extent(extent))
+        .unwrap();
+    let mut area = 0.0;
+    let mut outside = 0.0;
+
+    for triangle in &mesh.triangles {
+        let [a, b, c] = triangle.map(|index| mesh.points[index as usize]);
+
+        let covered = (b - a).perp_dot(c - a).abs() / 2.0;
+
+        area += covered;
+        if !region.contains((a + b + c) / 3.0) {
+            outside += covered;
+        }
+    }
+    (area, outside)
+}
+
+#[test]
+fn regions_round_a_circle_tangent_within_rounding_are_triangulated_whole() {
+    let noise = [0.0, 1e-13, -1e-11, 1e-9, -1e-7, 1e-6, -1e-6, 3e-6, -4e-6];
+
+    for shift in noise {
+        for growth in noise {
+            let profile = profile(&frame_round_a_tangent_circle(shift, growth));
+            let mut covered = 0.0;
+
+            for region in profile.regions() {
+                let (area, outside) = mesh_area_and_share_outside(region);
+
+                assert!(
+                    outside < 1e-3,
+                    "{outside} of a region of {area} lies outside it at {shift}, {growth}"
+                );
+                assert!(
+                    (area - region.area()).abs() < 1.0,
+                    "{area} against {} at {shift}, {growth}",
+                    region.area()
+                );
+
+                covered += area;
+            }
+
+            assert!(
+                (covered - 875.0).abs() < 1.0,
+                "{covered} at {shift}, {growth}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_hole_touching_its_outline_a_rounding_error_outside_it_is_still_triangulated() {
+    for overshoot in [0.0, 1e-9, 1e-6, 3e-6, -1e-6] {
+        let mut curves = rectangle(1, (0.0, 0.0), (20.0, 10.0));
+
+        curves.push(circle(5, (10.0, 3.0 - overshoot), 3.0));
+
+        let profile = profile(&curves);
+        let plate = profile
+            .regions()
+            .iter()
+            .max_by(|first, second| first.area().total_cmp(&second.area()))
+            .unwrap();
+        let (area, outside) = mesh_area_and_share_outside(plate);
+
+        assert!(outside < 1e-3, "{outside} at {overshoot}");
+        assert!((area - plate.area()).abs() < 0.5, "{area} at {overshoot}");
+    }
+}

@@ -19,7 +19,7 @@ fn a_press_dragged_or_held_with_a_drawing_tool_still_places_the_point_where_it_i
 
     let from = harness.on_screen(Point2::new(20.0, 20.0));
 
-    drag_in_sketch(&mut harness, from, Point2::new(40.0, 25.0));
+    drag_in_sketch(&mut harness, from, Point2::new(34.0, 42.0));
     harness.frame();
 
     let sketch = harness.sketch(feature);
@@ -30,7 +30,7 @@ fn a_press_dragged_or_held_with_a_drawing_tool_still_places_the_point_where_it_i
     let (start, end) = sketch.line_endpoints(lines[0]).unwrap();
 
     assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
-    assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
+    assert!(near(end, Point2::new(34.0, 42.0)), "{end}");
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
 
     let from = harness.on_screen(Point2::new(10.0, 10.0));
 
-    drag_in_sketch(&mut harness, from, Point2::new(40.0, 25.0));
+    drag_in_sketch(&mut harness, from, Point2::new(34.0, 42.0));
     harness.frame();
 
     let sketch = harness.sketch(feature);
@@ -232,7 +232,7 @@ fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
     let (start, end) = sketch.line_endpoints(line).unwrap();
 
     assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
-    assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
+    assert!(near(end, Point2::new(34.0, 42.0)), "{end}");
     assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 
     harness.key(Key::Escape, Modifiers::NONE);

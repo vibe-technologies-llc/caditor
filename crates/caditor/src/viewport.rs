@@ -158,6 +158,9 @@ const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes tow
 pub const TYPE_VALUE_UNAVAILABLE: &str = "Choose a drawing tool, or Offset, Sketch fillet, a \
                                           pattern or Tangent circle, to type an exact value";
 const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
+const TYPE_SIZE_HINT: &str = "40x25: type the width and height";
+const TYPED_SIZE_HINT: &str = "40 x 25: width and height   A length alone draws a square   \
+                               x, y: a corner by its place   Enter: draw   Esc: cancel";
 const TYPED_DEGREE_HINT: &str = "4 degree: set the degree";
 const TYPED_RHO_HINT: &str = "0.3 rho: set its shape";
 const SCRUB_HINT: &str = "Shift: move sideways to set the sides";
@@ -509,6 +512,7 @@ pub struct ViewportState {
     grid: Option<egui::Color32>,
     snapping: bool,
     grid_snapping: bool,
+    size_rounding: bool,
     lasso: bool,
     paint: bool,
     select_through: bool,
@@ -1002,6 +1006,7 @@ impl ViewportState {
             grid: None,
             snapping: true,
             grid_snapping: false,
+            size_rounding: true,
             lasso: false,
             paint: false,
             select_through: false,
@@ -1104,6 +1109,10 @@ impl ViewportState {
 
     pub fn grid_snapping(&self) -> bool {
         self.grid_snapping
+    }
+
+    pub fn size_rounding(&self) -> bool {
+        self.size_rounding
     }
 
     pub fn lasso(&self) -> bool {
@@ -1651,6 +1660,7 @@ impl ViewportState {
         self.glyphs_shown = toggles.glyphs;
         self.snapping = toggles.snapping;
         self.grid_snapping = toggles.grid_snapping;
+        self.size_rounding = toggles.size_rounding;
         self.typed_dimensions = toggles.typed_dimensions;
         if self.dimensions_shown && !toggles.model_dimensions {
             self.model_dimensions.clear();
@@ -3577,6 +3587,7 @@ impl ViewportState {
                     last: Some(moving.anchor),
                     toward: None,
                     width: None,
+                    size: None,
                     reach: typed_point::Reach::OneWay,
                 };
                 typed_point::parse(model, text, from).ok()
@@ -3981,6 +3992,7 @@ impl ViewportState {
             .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
         self.drawing
             .snap_to_grid(self.snap_grid_spacing().filter(|_| self.grid_snapping));
+        self.drawing.round_sizes(self.size_rounding);
         self.drawing.hold_snap(self.hold());
         self.drawing.infer(self.sketching.inferred);
 
@@ -4797,6 +4809,7 @@ impl ViewportState {
         for (command, setting) in [
             (Command::ToggleSnapping, &mut self.snapping),
             (Command::ToggleGridSnapping, &mut self.grid_snapping),
+            (Command::ToggleSizeRounding, &mut self.size_rounding),
             (Command::ToggleSelectThrough, &mut self.select_through),
             (Command::ToggleTypedDimensions, &mut self.typed_dimensions),
         ] {
@@ -5943,16 +5956,27 @@ impl ViewportState {
         } else {
             String::new()
         };
-        let hint = format!(
-            "Lengths in {}   {TYPED_POINT_HINT}{sides}",
-            model.length_unit().symbol()
-        );
+        let hint = match self.drawing.size_target() {
+            Some(_) => format!(
+                "Lengths in {}   {TYPED_SIZE_HINT}",
+                model.length_unit().symbol()
+            ),
+            None => format!(
+                "Lengths in {}   {TYPED_POINT_HINT}{sides}",
+                model.length_unit().symbol()
+            ),
+        };
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let from = typed_point::From {
             last: self.drawing.last_placed(),
             toward: self.drawing.pointer_position(),
             width: self.drawing.width_target(),
+            size: self.drawing.size_target(),
             reach: self.drawing.typed_reach(),
+        };
+        let (label, placeholder) = match from.size {
+            Some(_) => (typed_point::SIZE_LABEL, typed_point::SIZE_PLACEHOLDER),
+            None => (typed_point::FIELD_LABEL, typed_point::POINT_PLACEHOLDER),
         };
 
         let Some(typed) = self.typed_point.show(
@@ -5962,9 +5986,9 @@ impl ViewportState {
                 top_band(rect, self.cube_area(rect), self.display_area),
                 anchor,
             ),
-            typed_point::FIELD_LABEL,
+            label,
             &hint,
-            typed_point::POINT_PLACEHOLDER,
+            placeholder,
         ) else {
             self.preview_typed_point(model, &sketch, from);
             return;
@@ -6378,6 +6402,7 @@ impl ViewportState {
                 last: Some(fresh.anchor),
                 toward: None,
                 width: None,
+                size: None,
                 reach: typed_point::Reach::OneWay,
             };
             let target = typed_point::parse(model, &typed.text, from)?;
@@ -6438,6 +6463,7 @@ impl ViewportState {
             last: Some(moving.place.at),
             toward: None,
             width: None,
+            size: None,
             reach: typed_point::Reach::OneWay,
         };
         match typed_point::parse(model, &typed.text, from) {
@@ -7951,7 +7977,10 @@ impl ViewportState {
             keys = keys.and(HintList::parsed(SNAPPING_OFF_HINT));
         }
         keys = keys.and(HintList::parsed_as(HELD_SNAP_HINT, Rank::Extra));
-        keys = keys.and(HintList::parsed_as(TYPE_POINT_HINT, Rank::Useful));
+        keys = keys.and(match self.drawing.size_target() {
+            Some(_) => HintList::parsed_as(TYPE_SIZE_HINT, Rank::Useful),
+            None => HintList::parsed_as(TYPE_POINT_HINT, Rank::Useful),
+        });
         if self.drawing.can_type_sides() {
             keys = keys.and(HintList::parsed_as(TYPED_SIDES_HINT, Rank::Extra));
         } else if self.drawing.can_type_degree() {

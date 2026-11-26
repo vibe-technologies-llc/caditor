@@ -314,6 +314,7 @@ pub fn command(command: Command) -> &'static str {
         Command::AutomaticProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,
         Command::ToggleGridSnapping => phosphor::GRID_FOUR,
+        Command::ToggleSizeRounding => phosphor::RULER,
         Command::ToggleLasso => phosphor::LASSO,
         Command::TogglePaintSelection => phosphor::PAINT_BRUSH,
         Command::ToggleSelectThrough => phosphor::SELECTION_BACKGROUND,

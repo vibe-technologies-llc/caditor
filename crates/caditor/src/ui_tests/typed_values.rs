@@ -123,7 +123,7 @@ fn a_typed_point_previews_the_shape_until_enter_places_it() {
 
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
-    harness.point_at(Point2::new(10.0, 10.0));
+    harness.point_at(Point2::new(12.0, 16.0));
 
     harness.type_text("30, 0");
 
@@ -132,7 +132,7 @@ fn a_typed_point_previews_the_shape_until_enter_places_it() {
 
     harness.type_text(", nowhere");
 
-    let follows_pointer = harness.shows("14.14 mm   45.0°");
+    let follows_pointer = harness.shows("20.00 mm   53.1°");
 
     harness.key(Key::A, Modifiers::COMMAND);
     harness.type_text("30, 0");
@@ -211,7 +211,7 @@ fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_dire
 
     let released = !harness.shows_containing("The length is locked");
 
-    harness.click_at(Point2::new(30.0, 40.0));
+    harness.click_at(Point2::new(24.0, 42.0));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
 
@@ -224,7 +224,7 @@ fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_dire
 
     assert_eq!(ends.len(), 2, "{ends:?}");
     assert!(near(ends[0].1, Point2::new(0.0, 10.0)), "{:?}", ends[0]);
-    assert!(near(ends[1].1, Point2::new(30.0, 40.0)), "{:?}", ends[1]);
+    assert!(near(ends[1].1, Point2::new(24.0, 42.0)), "{:?}", ends[1]);
     assert_eq!(constraints_of_kind(sketch, "Distance").len(), 1);
 }
 

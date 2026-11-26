@@ -206,7 +206,7 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
 
     type_point(&mut harness, "5, nowhere");
 
-    assert!(harness.shows(typed_point::FIELD_LABEL));
+    assert!(harness.shows(typed_point::SIZE_LABEL));
     assert!(
         harness
             .texts
@@ -217,7 +217,7 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
 
-    assert!(!harness.shows(typed_point::FIELD_LABEL));
+    assert!(!harness.shows(typed_point::SIZE_LABEL));
     assert!(harness.workspace.viewport.is_drawing());
 
     type_point(&mut harness, "@2000 m, 5");

@@ -1132,6 +1132,154 @@ fn a_rectangle_from_its_centre_stays_centred_on_it() {
 }
 
 #[test]
+fn a_size_typed_for_a_rectangle_from_its_centre_draws_it_whole_and_dimensions_its_sides() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::R);
+    harness.use_tool(Key::R);
+
+    type_point(&mut harness, "0, 0");
+    harness.type_text("5");
+
+    assert!(harness.shows("Rectangle size"));
+    assert!(harness.shows("40 x 25: width and height"));
+
+    harness.type_text("x5");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lengths = line_lengths(&harness.shown(feature));
+
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 4);
+    assert_eq!(constraints_of_kind(sketch, "Distance").len(), 2);
+    assert!(close(&lengths, &[5.0, 5.0, 5.0, 5.0]), "{lengths:?}");
+    assert!(harness.shows("Fully constrained"));
+    assert_eq!(harness.model.undo_label(), Some("Draw rectangle"));
+}
+
+#[test]
+fn a_size_typed_for_a_rectangle_runs_from_its_corner_to_the_pointer_s_side() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.point_at(Point2::new(-4.0, 22.0));
+
+    type_point(&mut harness, "25 x 15");
+
+    let shown = harness.shown(feature);
+    let corners: Vec<Point2> = entities_of_kind(&shown, "Line")
+        .into_iter()
+        .map(|line| shown.line_endpoints(line).unwrap().0)
+        .collect();
+    let low = corners.iter().copied().reduce(Point2::min).unwrap();
+    let high = corners.iter().copied().reduce(Point2::max).unwrap();
+
+    assert!(near(low, Point2::new(-15.0, 10.0)), "{low}");
+    assert!(near(high, Point2::new(10.0, 25.0)), "{high}");
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Distance").len(),
+        2
+    );
+
+    harness.click_at(Point2::new(40.0, 40.0));
+    harness.point_at(Point2::new(60.0, 60.0));
+    type_point(&mut harness, "8");
+
+    let lengths = line_lengths(&harness.shown(feature));
+
+    assert_eq!(
+        lengths
+            .iter()
+            .filter(|length| near_length(**length, 8.0))
+            .count(),
+        4
+    );
+}
+
+fn extent_of_lines(sketch: &Sketch) -> Vector2 {
+    let ends: Vec<Point2> = entities_of_kind(sketch, "Line")
+        .into_iter()
+        .map(|line| sketch.line_endpoints(line).unwrap().0)
+        .collect();
+    let low = ends.iter().copied().reduce(Point2::min).unwrap();
+    let high = ends.iter().copied().reduce(Point2::max).unwrap();
+
+    high - low
+}
+
+#[test]
+fn a_rectangle_dragged_near_a_round_size_lands_on_it_from_its_corner_or_its_centre() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.point_at(Point2::new(35.13, 34.91));
+
+    assert!(harness.shows("25.00 mm × 25.00 mm"));
+
+    harness.click_at(Point2::new(35.13, 34.91));
+
+    let size = extent_of_lines(&harness.shown(feature));
+
+    assert_eq!(size, Vector2::new(25.0, 25.0));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::ZERO);
+    harness.point_at(Point2::new(12.56, -12.44));
+
+    assert!(harness.shows("25.00 mm × 25.00 mm"));
+
+    harness.click_at(Point2::new(12.56, -12.44));
+
+    let size = extent_of_lines(&harness.shown(feature));
+
+    assert!((size - Vector2::new(25.0, 25.0)).length() < 1e-9, "{size}");
+}
+
+#[test]
+fn round_sizes_reach_a_circle_s_radius_until_they_are_turned_off() {
+    let mut harness = Harness::new();
+
+    let feature = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::C);
+    harness.click_at(Point2::new(20.0, 20.0));
+    harness.click_at(Point2::new(28.04, 20.03));
+
+    let rounded = radii(&harness.shown(feature), "Circle");
+
+    assert!(close(&rounded, &[8.0]), "{rounded:?}");
+
+    run_from_palette(&mut harness, "Draw in round sizes");
+
+    assert!(harness.shows("Round sizes off: a shape's size follows the pointer exactly."));
+    assert!(!harness.workspace.viewport.size_rounding());
+    assert_eq!(harness.tool(), Some(Tool::Circle));
+
+    harness.click_at(Point2::new(60.0, 20.0));
+    harness.click_at(Point2::new(68.04, 20.0));
+
+    let free = radii(&harness.shown(feature), "Circle");
+
+    assert!(close(&free, &[8.0, 8.04]), "{free:?}");
+}
+
+fn near_length(length: f64, expected: f64) -> bool {
+    (length - expected).abs() < 1e-6
+}
+
+#[test]
 fn a_rectangle_from_three_points_turns_with_its_first_side_and_stays_square() {
     let mut harness = Harness::new();
 

@@ -16,6 +16,7 @@ use crate::{
     field::{self, Assist, Expected, ExpressionError},
     icons,
     model::Model,
+    size_steps::SizeSteps,
     sketch_drag::Transform,
     widgets,
 };
@@ -23,6 +24,8 @@ use crate::{
 pub const FIELD_LABEL: &str = "Place point";
 pub const MOVE_LABEL: &str = "Move to";
 pub const POINT_PLACEHOLDER: &str = "x, y  or  length < angle";
+pub const SIZE_LABEL: &str = "Rectangle size";
+pub const SIZE_PLACEHOLDER: &str = "width x height";
 pub const WAITING_HINT: &str = "Still waiting: click the field or type to carry on   Esc: clear it";
 const FIELD_WIDTH: f32 = 180.0;
 const FRAME_MARGIN: Margin = appearance::margin(SPACE_M, SPACE_SM);
@@ -31,6 +34,7 @@ const RELATIVE_MARK: char = '@';
 const VALUE_MARK: char = '=';
 const SEPARATORS: [char; 2] = [',', ';'];
 const POLAR_MARK: char = '<';
+const SIZE_MARKS: [char; 3] = ['x', 'X', '×'];
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
     non_negative: false,
@@ -73,6 +77,35 @@ pub enum WidthTarget {
 }
 
 impl WidthTarget {
+    pub fn in_steps(self, position: Point2, steps: &SizeSteps) -> Point2 {
+        match self {
+            Self::Perpendicular {
+                origin,
+                across,
+                scale,
+            } => {
+                let offset = across.dot(position - origin);
+                let rounded = steps.rounded(offset.abs() / scale) * scale;
+
+                position + across * (offset.signum() * (rounded - offset.abs()))
+            }
+            Self::Radial {
+                center,
+                radius,
+                scale,
+            } => {
+                let reach = position.distance(center);
+                let Some(direction) = (position - center).try_normalize() else {
+                    return position;
+                };
+                let beyond = reach - radius;
+                let rounded = steps.rounded(beyond.abs() / scale) * scale;
+
+                center + direction * (radius + beyond.signum() * rounded).max(0.0)
+            }
+        }
+    }
+
     fn origin(self) -> Point2 {
         match self {
             Self::Perpendicular { origin, .. } => origin,
@@ -115,6 +148,25 @@ impl WidthTarget {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SizeTarget {
+    pub from: Point2,
+    pub share: f64,
+}
+
+impl SizeTarget {
+    fn place(self, toward: Option<Point2>, width: f64, height: f64) -> Point2 {
+        let heading = toward.map_or(Vector2::ONE, |toward| toward - self.from);
+        let side = |along: f64| if along < 0.0 { -1.0 } else { 1.0 };
+
+        self.from
+            + Vector2::new(
+                side(heading.x) * width * self.share,
+                side(heading.y) * height * self.share,
+            )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Reach {
     #[default]
@@ -136,6 +188,7 @@ pub struct From {
     pub last: Option<Point2>,
     pub toward: Option<Point2>,
     pub width: Option<WidthTarget>,
+    pub size: Option<SizeTarget>,
     pub reach: Reach,
 }
 
@@ -180,6 +233,8 @@ pub enum Measured {
     Up,
     Length,
     Angle,
+    Width,
+    Height,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -208,12 +263,20 @@ impl TypedValue {
                 self.expression
             }
             Measured::Angle => return None,
-            Measured::Across | Measured::Up | Measured::Length if self.value == 0.0 => {
+            Measured::Across
+            | Measured::Up
+            | Measured::Length
+            | Measured::Width
+            | Measured::Height
+                if self.value == 0.0 =>
+            {
                 return None;
             }
-            Measured::Across | Measured::Up | Measured::Length => {
-                magnitude(self.expression, self.value)
-            }
+            Measured::Across
+            | Measured::Up
+            | Measured::Length
+            | Measured::Width
+            | Measured::Height => magnitude(self.expression, self.value),
         };
         Some(TypedDimension {
             measured: self.measured,
@@ -604,6 +667,16 @@ const DISTANCE: Part = Part {
     noun: "length",
     expected: LENGTH,
 };
+const WIDTH: Part = Part {
+    label: "width",
+    noun: "width",
+    expected: LENGTH,
+};
+const HEIGHT: Part = Part {
+    label: "height",
+    noun: "height",
+    expected: LENGTH,
+};
 const DIRECTION: Part = Part {
     label: "angle",
     noun: "angle",
@@ -646,6 +719,8 @@ pub enum TypedPointError {
     LengthLockNotPositive,
     #[error("Keep the length within {} m", .limit / 1_000.0)]
     LengthTooLong { limit: f64 },
+    #[error("A rectangle needs a width and a height other than zero, such as 40 x 25")]
+    SizeIsZero,
 }
 
 fn typed_value(
@@ -724,6 +799,76 @@ fn offset(
         }
         _ => Err(TypedPointError::Forms),
     }
+}
+
+fn size_parts(text: &str) -> Vec<(&str, &str)> {
+    let mut depth = 0_usize;
+    let mut parts = Vec::new();
+
+    for (index, character) in text.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            mark if depth == 0 && SIZE_MARKS.contains(&mark) => {
+                let width = text.get(..index).unwrap_or_default().trim();
+                let height = text
+                    .get(index + mark.len_utf8()..)
+                    .unwrap_or_default()
+                    .trim();
+
+                if !width.is_empty() && !height.is_empty() {
+                    parts.push((width, height));
+                }
+            }
+            _ => {}
+        }
+    }
+    parts
+}
+
+fn sized(
+    model: &Model,
+    text: &str,
+    from: From,
+    size: SizeTarget,
+) -> Option<Result<Placed, TypedPointError>> {
+    if coordinates(text).len() != 1 || polar(text).len() != 1 {
+        return None;
+    }
+
+    let sides = size_parts(text).into_iter().find_map(|(width, height)| {
+        let width = typed_value(model, width, WIDTH, Measured::Width).ok()?;
+        let height = typed_value(model, height, HEIGHT, Measured::Height).ok()?;
+        Some((width, height))
+    });
+    let (width, height) = match sides {
+        Some(sides) => sides,
+        None => {
+            let side = |part, measured| typed_value(model, text, part, measured);
+            match (side(WIDTH, Measured::Width), side(HEIGHT, Measured::Height)) {
+                (Ok(width), Ok(height)) => (width, height),
+                (Err(_), _) | (_, Err(_)) if !size_parts(text).is_empty() => return None,
+                (Err(error), _) | (_, Err(error)) => return Some(Err(error.into())),
+            }
+        }
+    };
+
+    if width.value == 0.0 || height.value == 0.0 {
+        return Some(Err(TypedPointError::SizeIsZero));
+    }
+
+    let position = size.place(from.toward, width.value, height.value);
+
+    if position.abs().max_element() > MAX_LENGTH {
+        return Some(Err(TypedPointError::PointTooFar { limit: MAX_LENGTH }));
+    }
+    Some(Ok(Placed {
+        position,
+        dimensions: [width, height]
+            .into_iter()
+            .filter_map(|typed| typed.dimension(Some(size.from)))
+            .collect(),
+    }))
 }
 
 pub struct TransformField {
@@ -836,6 +981,13 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Typ
     };
     let alone = coordinates(text).len() == 1 && polar(text).len() == 1;
 
+    if !relative
+        && let Some(size) = from.size
+        && let Some(sized) = sized(model, text, from, size)
+    {
+        return sized;
+    }
+
     let (point, measured_from, typed) = if alone
         && !relative
         && let Some(width) = from.width
@@ -919,6 +1071,92 @@ mod tests {
         assert_eq!(resumed("", "=w"), "=w");
     }
 
+    fn sizing(from: Point2, share: f64, toward: Point2) -> From {
+        From {
+            last: Some(from),
+            toward: Some(toward),
+            width: None,
+            size: Some(SizeTarget { from, share }),
+            reach: Reach::OneWay,
+        }
+    }
+
+    #[test]
+    fn a_width_and_height_size_a_rectangle_from_its_corner_toward_the_pointer() {
+        let model = empty_model();
+        let corner = Point2::new(10.0, 5.0);
+        let from = sizing(corner, 1.0, Point2::new(-3.0, 9.0));
+
+        for text in [
+            "25x15",
+            "25 x 15",
+            "25 X 15",
+            "25×15",
+            "(20 + 5) x 15",
+            "25mm x 1.5cm",
+        ] {
+            let placed = parse_placed(&model, text, from).unwrap();
+
+            assert_eq!(placed.position, Point2::new(-15.0, 20.0), "{text}");
+            assert_eq!(
+                placed
+                    .dimensions
+                    .iter()
+                    .map(|dimension| (dimension.measured, dimension.from))
+                    .collect::<Vec<_>>(),
+                [
+                    (Measured::Width, Some(corner)),
+                    (Measured::Height, Some(corner))
+                ],
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_size_typed_from_the_centre_is_the_whole_rectangle_s() {
+        let model = empty_model();
+        let from = sizing(Point2::ZERO, 0.5, Point2::new(4.0, 4.0));
+
+        assert_eq!(
+            parse_placed(&model, "5x5", from).map(|placed| placed.position),
+            Ok(Point2::new(2.5, 2.5))
+        );
+        assert_eq!(
+            parse_placed(&model, "25", from).map(|placed| placed.position),
+            Ok(Point2::new(12.5, 12.5))
+        );
+        assert_eq!(
+            parse_placed(&model, "25", from).map(|placed| placed.dimensions.len()),
+            Ok(2)
+        );
+    }
+
+    #[test]
+    fn points_are_still_typed_while_a_rectangle_takes_its_size() {
+        let model = empty_model();
+        let from = sizing(Point2::new(10.0, 5.0), 1.0, Point2::new(30.0, 30.0));
+
+        assert_eq!(
+            parse_placed(&model, "3, 4", from).map(|placed| placed.position),
+            Ok(Point2::new(3.0, 4.0))
+        );
+        assert_eq!(
+            parse_placed(&model, "@3, 4", from).map(|placed| placed.position),
+            Ok(Point2::new(13.0, 9.0))
+        );
+        assert_eq!(
+            parse_placed(&model, "0 x 5", from),
+            Err(TypedPointError::SizeIsZero)
+        );
+        assert_eq!(
+            parse_placed(&model, "-20 x 5", from).map(|placed| placed.position),
+            Ok(Point2::new(-10.0, 10.0))
+        );
+        assert!(parse_placed(&model, "5 x nothing", from).is_err());
+        assert!(parse_placed(&model, "5 x 5", From::default()).is_err());
+    }
+
     #[test]
     fn an_angle_alone_is_a_heading_from_the_last_point_and_nothing_else_is() {
         let model = empty_model();
@@ -927,6 +1165,7 @@ mod tests {
             last: Some(last),
             toward: None,
             width: None,
+            size: None,
             reach: Reach::OneWay,
         };
 
@@ -956,6 +1195,7 @@ mod tests {
             last: Some(last),
             toward: None,
             width: None,
+            size: None,
             reach: Reach::OneWay,
         };
 
@@ -989,6 +1229,7 @@ mod tests {
             last: Some(last),
             toward: Some(Point2::new(5.0, 50.0)),
             width: None,
+            size: None,
             reach: Reach::BothWays,
         };
 

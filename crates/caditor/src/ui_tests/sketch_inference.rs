@@ -7,6 +7,7 @@ use tempfile::TempDir;
 use super::{
     Harness, constraints_of_kind, entities_of_kind, line_ends, near,
     preference_groups::{close_preferences, open_tab, reopened, wait_until_stored},
+    run_from_palette,
 };
 use crate::{
     inference::Inference,
@@ -29,6 +30,8 @@ fn a_nearly_level_line_gets_no_horizontal_constraint_once_horizontal_is_turned_o
     let mut harness = Harness::with_directories(Some(dir.path()));
 
     let feature = harness.draw_on_new_sketch();
+
+    run_from_palette(&mut harness, "Draw in round sizes");
 
     open_tab(&mut harness, PreferencesTab::Sketching);
 
@@ -192,6 +195,8 @@ fn with_equal_length_turned_off_a_line_keeps_the_length_drawn_and_gets_no_equal_
     let mut harness = Harness::new();
 
     let feature = harness.draw_on_new_sketch();
+
+    run_from_palette(&mut harness, "Draw in round sizes");
 
     open_tab(&mut harness, PreferencesTab::Sketching);
 

@@ -125,11 +125,11 @@ fn drawing_symmetrically_mirrors_each_shape_about_the_chosen_line_in_its_own_tra
 
     harness.use_tool(Key::L);
     harness.click_at(Point2::new(10.0, 10.0));
-    harness.point_at(Point2::new(20.0, 25.0));
+    harness.point_at(Point2::new(22.0, 26.0));
 
     assert!(harness.shows_containing(&format!("mirrored about {axis_label}")));
 
-    harness.click_at(Point2::new(20.0, 25.0));
+    harness.click_at(Point2::new(22.0, 26.0));
     harness.click_at(Point2::new(20.5, -15.0));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
@@ -151,7 +151,7 @@ fn drawing_symmetrically_mirrors_each_shape_about_the_chosen_line_in_its_own_tra
         .flat_map(|(start, end)| [start, end])
         .collect();
 
-    assert!(ends.iter().any(|end| near(*end, Point2::new(-20.0, 25.0))));
+    assert!(ends.iter().any(|end| near(*end, Point2::new(-22.0, 26.0))));
     assert!(
         harness
             .model

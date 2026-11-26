@@ -138,7 +138,8 @@ See [moving around the view](navigation).
   of an outline, at an intersection and at a quadrant or axis end; and in line with a point the
   pointer passed over. All start on. An unticked kind is neither offered while drawing or dragging nor made a constraint;
   the constraint tools still add it by hand. See [snapping](snapping).
-- **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, keeping typed
+- **On when caditor starts**: constraint glyphs, snapping, snapping to the grid, drawing in round
+  sizes, keeping typed
   values as dimensions, dimensions shown on the model, and auto-hiding crowded dimensions and
   glyphs. Each can still be turned on or off while you work; changing one here changes it now too.
   See [snapping](snapping) and [dimensions](dimensions).

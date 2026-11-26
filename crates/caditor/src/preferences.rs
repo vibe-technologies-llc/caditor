@@ -93,6 +93,7 @@ const ESCAPE_FINISHES_KEY: &str = "sketch.escape_finishes";
 const GLYPHS_KEY: &str = "sketch.glyphs";
 const SNAPPING_KEY: &str = "sketch.snapping";
 const GRID_SNAPPING_KEY: &str = "sketch.grid_snapping";
+const SIZE_ROUNDING_KEY: &str = "sketch.size_rounding";
 const TYPED_DIMENSIONS_KEY: &str = "sketch.typed_dimensions";
 const MODEL_DIMENSIONS_KEY: &str = "model.dimensions";
 const AUTO_HIDE_MARKS_KEY: &str = "sketch.auto_hide_marks";
@@ -479,6 +480,7 @@ pub struct StartingToggles {
     pub glyphs: bool,
     pub snapping: bool,
     pub grid_snapping: bool,
+    pub size_rounding: bool,
     pub typed_dimensions: bool,
     pub model_dimensions: bool,
     pub auto_hide_marks: bool,
@@ -490,6 +492,7 @@ impl Default for StartingToggles {
             glyphs: true,
             snapping: true,
             grid_snapping: false,
+            size_rounding: true,
             typed_dimensions: true,
             model_dimensions: false,
             auto_hide_marks: true,
@@ -574,6 +577,7 @@ pub enum PreferenceChange {
     StartWithGlyphs(bool),
     StartWithSnapping(bool),
     StartWithGridSnapping(bool),
+    StartWithSizeRounding(bool),
     StartWithTypedDimensions(bool),
     StartWithModelDimensions(bool),
     StartWithAutoHideMarks(bool),
@@ -972,6 +976,9 @@ impl Preferences {
             PreferenceChange::StartWithGridSnapping(on) => {
                 self.sketching.at_start.grid_snapping = on;
             }
+            PreferenceChange::StartWithSizeRounding(on) => {
+                self.sketching.at_start.size_rounding = on;
+            }
             PreferenceChange::StartWithTypedDimensions(on) => {
                 self.sketching.at_start.typed_dimensions = on;
             }
@@ -1146,6 +1153,7 @@ impl Sketching {
                 glyphs: flag(GLYPHS_KEY, defaults.at_start.glyphs),
                 snapping: flag(SNAPPING_KEY, defaults.at_start.snapping),
                 grid_snapping: flag(GRID_SNAPPING_KEY, defaults.at_start.grid_snapping),
+                size_rounding: flag(SIZE_ROUNDING_KEY, defaults.at_start.size_rounding),
                 typed_dimensions: flag(TYPED_DIMENSIONS_KEY, defaults.at_start.typed_dimensions),
                 model_dimensions: flag(MODEL_DIMENSIONS_KEY, defaults.at_start.model_dimensions),
                 auto_hide_marks: flag(AUTO_HIDE_MARKS_KEY, defaults.at_start.auto_hide_marks),
@@ -1160,6 +1168,7 @@ impl Sketching {
         settings.set_flag(GLYPHS_KEY, self.at_start.glyphs);
         settings.set_flag(SNAPPING_KEY, self.at_start.snapping);
         settings.set_flag(GRID_SNAPPING_KEY, self.at_start.grid_snapping);
+        settings.set_flag(SIZE_ROUNDING_KEY, self.at_start.size_rounding);
         settings.set_flag(TYPED_DIMENSIONS_KEY, self.at_start.typed_dimensions);
         settings.set_flag(MODEL_DIMENSIONS_KEY, self.at_start.model_dimensions);
         settings.set_flag(AUTO_HIDE_MARKS_KEY, self.at_start.auto_hide_marks);
@@ -1630,6 +1639,7 @@ mod tests {
             PreferenceChange::StartWithGlyphs(false),
             PreferenceChange::StartWithSnapping(false),
             PreferenceChange::StartWithGridSnapping(true),
+            PreferenceChange::StartWithSizeRounding(false),
             PreferenceChange::StartWithTypedDimensions(false),
             PreferenceChange::StartWithModelDimensions(true),
             PreferenceChange::StartWithAutoHideMarks(false),

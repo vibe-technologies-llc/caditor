@@ -300,3 +300,79 @@ fn crowded_sketch_marks_show_a_canvas_button_that_reveals_them_and_toggles_back(
     assert!(harness.shows("Crowded marks hidden"));
     assert_eq!(shown_dimensions(&harness), 0);
 }
+
+fn framed_circle_with_a_radius() -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let circle = sketch.add_circle(Point2::ZERO, 8.0);
+
+    for corner in [
+        Point2::new(-40.0, -40.0),
+        Point2::new(40.0, -40.0),
+        Point2::new(40.0, 40.0),
+        Point2::new(-40.0, 40.0),
+    ] {
+        sketch.add_point(corner);
+    }
+    sketch
+        .add_constraint(Constraint::Radius {
+            entity: circle,
+            value: Expression::Measure(8.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch
+}
+
+#[test]
+fn a_circle_s_radius_leader_turns_away_from_a_dimension_its_label_would_cover() {
+    let mut alone = Harness::new();
+
+    edit_free_sketch(&mut alone, framed_circle_with_a_radius());
+    alone.workspace.viewport.advance(CAMERA_SETTLE);
+    alone.let_animations_finish();
+    alone.frame();
+
+    let centre = alone.on_screen(Point2::ZERO);
+    let usual = alone.position_of("R 8 mm");
+    let per_point = 1.0 / f64::from(alone.on_screen(Point2::X).x - centre.x);
+
+    let covered = Point2::new(
+        f64::from(usual.x - centre.x) * per_point,
+        f64::from(centre.y - usual.y) * per_point,
+    );
+
+    assert!(usual.x > centre.x && usual.y < centre.y, "{usual:?}");
+
+    let mut crowded = Harness::new();
+    let mut sketch = framed_circle_with_a_radius();
+
+    let reach = Vector2::new(30.0 * per_point, 0.0);
+    let under = Vector2::new(0.0, 28.0 * per_point);
+
+    let from = sketch.add_point(covered - reach - under);
+    let to = sketch.add_point(covered + reach - under);
+
+    sketch
+        .add_constraint(Constraint::HorizontalDistance {
+            from,
+            to,
+            value: Expression::Measure(reach.x * 2.0, Unit::Millimetre),
+        })
+        .unwrap();
+    edit_free_sketch(&mut crowded, sketch);
+    crowded.workspace.viewport.advance(CAMERA_SETTLE);
+    crowded.let_animations_finish();
+    crowded.frame();
+
+    let turned = crowded.position_of("R 8 mm");
+
+    assert_eq!(crowded.on_screen(Point2::ZERO), centre);
+    assert!(
+        turned.distance(usual) > 40.0,
+        "{turned:?} against {usual:?}"
+    );
+    assert!(
+        (f64::from(turned.distance(centre)) - f64::from(usual.distance(centre))).abs() < 12.0,
+        "{turned:?}"
+    );
+}

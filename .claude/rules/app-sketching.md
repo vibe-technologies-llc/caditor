@@ -17,6 +17,7 @@ paths:
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
+  - "crates/caditor/src/size_steps.rs"
   - "crates/caditor/src/inference.rs"
   - "crates/caditor/src/body_snap.rs"
   - "crates/caditor/src/body_picks.rs"
@@ -246,6 +247,22 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   "Snapping off" before the Alt hint. Ctrl wins over Alt (AltGr arrives as Ctrl+Alt on Windows). The
   pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot place a
   point at an enormous distance.
+- A size set by the pointer moves in round steps (`size_steps.rs`, `SizeSteps`, from
+  `Drawing::in_round_steps` at the end of `Drawing::place`): the finest 1-2-5 step at least
+  `FINE_POINTS` on screen at the view's zoom, and within `ROUND_PULL_POINTS` of a multiple of the
+  next rounder step (`Step::rounder`: 1 to 5, 2 to 10, 5 to 50) that multiple, so a rectangle
+  dragged to 24.8 by 25.3 is 25 by 25 without a typed value. It rounds each side of a
+  two-corner or centred rectangle (a centred one's whole side; a side a track holds is left), the
+  reach from the first point of what `Shape::sized_from_first` sizes that way (a line's length,
+  the whole length of a line from its middle and a centred slot, a circle's radius, an arc's, a
+  polygon's, an ellipse's major radius) and the widths `WidthTarget::in_steps` measures (a
+  three-point rectangle, a slot, an ellipse's minor radius). Only a point placed free or on a
+  direction guide is moved, along its own ray: a snap, a track, the grid, an equal length, a
+  locked heading or length and a typed point keep their place, and Ctrl or snapping off leave the
+  size under the pointer. Nothing is constrained by it; the readout shows the rounded size.
+  Draw in round sizes (`Command::ToggleSizeRounding`, session-only in
+  `ViewportState::size_rounding`, on at start unless Preferences › Sketching says otherwise,
+  `StartingToggles::size_rounding`) turns it off.
 - Line has two ways (`LineMode`): from one end (the default, chaining as below) and from its middle.
   From its middle, the first click places the middle and the second an end; the other end is the
   end mirrored through the middle (`Draft::line_from_middle`), placed free with no inferred
@@ -726,7 +743,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `MAX_CROSSING_CURVES` eligible curves nearest the pointer, axes included (`Target::Intersection`,
   `Sketch::curve_crossings`), quadrants of a circle or arc (`Target::Quadrant`) and ellipse axis ends
   (`Target::AxisEnd`); then lines, circles, arcs, splines and axes within `CURVE_TOLERANCE`,
-  projecting onto the curve. A point, middle, crossing or quadrant lying on that curve (`lies_on`,
+  projecting onto the curve; a drawn curve wins a tie with an axis it runs along (`snap::curves`
+  lists the axes last), so a line ending on a rectangle's side that lies on the x axis is held to the
+  side rather than to the axis, where its end would be ringed as an open end. A point, middle, crossing or quadrant lying on that curve (`lies_on`,
   within `LYING_ON_CURVE` on screen) pulls from `POINT_PULL_ALONG_CURVE`, twice the point
   tolerance, so sliding along an axis or line onto the origin or a line's end lands on it rather
   than beside it. A snapped point gets a `Coincident` with its target (both curves at a
@@ -1164,6 +1183,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   dimensions sit away from the sketch's centre, and linear ones measured along one line on one side
   with overlapping spans stack into lanes (`annotation::lanes`, shortest nearest, `LANE_SPACING`
   apart); other constraints are glyphs stacked beside each constrained entity on the opposite side.
+  An unplaced radius or diameter of a whole circle leads out at `CIRCLE_LEADER_DIRECTION` unless
+  its label, arrowhead or leader would cover another dimension's label, arrowhead or level or
+  upright line: `annotations::clear_leaders`, after every dimension is laid out, tries the
+  directions of `annotation_layout::turned_leaders` (quarter turns first, then eighths) and keeps
+  the least covered (`DimensionLayout::drawn_footprints`), each settled leader an obstacle to the
+  next. An arc's leader stays at the middle of its sweep, and drawing export keeps the one
+  direction.
 - Dragging a dimension's label places it: the offset is stored with the dimension (`sketch.md`) in its
   `LabelFrame` (relative to the geometry, so it keeps its place as the geometry moves), and the drop is
   one undoable "Move dimension label" transaction. A placed distance runs its dimension line through

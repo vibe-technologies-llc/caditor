@@ -12,4 +12,13 @@
 Pressing the tool's key again while it is active steps to the next way; the menu of the arrow beside the
 ribbon button lists them all. The way last used is remembered while caditor runs.
 
-Add a dimension to two sides to fix its size; see [dimensions](dimensions).
+## Its size
+
+- While you drag, the sides move in round steps and settle on rounder sizes nearby, so 25 by 25 is
+  reached without typing; see [snapping](snapping).
+- With the first corner or the centre placed, type the size as `40 x 25`, width then height, and
+  press Enter. One length alone, such as `25`, draws a square. The size is the whole rectangle's
+  in both ways, the rectangle goes to the side of the first point the pointer is on (a negative
+  value sends it to the other side), and both values are kept as dimensions. `x, y` with a comma
+  still places the corner by its position.
+- Otherwise add a dimension to two sides; see [dimensions](dimensions).

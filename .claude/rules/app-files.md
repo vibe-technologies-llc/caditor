@@ -703,7 +703,7 @@ paths:
   `top_right`, `bottom_left`, `bottom_right`), `view.principal_when_needed` (on unless stored
   off, `app-modelling.md`), `sketch.look_at`,
   `sketch.escape_finishes`, the starting states `sketch.glyphs`, `sketch.snapping`,
-  `sketch.grid_snapping`, `sketch.typed_dimensions`, `model.dimensions` and
+  `sketch.grid_snapping`, `sketch.size_rounding` (on unless stored off), `sketch.typed_dimensions`, `model.dimensions` and
   `sketch.auto_hide_marks`
   (`StartingToggles`, set on the viewport at startup and again when one of them changes, the
   toggles staying session state), one flag per kind of constraint drawing infers

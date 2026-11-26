@@ -27,11 +27,12 @@ use crate::{
         SplineMode,
     },
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
+    size_steps::SizeSteps,
     sketch_tools,
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
     symmetric_drawing,
     tracking::{self, Acquired, ShownOutlines, Tracked, Tracks},
-    typed_point::{Measured, Placed, Reach, TypedDimension, WidthTarget},
+    typed_point::{Measured, Placed, Reach, SizeTarget, TypedDimension, WidthTarget},
     units::Units,
 };
 
@@ -465,6 +466,27 @@ impl Shape {
                 | Self::Rectangle(RectangleMode::ThreePoints)
                 | Self::Polygon(PolygonMode::Side)
         )
+    }
+
+    fn sized_from_first(self) -> Option<f64> {
+        match self {
+            Self::Line(LineMode::Middle) | Self::Slot(SlotMode::Center) => Some(2.0),
+            Self::Line(LineMode::End)
+            | Self::Rectangle(RectangleMode::ThreePoints)
+            | Self::Circle(CircleMode::Center | CircleMode::TwoPoints)
+            | Self::Arc
+            | Self::Slot(SlotMode::Ends | SlotMode::Arc)
+            | Self::Polygon(_)
+            | Self::Ellipse
+            | Self::EllipticalArc => Some(1.0),
+            Self::Point
+            | Self::Rectangle(RectangleMode::Corners | RectangleMode::Center)
+            | Self::Circle(CircleMode::ThreePoints)
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Spline(_)
+            | Self::Conic => None,
+        }
     }
 
     fn aligns_second_point(self) -> bool {
@@ -940,6 +962,7 @@ pub struct Drawing {
     scrub: Option<Scrub>,
     free: bool,
     grid: Option<f64>,
+    round_sizes: bool,
     hold: Option<Hold>,
     inferred: Inferences,
     acquired: Acquired,
@@ -1367,6 +1390,10 @@ impl Drawing {
         self.grid = spacing.filter(|spacing| spacing.is_finite() && *spacing > 0.0);
     }
 
+    pub fn round_sizes(&mut self, round: bool) {
+        self.round_sizes = round;
+    }
+
     pub fn hold_snap(&mut self, hold: Option<Hold>) {
         self.hold = hold;
     }
@@ -1717,6 +1744,21 @@ impl Drawing {
 
     pub fn last_placed(&self) -> Option<Point2> {
         self.placed.last().map(|placement| placement.position)
+    }
+
+    pub fn size_target(&self) -> Option<SizeTarget> {
+        let (_, shape) = self.current()?;
+        match (shape, self.placed.as_slice()) {
+            (Shape::Rectangle(RectangleMode::Corners), [corner]) => Some(SizeTarget {
+                from: corner.position,
+                share: 1.0,
+            }),
+            (Shape::Rectangle(RectangleMode::Center), [center]) => Some(SizeTarget {
+                from: center.position,
+                share: 0.5,
+            }),
+            _ => None,
+        }
     }
 
     pub fn width_target(&self) -> Option<WidthTarget> {
@@ -3353,13 +3395,98 @@ impl Drawing {
         if let Some(heading) = self.active_heading() {
             return Placement::free(heading.reach(pointer.sketch));
         }
-        if self.free || shape.sizes_by_width(self.placed.len()) {
+        if self.free {
             return Placement::free(pointer.sketch);
+        }
+        if shape.sizes_by_width(self.placed.len()) {
+            return self.in_round_steps(shape, Placement::free(pointer.sketch), screen);
         }
         if let Some(hold) = self.hold {
             return self.place_held(shape, sketch, screen, pointer, hold);
         }
 
+        let placement = self.place_inferring(shape, sketch, screen, pointer);
+
+        self.in_round_steps(shape, placement, screen)
+    }
+
+    fn in_round_steps(
+        &self,
+        shape: Shape,
+        placement: Placement,
+        screen: &impl Screen,
+    ) -> Placement {
+        let steps = self
+            .round_sizes
+            .then(|| size_steps_at(screen, placement.position))
+            .flatten();
+        let Some(steps) = steps else {
+            return placement;
+        };
+        let moved = |position: Point2| Placement {
+            position,
+            ..placement
+        };
+
+        if let Some(width) = self
+            .width_target()
+            .filter(|_| shape.sizes_by_width(self.placed.len()))
+        {
+            return moved(width.in_steps(placement.position, &steps));
+        }
+
+        let &[first] = self.placed.as_slice() else {
+            return placement;
+        };
+        let reach = placement.position - first.position;
+        let tracked = placement.tracks != Tracks::default();
+        match (shape, placement.snap) {
+            (
+                Shape::Rectangle(mode @ (RectangleMode::Corners | RectangleMode::Center)),
+                Snap::Free,
+            ) => {
+                let whole = if mode == RectangleMode::Center {
+                    2.0
+                } else {
+                    1.0
+                };
+                let side = |along: f64, held: bool| {
+                    if held || along == 0.0 {
+                        along
+                    } else {
+                        along.signum() * steps.rounded(along.abs() * whole) / whole
+                    }
+                };
+                moved(
+                    first.position
+                        + Vector2::new(
+                            side(reach.x, placement.tracks.upright.is_some()),
+                            side(reach.y, placement.tracks.level.is_some()),
+                        ),
+                )
+            }
+            (shape, Snap::Free | Snap::Aligned(_)) if !tracked && placement.equal_to.is_none() => {
+                let Some(whole) = shape.sized_from_first() else {
+                    return placement;
+                };
+                let length = reach.length();
+
+                if length < DEGENERATE_LENGTH {
+                    return placement;
+                }
+                moved(first.position + reach * (steps.rounded(length * whole) / whole / length))
+            }
+            _ => placement,
+        }
+    }
+
+    fn place_inferring(
+        &self,
+        shape: Shape,
+        sketch: &Sketch,
+        screen: &impl Screen,
+        pointer: Pointer,
+    ) -> Placement {
         let pending = self.pending(shape);
         let accept = self.accept(shape);
 
@@ -3951,6 +4078,16 @@ fn arc_end(center: Point2, start: Point2, toward: Point2) -> Option<Point2> {
     snap::closest_on_circle(center, center.distance(start), toward)
 }
 
+fn size_steps_at(screen: &impl Screen, position: Point2) -> Option<SizeSteps> {
+    let here = screen.to_screen(position)?;
+    let beside = screen.to_screen(position + Vector2::X)?;
+    let above = screen.to_screen(position + Vector2::Y)?;
+
+    let points_per_unit = here.distance(beside).max(here.distance(above));
+
+    SizeSteps::at(1.0 / points_per_unit)
+}
+
 fn rectangle_corners(corner: Point2, opposite: Point2) -> [Point2; 4] {
     [
         corner,
@@ -4013,6 +4150,11 @@ enum SizedTarget {
         middle: Point2,
         line: DrawnCurve,
     },
+    Rectangle {
+        at: Point2,
+        width: DrawnCurve,
+        height: DrawnCurve,
+    },
 }
 
 impl SizedTarget {
@@ -4022,7 +4164,8 @@ impl SizedTarget {
             | Self::Diameter { at, .. }
             | Self::MinorRadius { at, .. }
             | Self::Distance { at, .. }
-            | Self::LineFromMiddle { at, .. } => at,
+            | Self::LineFromMiddle { at, .. }
+            | Self::Rectangle { at, .. } => at,
         }
     }
 
@@ -4056,15 +4199,26 @@ impl SizedTarget {
                         reversed: false,
                         value,
                     }),
-                    Measured::Across | Measured::Up => None,
+                    Measured::Across | Measured::Up | Measured::Width | Measured::Height => None,
                 }
             }
+            (Self::Rectangle { width, .. }, Measured::Width) => Some(Constraint::Distance {
+                from: width.start,
+                to: width.end,
+                value,
+            }),
+            (Self::Rectangle { height, .. }, Measured::Height) => Some(Constraint::Distance {
+                from: height.start,
+                to: height.end,
+                value,
+            }),
             (
                 Self::Radius { .. }
                 | Self::Diameter { .. }
                 | Self::MinorRadius { .. }
                 | Self::Distance { .. }
-                | Self::LineFromMiddle { .. },
+                | Self::LineFromMiddle { .. }
+                | Self::Rectangle { .. },
                 _,
             ) => None,
         }
@@ -4179,6 +4333,7 @@ impl<'a> Draft<'a> {
                     to: point,
                     value,
                 },
+                Measured::Width | Measured::Height => continue,
                 Measured::Angle => {
                     let Some(line) = self.newest_line(from, point) else {
                         continue;
@@ -4460,12 +4615,24 @@ impl<'a> Draft<'a> {
     fn rectangle(&mut self, corner: Placement, opposite: Placement) {
         let [_, second, _, fourth] = rectangle_corners(corner.position, opposite.position);
 
-        self.level_rectangle([
+        let sides = self.level_rectangle([
             corner,
             Placement::free(second),
             opposite,
             Placement::free(fourth),
         ]);
+
+        self.size_rectangle(&sides, opposite.position);
+    }
+
+    fn size_rectangle(&mut self, sides: &[DrawnCurve], at: Point2) {
+        if let [width, height, ..] = sides {
+            self.sized.push(SizedTarget::Rectangle {
+                at,
+                width: *width,
+                height: *height,
+            });
+        }
     }
 
     fn centered_rectangle(&mut self, center: Placement, corner: Placement) {
@@ -4478,6 +4645,9 @@ impl<'a> Draft<'a> {
             Placement::free(third),
             Placement::free(fourth),
         ]);
+
+        self.size_rectangle(&sides, corner.position);
+
         let center = self.point(center);
         if let (Some(first), Some(opposite)) = (sides.first(), sides.get(2)) {
             self.constrain(Constraint::Symmetric {

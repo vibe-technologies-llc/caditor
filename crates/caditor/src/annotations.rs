@@ -740,6 +740,94 @@ fn excessive_glyphs(
     (true, true)
 }
 
+struct LedLabel {
+    mark: usize,
+    measured: Measured,
+    lane: usize,
+    size: egui::Vec2,
+}
+
+fn covered_by(taken: &Obstacles, layout: &DimensionLayout, label: Footprint) -> f64 {
+    layout
+        .drawn_footprints()
+        .chain([label])
+        .map(|footprint| taken.overlap(&footprint))
+        .sum()
+}
+
+fn clear_leaders(
+    dimensions: &mut [DimensionMark],
+    led: &[LedLabel],
+    screen: &impl Screen,
+    key: &ViewKey,
+) {
+    let turning: Vec<(&LedLabel, Vec<Measured>)> = led
+        .iter()
+        .map(|label| {
+            (
+                label,
+                annotation_layout::turned_leaders(&label.measured).collect::<Vec<_>>(),
+            )
+        })
+        .filter(|(_, turned)| !turned.is_empty())
+        .collect();
+
+    if turning.is_empty() {
+        return;
+    }
+
+    let mut taken = annotation_layout::obstacles();
+    let mut turns = turning.iter().map(|(label, _)| label.mark).peekable();
+
+    for (index, mark) in dimensions.iter().enumerate() {
+        if turns.next_if_eq(&index).is_some() {
+            continue;
+        }
+        for footprint in mark.layout.drawn_footprints() {
+            taken.add(footprint);
+        }
+        if let Some(rect) = mark.label {
+            taken.add(footprint(key.rect, rect));
+        }
+    }
+    for (label, turned) in turning {
+        let Some(mark) = dimensions.get_mut(label.mark) else {
+            continue;
+        };
+        let Some(rect) = mark.label else {
+            continue;
+        };
+
+        let mut least = covered_by(&taken, &mark.layout, footprint(key.rect, rect));
+
+        for measured in turned {
+            if least <= 0.0 {
+                break;
+            }
+
+            let Some(layout) = annotation_layout::layout(&measured, screen, None, label.lane, None)
+            else {
+                continue;
+            };
+            let rect = label_rect(key.rect, &layout, label.size);
+
+            let covered = covered_by(&taken, &layout, footprint(key.rect, rect));
+
+            if covered < least {
+                least = covered;
+                mark.layout = layout;
+                mark.label = Some(rect);
+            }
+        }
+        for footprint in mark.layout.drawn_footprints() {
+            taken.add(footprint);
+        }
+        if let Some(rect) = mark.label {
+            taken.add(footprint(key.rect, rect));
+        }
+    }
+}
+
 impl Marks {
     fn lay_out(
         painter: &egui::Painter,
@@ -782,6 +870,7 @@ impl Marks {
 
         let mut dimensions = Vec::new();
         let mut collapsed = Vec::new();
+        let mut led = Vec::new();
 
         for (dimension, thinning) in ordered {
             let id = dimension.constraint;
@@ -868,6 +957,14 @@ impl Marks {
                 }
                 labels.add(taken);
             }
+            if placed.is_none() && label.is_some() {
+                led.push(LedLabel {
+                    mark: dimensions.len(),
+                    measured: dimension.measured,
+                    lane: dimension.lane,
+                    size,
+                });
+            }
             dimensions.push(DimensionMark {
                 constraint: id,
                 layout,
@@ -877,6 +974,7 @@ impl Marks {
                 label,
             });
         }
+        clear_leaders(&mut dimensions, &led, screen, &key);
         dimensions.sort_by_key(|mark| mark.constraint);
 
         let (hide_glyphs, keep_redundant_glyphs) =

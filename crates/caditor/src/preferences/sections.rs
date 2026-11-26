@@ -358,6 +358,7 @@ impl Section {
                 "constraint glyphs",
                 "snapping",
                 "snap to the grid",
+                "round sizes",
                 "typed values",
                 "dimensions",
                 "auto-hide",

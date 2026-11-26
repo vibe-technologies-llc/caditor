@@ -260,6 +260,9 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
 
     let over = harness.position_of("Show constraint glyphs");
 
+    harness.wheel_until_shown(over, "Draw in round sizes", Wheel::Down);
+    harness.click("Draw in round sizes");
+
     harness.wheel_until_shown(over, "Show dimensions on the model", Wheel::Down);
     harness.click("Show dimensions on the model");
     harness.wheel_until_shown(over, "Auto-hide crowded dimensions and glyphs", Wheel::Down);
@@ -270,6 +273,7 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
 
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
+    assert!(!viewport.size_rounding());
     assert!(viewport.dimensions_shown());
     assert!(!viewport.auto_hide_marks());
     assert!(viewport.snapping() && viewport.typed_dimensions());
@@ -299,6 +303,7 @@ fn sketching_preferences_keep_the_view_keep_the_sketch_on_escape_set_the_toggles
 
     assert!(!viewport.glyphs_shown());
     assert!(viewport.grid_snapping());
+    assert!(!viewport.size_rounding());
     assert!(viewport.dimensions_shown());
     assert!(!viewport.auto_hide_marks());
     assert!(!again.workspace.preferences.sketching.escape_finishes);

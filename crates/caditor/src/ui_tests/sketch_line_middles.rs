@@ -249,7 +249,7 @@ fn a_press_dragged_to_its_release_draws_one_line_from_its_middle() {
 
     let from = harness.on_screen(Point2::new(20.0, 20.0));
 
-    drag_in_sketch(&mut harness, from, Point2::new(32.0, 35.0));
+    drag_in_sketch(&mut harness, from, Point2::new(32.0, 36.0));
     harness.settle();
 
     let sketch = harness.sketch(feature);
@@ -259,8 +259,8 @@ fn a_press_dragged_to_its_release_draws_one_line_from_its_middle() {
     let (start, end) = sketch.line_endpoints(line).unwrap();
 
     assert!(near(at_middle, Point2::new(20.0, 20.0)), "{at_middle}");
-    assert!(near(end, Point2::new(32.0, 35.0)), "{end}");
-    assert!(near(start, Point2::new(8.0, 5.0)), "{start}");
+    assert!(near(end, Point2::new(32.0, 36.0)), "{end}");
+    assert!(near(start, Point2::new(8.0, 4.0)), "{start}");
     assert!(harness.shows(MIDDLE_PROMPT));
 }
 

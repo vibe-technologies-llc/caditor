@@ -894,6 +894,7 @@ impl Menus<'_> {
                     ui.separator();
                     self.choice(ui, Command::ToggleSnapping);
                     self.choice(ui, Command::ToggleGridSnapping);
+                    self.choice(ui, Command::ToggleSizeRounding);
                 },
             );
             submenu(

@@ -203,6 +203,11 @@ paths:
   `Command::default_shortcuts`; docs do not repeat them. In a sketch a plain letter is a tool or
   sketch command and Shift with a letter belongs to the constraints alone
   (`shift_and_a_letter_is_kept_for_the_constraints`); the guide's keyboard page states the pattern.
+  A model command with a sketch counterpart (`Command::sketch_twin`: Move, Scale, Mirror, both
+  patterns, Fillet and Chamfer) is scoped outside sketches and shares its keys with that
+  counterpart, so Alt+M moves a body outside a sketch and the selected geometry inside one, and M
+  alone does the same; the sketch tools keep their letters as well
+  (`a_model_command_and_its_sketch_twin_answer_to_the_same_keys`).
 - `Keymap` in `Preferences` stores only overrides, as `keys.<id>` lists of text, so unreadable or
   newer entries survive and a command with no readable binding keeps its defaults. Esc, Enter and
   Tab are reserved. A binding used in an overlapping scope asks before moving.
@@ -615,6 +620,16 @@ paths:
   completes parameter names (and inserts clicked dimensions or parameters), steps plain numbers with
   Up and Down (preserving any leading `=`), and shows a muted `= <value>` preview for compound
   expressions.
+- While a rectangle drawn by two corners or from its centre has its first point
+  (`Drawing::size_target`, a `typed_point::SizeTarget` in `From::size`), the field is labelled
+  `SIZE_LABEL` and reads a size first (`typed_point::sized`): `40 x 25` (also `X` or `×`, split at
+  the top level so expressions and parameters work on either side) or one length for a square.
+  The width and height are the whole rectangle's in both ways; the corner goes to the pointer's
+  side of the first point and a negative value to the other side; a zero is
+  `TypedPointError::SizeIsZero`. Text with a comma or `<`, and anything after `@`, is still a
+  point. The two values are kept as `Measured::Width` and `Measured::Height`, which
+  `SizedTarget::Rectangle` turns into a `Distance` between the ends of a level and an upright
+  side, so the rectangle is fully sized in the one transaction.
 - An angle alone (`< 30`, `@< 30`; `typed_point::heading`) locks the direction from the last placed
   point (`Drawing::lock_heading`): `Drawing::place` projects the pointer onto that ray, ahead of
   snapping, Ctrl and the toggles; the preview draws a dashed guide, the prompt says so

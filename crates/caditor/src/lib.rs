@@ -220,6 +220,7 @@ mod shell_panel;
 mod shell_tools;
 mod shortcut_editor;
 mod similar;
+mod size_steps;
 mod sketch_drag;
 mod sketch_handles;
 mod sketch_pattern_arrows;

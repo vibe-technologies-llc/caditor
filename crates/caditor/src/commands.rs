@@ -267,6 +267,7 @@ pub enum Command {
     AutomaticProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleSizeRounding,
     ToggleLasso,
     TogglePaintSelection,
     ToggleSelectThrough,
@@ -842,6 +843,7 @@ plain_commands! {
     AutomaticProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleSizeRounding,
     ToggleLasso,
     TogglePaintSelection,
     ToggleSelectThrough,
@@ -1378,6 +1380,7 @@ impl Command {
             Self::AutomaticProjection => "view.automatic_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
+            Self::ToggleSizeRounding => "view.toggle_size_rounding",
             Self::ToggleLasso => "view.toggle_lasso",
             Self::TogglePaintSelection => "view.toggle_paint_selection",
             Self::ToggleSelectThrough => "view.toggle_select_through",
@@ -1734,6 +1737,7 @@ impl Command {
             Self::AutomaticProjection => "Perspective that turns orthographic in a standard view",
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
+            Self::ToggleSizeRounding => "Draw in round sizes",
             Self::ToggleLasso => "Select with a lasso",
             Self::TogglePaintSelection => "Select faces by painting over them",
             Self::ToggleSelectThrough => "Select through to what is hidden",
@@ -2024,6 +2028,7 @@ impl Command {
             }
             Self::ToggleSnapping => &["magnet", "snap"],
             Self::ToggleGridSnapping => &["snap to grid"],
+            Self::ToggleSizeRounding => &["round sizes", "size steps", "increments"],
             Self::DrawSymmetrically => &["dynamic mirror", "mirror while drawing", "symmetry"],
             Self::LookAtFace | Self::LookAtSketch => &["normal to", "perpendicular", "face on"],
             Self::Section(SectionCommand::Toggle) => &["cross section", "clipping", "cut away"],
@@ -2304,6 +2309,7 @@ impl Command {
             | Self::AutomaticProjection
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
+            | Self::ToggleSizeRounding
             | Self::ToggleLasso
             | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
@@ -2539,7 +2545,21 @@ impl Command {
             Self::TogglePrincipal | Self::CopyFeatures | Self::PasteFeatures => {
                 Scope::OutsideSketch
             }
+            command if command.sketch_twin().is_some() => Scope::OutsideSketch,
             _ => Scope::Anywhere,
+        }
+    }
+
+    pub fn sketch_twin(self) -> Option<Self> {
+        match self {
+            Self::Move => Some(Self::MoveGeometry),
+            Self::Scale => Some(Self::ScaleGeometry),
+            Self::Mirror => Some(Self::SketchTool(Tool::Mirror)),
+            Self::LinearPattern => Some(Self::SketchTool(Tool::RectangularPattern)),
+            Self::CircularPattern => Some(Self::SketchTool(Tool::CircularPattern)),
+            Self::Fillet => Some(Self::SketchTool(Tool::Fillet)),
+            Self::Chamfer => Some(Self::SketchTool(Tool::Chamfer)),
+            _ => None,
         }
     }
 
@@ -2594,7 +2614,7 @@ impl Command {
             Self::SelectLoop => vec![alt_shift(Key::G)],
             Self::SelectSimilar => vec![alt_shift(Key::A)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
-            Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
+            Self::SketchTool(tool) => tool_shortcuts(tool),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
                 Modifiers::SHIFT,
                 constraint_key(tool),
@@ -2606,7 +2626,8 @@ impl Command {
             Self::MoreDegree => vec![alt(Key::CloseBracket)],
             Self::FewerDegree => vec![alt(Key::OpenBracket)],
             Self::Construction => vec![plain(Key::Q)],
-            Self::MoveGeometry => vec![plain(Key::M)],
+            Self::MoveGeometry => vec![plain(Key::M), alt(Key::M)],
+            Self::ScaleGeometry => vec![alt_shift(Key::S)],
             Self::SelectAll => vec![command(Key::A)],
             Self::CopyGeometry => vec![command(Key::C)],
             Self::CutGeometry => vec![command(Key::X)],
@@ -2650,7 +2671,7 @@ impl Command {
             Self::ReplaceFace => Vec::new(),
             Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
-            Self::Move => vec![alt(Key::M)],
+            Self::Move => vec![alt(Key::M), plain(Key::M)],
             Self::CopyBody => vec![alt_shift(Key::C)],
             Self::Mirror => vec![alt_shift(Key::M)],
             Self::Split => vec![alt(Key::K)],
@@ -2708,7 +2729,6 @@ impl Command {
             | Self::ProjectSketch
             | Self::ProjectOutline
             | Self::RotateGeometry
-            | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
             | Self::DrawSymmetrically
             | Self::TypeValue
@@ -2767,6 +2787,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
+            | Self::ToggleSizeRounding
             | Self::AutomaticProjection
             | Self::ToggleLasso
             | Self::TogglePaintSelection
@@ -2888,41 +2909,40 @@ impl Command {
     }
 }
 
-fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
-    let plain = |key| Some(KeyboardShortcut::new(Modifiers::NONE, key));
+fn tool_shortcuts(tool: Tool) -> Vec<KeyboardShortcut> {
+    let plain = |key| KeyboardShortcut::new(Modifiers::NONE, key);
+    let alt = |key| KeyboardShortcut::new(Modifiers::ALT, key);
+    let alt_shift = |key| KeyboardShortcut::new(Modifiers::ALT | Modifiers::SHIFT, key);
     match tool {
-        Tool::Select => None,
-        Tool::Point => plain(Key::P),
-        Tool::Line => plain(Key::L),
-        Tool::Rectangle => plain(Key::R),
-        Tool::Circle => plain(Key::C),
-        Tool::Arc => plain(Key::A),
-        Tool::ThreePointArc => Some(KeyboardShortcut::new(Modifiers::ALT, Key::A)),
-        Tool::TangentArc => plain(Key::T),
-        Tool::Slot => plain(Key::U),
-        Tool::Polygon => plain(Key::G),
-        Tool::Spline => plain(Key::S),
-        Tool::Trim => plain(Key::K),
-        Tool::Extend => plain(Key::J),
-        Tool::Offset => plain(Key::W),
-        Tool::Mirror => plain(Key::Y),
-        Tool::Fillet => plain(Key::B),
-        Tool::Chamfer => plain(Key::V),
-        Tool::RectangularPattern
-        | Tool::CircularPattern
+        Tool::Select
         | Tool::TangentCircle
         | Tool::Gear
         | Tool::Text
         | Tool::Ellipse
         | Tool::EllipticalArc
-        | Tool::Conic => None,
-        Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
-        Tool::Intersect => Some(KeyboardShortcut::new(Modifiers::ALT, Key::I)),
-        Tool::Dimension => plain(Key::D),
-        Tool::BlendCurve => Some(KeyboardShortcut::new(
-            Modifiers::ALT | Modifiers::SHIFT,
-            Key::B,
-        )),
+        | Tool::Conic => Vec::new(),
+        Tool::Point => vec![plain(Key::P)],
+        Tool::Line => vec![plain(Key::L)],
+        Tool::Rectangle => vec![plain(Key::R)],
+        Tool::Circle => vec![plain(Key::C)],
+        Tool::Arc => vec![plain(Key::A)],
+        Tool::ThreePointArc => vec![alt(Key::A)],
+        Tool::TangentArc => vec![plain(Key::T)],
+        Tool::Slot => vec![plain(Key::U)],
+        Tool::Polygon => vec![plain(Key::G)],
+        Tool::Spline => vec![plain(Key::S)],
+        Tool::Trim => vec![plain(Key::K)],
+        Tool::Extend => vec![plain(Key::J)],
+        Tool::Offset => vec![plain(Key::W)],
+        Tool::Mirror => vec![plain(Key::Y), alt_shift(Key::M)],
+        Tool::Fillet => vec![plain(Key::B), alt(Key::F)],
+        Tool::Chamfer => vec![plain(Key::V), alt(Key::C)],
+        Tool::RectangularPattern => vec![alt(Key::L)],
+        Tool::CircularPattern => vec![alt_shift(Key::L)],
+        Tool::Project => vec![alt(Key::P)],
+        Tool::Intersect => vec![alt(Key::I)],
+        Tool::Dimension => vec![plain(Key::D)],
+        Tool::BlendCurve => vec![alt_shift(Key::B)],
     }
 }
 
@@ -3929,6 +3949,57 @@ mod tests {
         assert_eq!(
             found(press(Key::P, Modifiers::COMMAND | Modifiers::SHIFT)),
             Some(Command::Palette)
+        );
+    }
+
+    #[test]
+    fn a_model_command_and_its_sketch_twin_answer_to_the_same_keys() {
+        let keymap = Keymap::default();
+        let model = Situation {
+            keys_free: true,
+            ..Situation::default()
+        };
+        let sketch = Situation {
+            editing_sketch: true,
+            ..model
+        };
+        let found = |pressed: &KeyboardShortcut, situation: &Situation| {
+            keymap
+                .command_for(pressed, situation)
+                .map(|(command, _)| command)
+        };
+        let twins: Vec<(Command, Command)> = Command::all()
+            .filter_map(|command| Some((command, command.sketch_twin()?)))
+            .collect();
+
+        assert!(twins.contains(&(Command::Move, Command::MoveGeometry)));
+
+        for (command, twin) in twins {
+            let shared: Vec<KeyboardShortcut> = command
+                .default_shortcuts()
+                .into_iter()
+                .filter(|shortcut| twin.default_shortcuts().contains(shortcut))
+                .collect();
+
+            assert_eq!(command.scope(), Scope::OutsideSketch, "{}", command.id());
+            assert_eq!(twin.scope(), Scope::Sketch, "{}", twin.id());
+            assert!(!shared.is_empty(), "{} shares no key", command.id());
+
+            for shortcut in command.default_shortcuts() {
+                assert_eq!(found(&shortcut, &model), Some(command), "{}", command.id());
+            }
+            for shortcut in shared {
+                assert_eq!(found(&shortcut, &sketch), Some(twin), "{}", twin.id());
+            }
+        }
+
+        assert_eq!(
+            found(&press(Key::M, Modifiers::NONE), &model),
+            Some(Command::Move)
+        );
+        assert_eq!(
+            found(&press(Key::M, Modifiers::ALT), &sketch),
+            Some(Command::MoveGeometry)
         );
     }
 

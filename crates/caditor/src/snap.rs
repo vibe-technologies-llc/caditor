@@ -1667,7 +1667,7 @@ fn curves(sketch: &Sketch, at: Point2) -> Vec<Snapped> {
             target: Target::Curve(id),
         })
     });
-    axes.into_iter().chain(drawn).collect()
+    drawn.chain(axes).collect()
 }
 
 fn extensions(sketch: &Sketch, lines: &[EntityId], at: Point2) -> Vec<Snapped> {
@@ -2767,6 +2767,23 @@ pub mod tests {
             )
         );
         assert!(crossing.position.distance(Point2::new(10.0, 0.0)) < 1e-9);
+    }
+
+    #[test]
+    fn a_line_drawn_along_an_axis_is_snapped_to_rather_than_the_axis() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let along = sketch.add_line(Point2::new(-12.0, 0.0), Point2::new(12.0, 0.0));
+
+        let on_the_line = resolve_at(&sketch, Point2::new(-8.0, 0.4)).unwrap();
+        let past_its_end = resolve_at(&sketch, Point2::new(25.0, 0.4)).unwrap();
+
+        assert_eq!(on_the_line.target, Target::Curve(along));
+        assert_eq!(on_the_line.position, Point2::new(-8.0, 0.0));
+        assert_eq!(
+            past_its_end.target,
+            Target::Curve(EntityId::HORIZONTAL_AXIS)
+        );
     }
 
     #[test]

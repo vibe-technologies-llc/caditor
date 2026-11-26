@@ -1,9 +1,9 @@
-use std::f64::consts::{FRAC_1_SQRT_2, PI, TAU};
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, Constraint, Entity, EntityId, PointTarget, Sketch,
-    annotation::{Footprint, LineSpan, Measured, Obstacles, away_from},
+    annotation::{CIRCLE_LEADER_DIRECTION, Footprint, LineSpan, Measured, Obstacles, away_from},
 };
 
 use crate::snap::Screen;
@@ -410,6 +410,80 @@ pub fn layout(
         (Measured::AlongArc { arc, from_centre }, placed) => {
             along_arc_layout(screen, &arc, from_centre, placed)
         }
+    }
+}
+
+const LEADER_TURNS: [f64; 7] = [
+    FRAC_PI_2,
+    -FRAC_PI_2,
+    PI,
+    FRAC_PI_4,
+    -FRAC_PI_4,
+    3.0 * FRAC_PI_4,
+    -3.0 * FRAC_PI_4,
+];
+const STRAIGHT_STROKE: f64 = 1.0;
+
+pub fn turned_leaders(measured: &Measured) -> impl Iterator<Item = Measured> + use<> {
+    let turning = match *measured {
+        Measured::Radius { toward, .. } | Measured::Diameter { toward, .. }
+            if toward == CIRCLE_LEADER_DIRECTION =>
+        {
+            Some(*measured)
+        }
+        _ => None,
+    };
+    turning.into_iter().flat_map(|measured| {
+        LEADER_TURNS.into_iter().filter_map(move |turn| {
+            let turn = Vector2::from_angle(turn);
+            match measured {
+                Measured::Radius {
+                    center,
+                    radius,
+                    toward,
+                } => Some(Measured::Radius {
+                    center,
+                    radius,
+                    toward: turn.rotate(toward),
+                }),
+                Measured::Diameter {
+                    center,
+                    radius,
+                    toward,
+                } => Some(Measured::Diameter {
+                    center,
+                    radius,
+                    toward: turn.rotate(toward),
+                }),
+                _ => None,
+            }
+        })
+    })
+}
+
+impl DimensionLayout {
+    pub fn drawn_footprints(&self) -> impl Iterator<Item = Footprint> + '_ {
+        let arrows = self.arrows.iter().map(|arrow| Footprint {
+            center: arrow.tip - arrow.direction * (ARROW_LENGTH / 2.0),
+            half: Vector2::splat(ARROW_LENGTH / 2.0),
+        });
+        let straight = self
+            .strokes
+            .iter()
+            .flat_map(|stroke| stroke.windows(2))
+            .filter_map(|ends| {
+                let [from, to] = ends else {
+                    return None;
+                };
+
+                let half = (*to - *from).abs() / 2.0;
+
+                (half.min_element() <= STRAIGHT_STROKE).then(|| Footprint {
+                    center: (*from + *to) / 2.0,
+                    half: half.max(Vector2::splat(STRAIGHT_STROKE)),
+                })
+            });
+        arrows.chain(straight)
     }
 }
 

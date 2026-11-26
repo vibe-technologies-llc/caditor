@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use caditor_geometry::Point2;
 use spade::{
@@ -10,6 +10,9 @@ use super::{ProfileLoop, Region};
 use crate::tolerance::{LINEAR_RESOLUTION, SamplingTolerance};
 
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
+
+const WELD_SHARE: f64 = 1e-7;
+const WELD_TOLERANCES: f64 = 4.0;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RegionMesh {
@@ -51,6 +54,7 @@ pub(super) fn loop_polygon(
         if piece.is_reversed() {
             samples.reverse();
         }
+        samples.pop();
         for point in samples {
             if !polygon
                 .last()
@@ -68,19 +72,69 @@ pub(super) fn loop_polygon(
     polygon
 }
 
+struct Welded {
+    reach: f64,
+    cells: BTreeMap<(i64, i64), Vec<(Point2, FixedVertexHandle)>>,
+}
+
+impl Welded {
+    fn of(region: &Region) -> Self {
+        let extent = region.bounds().map_or(0.0, |bounds| bounds.size().length());
+        Self {
+            reach: WELD_TOLERANCES * (extent * WELD_SHARE).max(LINEAR_RESOLUTION),
+            cells: BTreeMap::new(),
+        }
+    }
+
+    fn cell(&self, point: Point2) -> (i64, i64) {
+        let along = |coordinate: f64| {
+            let scaled = (coordinate / self.reach).floor();
+            if scaled.is_finite() { scaled as i64 } else { 0 }
+        };
+        (along(point.x), along(point.y))
+    }
+
+    fn vertex(&mut self, cdt: &mut Cdt, point: Point2) -> Option<FixedVertexHandle> {
+        let (column, row) = self.cell(point);
+
+        let near = (-1..=1)
+            .flat_map(|across| (-1..=1).map(move |up| (column + across, row + up)))
+            .filter_map(|cell| self.cells.get(&cell))
+            .flatten()
+            .find(|(placed, _)| placed.distance(point) <= self.reach)
+            .map(|(_, handle)| *handle);
+
+        if near.is_some() {
+            return near;
+        }
+
+        let handle = cdt.insert(PlanePoint::new(point.x, point.y)).ok()?;
+
+        self.cells
+            .entry((column, row))
+            .or_default()
+            .push((point, handle));
+        Some(handle)
+    }
+}
+
 pub(super) fn triangulate(region: &Region, tolerance: &SamplingTolerance) -> Option<RegionMesh> {
     let mut cdt = Cdt::new();
-    let mut handles: Vec<FixedVertexHandle> = Vec::new();
+    let mut welded = Welded::of(region);
+    let mut bounded = false;
 
     for profile_loop in region.loops() {
         let polygon = loop_polygon(profile_loop, tolerance);
         let mut ring = Vec::with_capacity(polygon.len());
 
         for point in polygon {
-            let handle = cdt.insert(PlanePoint::new(point.x, point.y)).ok()?;
+            let handle = welded.vertex(&mut cdt, point)?;
             if ring.last() != Some(&handle) {
                 ring.push(handle);
             }
+        }
+        if ring.len() > 1 && ring.first() == ring.last() {
+            ring.pop();
         }
         if ring.len() < 3 {
             continue;
@@ -91,13 +145,11 @@ pub(super) fn triangulate(region: &Region, tolerance: &SamplingTolerance) -> Opt
             if from == to || cdt.exists_constraint(*from, *to) {
                 continue;
             }
-            if cdt.try_add_constraint(*from, *to).is_empty() {
-                return None;
-            }
+            cdt.add_constraint_and_split(*from, *to, |crossing| crossing);
         }
-        handles.extend(ring);
+        bounded = true;
     }
-    if handles.is_empty() {
+    if !bounded {
         return None;
     }
 

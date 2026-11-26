@@ -345,7 +345,7 @@ fn drawing_a_line_adds_its_points_and_the_line_in_one_undoable_step() {
 
     assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 
-    harness.click_at(Point2::new(40.0, 25.0));
+    harness.click_at(Point2::new(34.0, 42.0));
 
     let sketch = harness.sketch(feature);
     let lines = entities_of_kind(sketch, "Line");
@@ -357,7 +357,7 @@ fn drawing_a_line_adds_its_points_and_the_line_in_one_undoable_step() {
     let (start, end) = sketch.line_endpoints(lines[0]).unwrap();
 
     assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
-    assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
+    assert!(near(end, Point2::new(34.0, 42.0)), "{end}");
     assert_eq!(harness.model.undo_label(), Some("Draw line"));
     assert!(harness.workspace.viewport.selection().is_empty());
 
@@ -786,6 +786,8 @@ fn a_point_placed_at_the_centre_of_a_drawn_triangle_is_held_at_the_centre_of_its
     let mut harness = Harness::new();
 
     let feature = harness.draw_on_new_sketch();
+
+    run_from_palette(&mut harness, "Draw in round sizes");
 
     harness.use_tool(Key::L);
     for corner in [

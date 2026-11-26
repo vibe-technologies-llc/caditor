@@ -244,6 +244,16 @@ pub fn sketching(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
                     command,
                 );
             });
+            widgets::property(ui, "Sizes", |ui| {
+                toggle(
+                    ui,
+                    at_start.size_rounding,
+                    "Draw in round sizes",
+                    "A shape's width, length or radius moves in round steps while drawing",
+                    PreferenceChange::StartWithSizeRounding,
+                    command,
+                );
+            });
             widgets::property(ui, "Typed values", |ui| {
                 toggle(
                     ui,
