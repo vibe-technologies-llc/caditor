@@ -1136,6 +1136,12 @@ impl Sketch {
         Ok(())
     }
 
+    pub(crate) fn keep_gear_values(&mut self, id: EntityId, values: GearValues) {
+        if self.gears.contains_key(&id) {
+            self.gear_values.insert(id, values);
+        }
+    }
+
     pub(crate) fn set_gear_values(&mut self, values: &BTreeMap<EntityId, GearValues>) {
         self.gear_values = values
             .iter()
@@ -1205,6 +1211,12 @@ impl Sketch {
             None => return Err(SketchError::MissingEntity(text.anchor)),
         }
         Text::check_content(&text.content).map_err(SketchError::InvalidText)
+    }
+
+    pub(crate) fn keep_text_size(&mut self, id: EntityId, size: TextSize) {
+        if self.texts.contains_key(&id) {
+            self.text_sizes.insert(id, size);
+        }
     }
 
     pub(crate) fn set_text_sizes(&mut self, sizes: &BTreeMap<EntityId, TextSize>) {

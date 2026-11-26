@@ -23,7 +23,7 @@ use caditor_file::{
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
 use caditor_render::ImageError;
-use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
+use caditor_sketch::{Constraint, ConstraintId, Drag, Entity, EntityId, Sketch, SketchSolution};
 
 use crate::{
     assistant::AssistantCommand,
@@ -51,7 +51,7 @@ use crate::{
     save_preview::SavePreviews,
     scene,
     selection::{Pickable, SelectionFilter, SketchSelectionFilter},
-    sketch_toolbar,
+    sketch_drag, sketch_toolbar,
     sketch_tools::{EnteredDimension, Measuring},
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
     visibility::PrincipalView,
@@ -1668,6 +1668,7 @@ impl Model {
             revision,
             sketch,
             join,
+            posing,
         } = finished;
 
         if revision != self.revision() {
@@ -1698,10 +1699,14 @@ impl Model {
             });
             return;
         };
+        let kept = sketch_drag::kept_notice(&label, &sketch_drag::kept(&sketch, &posing));
         let document = self.editor.document();
         let mut transaction = document.transaction(label);
 
+        let posed: Vec<EntityId> = posing.iter().filter_map(posed_item).collect();
+
         transaction.settle_sketch(feature, &sketch);
+        transaction.settle_sketch_items(feature, &sketch, &posed);
 
         let constraints = join
             .map(|join| reached_with_body(document, feature, &sketch, join, &mut transaction))
@@ -1722,6 +1727,9 @@ impl Model {
 
         self.perform(Action::Apply(transaction));
         if self.revision() != before {
+            if let Some(kept) = kept {
+                self.set_notice(Notice::info(kept));
+            }
             self.display.sketches.show_dragged(feature, sketch);
             self.display.sketches.hold_dragged_until(self.revision());
         } else {
@@ -2659,6 +2667,14 @@ fn saved_sentences(backup: Option<&Path>, dropped_for_size: usize) -> Vec<String
     };
 
     backup.into_iter().chain(dropped).collect()
+}
+
+fn posed_item(drag: &Drag) -> Option<EntityId> {
+    match drag {
+        Drag::Text { text, .. } => Some(*text),
+        Drag::Gear { gear, .. } => Some(*gear),
+        Drag::Point { .. } | Drag::Radius { .. } => None,
+    }
 }
 
 fn reached_with_body(

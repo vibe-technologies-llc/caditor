@@ -958,7 +958,7 @@ pub use stored::{
     BORE_TOOTH, Gear, GearShape, GearValueError, GearValues, MeshPlacement, Meshing,
     ToothedOutline, gear_curve,
 };
-pub(crate) use stored::{gear_curve_gear, same_gear_bits};
+pub(crate) use stored::{gear_curve_gear, meshing_values, same_gear_bits};
 
 #[cfg(test)]
 mod tests;

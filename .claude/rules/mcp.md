@@ -244,8 +244,10 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `SymmetricWithoutAngle`; `left_out` lists turns), fillet and chamfer of
   corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build
   the app's `sketch_drag::Moving` or `Transforming` drags (an `about` point overrides the pivot)
-  and solve them from the shown sketch with `solve_geometry_from`, committed as `settle_sketch`:
-  constraints hold as in a drag, the answer says whether every point `reached` its target, and a
+  and solve them from the shown sketch with `solve_geometry_from`, committed as `settle_sketch`
+  (and `settle_sketch_items` for the texts and gears turned or scaled): constraints hold as in a
+  drag, the answer says whether every point, text and gear `reached` its target (a text or gear
+  value a parameter sets is kept, `sketch_drag::kept`), and a
   change the constraints hold entirely is refused. Project (`sketch_projections.rs`) collects
   `projecting::edge_projection` and `face_projections` of a body's edges and faces in its state
   seen by the sketch (`body_result_seen_by`), and `projecting::projections_of` for a body corner

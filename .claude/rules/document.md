@@ -505,7 +505,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with
   everything using it, its `split_from` included. `settle_sketch` moves the definition to a solved
-  shape so the next solve starts from what the user sees.
+  shape so the next solve starts from what the user sees; `settle_sketch_items` writes the named
+  texts and gears whose definition the solve changed (a turned or scaled text or gear), keeping
+  their anchor, centre, driver and kind.
 
 ## Feature kinds
 

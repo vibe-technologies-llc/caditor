@@ -20,8 +20,8 @@ use crate::{
     scene_palette::ScenePalette,
     selection::Axis,
     sketch_drag::{
-        MoveError, Transform, TransformError, Transforming, circles_of, extent_centre, movable,
-        points_of, selects_projected, subject,
+        MoveError, Placement, Transform, TransformError, Transforming, circles_of, extent_centre,
+        ghost, movable, points_of, poses_of, selects_projected, subject, within_limits,
     },
     typed_point::{self, TypedValueError},
     units::Units,
@@ -412,6 +412,7 @@ pub struct SketchHandleDrag {
     label: String,
     points: Vec<(EntityId, Point2)>,
     circles: Vec<(EntityId, f64)>,
+    poses: Vec<Drag>,
     offset: Vector2,
     last_degrees: f64,
     swept: f64,
@@ -437,6 +438,7 @@ impl SketchHandleDrag {
         }
 
         let circles = circles_of(sketch, &moved);
+        let poses = poses_of(sketch, &moved);
         let verb = match grip {
             SketchGrip::AlongX | SketchGrip::AlongY | SketchGrip::OnPlane => "Move",
             SketchGrip::Rotate => "Rotate",
@@ -453,6 +455,7 @@ impl SketchHandleDrag {
             label: format!("{verb} {}", subject(sketch, &moved)),
             points,
             circles,
+            poses,
             offset: Vector2::ZERO,
             last_degrees,
             swept: 0.0,
@@ -475,18 +478,16 @@ impl SketchHandleDrag {
         let drags = match self.grip {
             SketchGrip::AlongX => {
                 let raw = pointed.x - self.grabbed.x;
-                let dx = step_value(raw, self.step, free);
-                let offset = Vector2::new(dx, 0.0);
-                let drags = translated_checked(&self.points, offset)?;
+                let offset = Vector2::new(step_value(raw, self.step, free), 0.0);
+                let drags = self.placed(Placement::Shift(offset))?;
 
                 self.offset = offset;
                 drags
             }
             SketchGrip::AlongY => {
                 let raw = pointed.y - self.grabbed.y;
-                let dy = step_value(raw, self.step, free);
-                let offset = Vector2::new(0.0, dy);
-                let drags = translated_checked(&self.points, offset)?;
+                let offset = Vector2::new(0.0, step_value(raw, self.step, free));
+                let drags = self.placed(Placement::Shift(offset))?;
 
                 self.offset = offset;
                 drags
@@ -497,7 +498,7 @@ impl SketchHandleDrag {
                     step_value(raw.x, self.step, free),
                     step_value(raw.y, self.step, free),
                 );
-                let drags = translated_checked(&self.points, offset)?;
+                let drags = self.placed(Placement::Shift(offset))?;
 
                 self.offset = offset;
                 drags
@@ -509,7 +510,10 @@ impl SketchHandleDrag {
                 self.last_degrees = angle;
 
                 let degrees = step_value(self.swept, TURN_STEP_DEGREES, free);
-                let drags = rotated_checked(&self.points, self.pivot, degrees)?;
+                let drags = self.placed(Placement::Turn {
+                    pivot: self.pivot,
+                    degrees,
+                })?;
 
                 self.degrees = degrees;
                 drags
@@ -523,7 +527,10 @@ impl SketchHandleDrag {
 
                 let raw = ((pointed - self.pivot).length() / base).max(SMALLEST_SCALE);
                 let factor = step_value(raw, SCALE_STEP, free).max(SMALLEST_SCALE);
-                let drags = scaled_checked(&self.points, &self.circles, self.pivot, factor)?;
+                let drags = self.placed(Placement::Scale {
+                    pivot: self.pivot,
+                    factor,
+                })?;
 
                 self.scale = factor;
                 drags
@@ -539,6 +546,11 @@ impl SketchHandleDrag {
             label: self.label.clone(),
             drags,
         })
+    }
+
+    fn placed(&self, placement: Placement) -> Option<Vec<Drag>> {
+        let drags = placement.drags(&self.points, &self.circles, &self.poses);
+        within_limits(&drags).then_some(drags)
     }
 
     pub fn has_moved(&self) -> bool {
@@ -626,8 +638,11 @@ pub fn apply_typed(
                 });
             }
 
-            let drags =
-                translated_checked(&points, offset).ok_or(SketchHandleTypingError::TooFar)?;
+            let drags = Placement::Shift(offset).drags(&points, &[], &[]);
+
+            if !within_limits(&drags) {
+                return Err(SketchHandleTypingError::TooFar);
+            }
             Ok(vec![
                 DragCommand::Move {
                     feature,
@@ -676,17 +691,13 @@ pub fn preview_typed(
             };
 
             preview.guides.push([pivot, pivot + offset]);
-            for entity in selected {
-                if let Some(points) = sketch.faceted(*entity, faceting) {
-                    if points.len() >= 2 {
-                        preview
-                            .curves
-                            .push(points.into_iter().map(|point| point + offset).collect());
-                    } else if let Some(only) = points.first() {
-                        preview.points.push(*only + offset);
-                    }
-                }
-            }
+            ghost(
+                sketch,
+                &movable_entities(sketch, selected),
+                Placement::Shift(offset),
+                faceting,
+                &mut preview,
+            );
             preview
         }
         SketchGrip::Rotate => Transforming::of(sketch, feature, selected, Transform::Rotate)
@@ -822,63 +833,6 @@ pub(crate) fn step_value(value: f64, step: f64, free: bool) -> f64 {
     }
 }
 
-fn translated_checked(points: &[(EntityId, Point2)], offset: Vector2) -> Option<Vec<Drag>> {
-    let drags: Vec<Drag> = points
-        .iter()
-        .map(|(point, at)| Drag::Point {
-            point: *point,
-            to: *at + offset,
-        })
-        .collect();
-    within_limits(&drags).then_some(drags)
-}
-
-fn rotated_checked(
-    points: &[(EntityId, Point2)],
-    pivot: Point2,
-    degrees: f64,
-) -> Option<Vec<Drag>> {
-    let turn = Vector2::from_angle(degrees.to_radians());
-    let drags: Vec<Drag> = points
-        .iter()
-        .map(|(point, at)| Drag::Point {
-            point: *point,
-            to: pivot + turn.rotate(*at - pivot),
-        })
-        .collect();
-    within_limits(&drags).then_some(drags)
-}
-
-fn scaled_checked(
-    points: &[(EntityId, Point2)],
-    circles: &[(EntityId, f64)],
-    pivot: Point2,
-    factor: f64,
-) -> Option<Vec<Drag>> {
-    if !(factor.is_finite() && factor > 0.0) {
-        return None;
-    }
-
-    let moved_points = points.iter().map(|(point, at)| Drag::Point {
-        point: *point,
-        to: pivot + (*at - pivot) * factor,
-    });
-    let moved_radii = circles.iter().map(|(circle, radius)| Drag::Radius {
-        circle: *circle,
-        to: radius * factor,
-    });
-
-    let drags: Vec<Drag> = moved_points.chain(moved_radii).collect();
-    within_limits(&drags).then_some(drags)
-}
-
-fn within_limits(drags: &[Drag]) -> bool {
-    drags.iter().all(|drag| match drag {
-        Drag::Point { to, .. } => to.is_finite() && to.abs().max_element() <= MAX_LENGTH,
-        Drag::Radius { to, .. } => to.is_finite() && *to > 0.0 && *to <= MAX_LENGTH,
-    })
-}
-
 fn signed_length(value: f64, units: Units) -> String {
     let sign = if value >= 0.0 { "+" } else { "" };
     format!("{sign}{}", units.readout_text(value))
@@ -886,7 +840,9 @@ fn signed_length(value: f64, units: Units) -> String {
 
 #[cfg(test)]
 mod tests {
+    use caditor_expression::{Expression, Unit};
     use caditor_render::{Camera, Viewpoint};
+    use caditor_sketch::{Text, TextAlign};
 
     use super::*;
 
@@ -1069,5 +1025,65 @@ mod tests {
 
         assert!((radius.unwrap() - 10.0).abs() < 1e-9);
         assert_eq!(scale.readout(Units::default()), "Scale 2.00×");
+    }
+
+    #[test]
+    fn rotate_and_scale_grips_turn_and_size_a_selected_text() {
+        let view = facing_view();
+        let (mut sketch, line, _) = sketch_with_line_and_circle();
+        let feature = FeatureId::from_raw(1);
+
+        let anchor = sketch.add_point(Point2::new(0.0, 20.0));
+        let text = sketch
+            .add_text(Text {
+                anchor,
+                content: "Vent".to_owned(),
+                height: Expression::measure(5.0, Unit::Millimetre),
+                angle: Expression::measure(0.0, Unit::Degree),
+                bold: false,
+                italic: false,
+                align: TextAlign::Left,
+            })
+            .unwrap();
+        let selected = [line, text];
+        let (pivot, can_transform) = pivot_and_transformable(&sketch, &selected, None).unwrap();
+
+        let handles =
+            SketchHandles::of(&sketch, feature, pivot, can_transform, &view, 1.0).unwrap();
+        let ray_at = |x: f64, y: f64| Ray::new(Point3::new(x, y, 100.0), Vector3::NEG_Z).unwrap();
+        let text_drag = |command: Option<DragCommand>| {
+            let Some(DragCommand::Move { drags, .. }) = command else {
+                panic!("the grip moves the selection");
+            };
+            drags.iter().find_map(|drag| match drag {
+                Drag::Text { text: id, to } if *id == text => Some(*to),
+                _ => None,
+            })
+        };
+
+        let mut rotate = SketchHandleDrag::begin(
+            &sketch,
+            &handles,
+            SketchGrip::Rotate,
+            &selected,
+            ray_at(pivot.x + 20.0, pivot.y),
+        )
+        .unwrap();
+        let mut scale = SketchHandleDrag::begin(
+            &sketch,
+            &handles,
+            SketchGrip::Scale,
+            &selected,
+            ray_at(pivot.x + 10.0, pivot.y),
+        )
+        .unwrap();
+
+        let turned = text_drag(rotate.follow(ray_at(pivot.x, pivot.y + 20.0), true)).unwrap();
+        let scaled = text_drag(scale.follow(ray_at(pivot.x + 20.0, pivot.y), true)).unwrap();
+
+        assert!((turned.angle - 90.0).abs() < 1e-9);
+        assert!((turned.height - 5.0).abs() < 1e-9);
+        assert!((scaled.height - 10.0).abs() < 1e-9);
+        assert!(scaled.angle.abs() < 1e-9);
     }
 }

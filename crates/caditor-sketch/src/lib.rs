@@ -70,7 +70,7 @@ pub use crate::{
     },
     relation::Relations,
     sketch::{DimensionValues, Sketch, SketchError},
-    solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
+    solve::{Drag, EntityState, GearPose, Poses, Redundancy, SketchSolution, SolveMemo, Solved},
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
     target::{EllipseEnd, PointTarget, Quadrant},

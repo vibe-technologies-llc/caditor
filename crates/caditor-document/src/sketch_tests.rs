@@ -1,6 +1,8 @@
-use caditor_expression::{Expression, ParameterId};
+use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Text, TextAlign,
+};
 
 use crate::{
     Document, Edit, EditError, Editor, FeatureId, FeatureKind, ParameterValues, Transaction,
@@ -496,6 +498,74 @@ fn settling_brings_the_definition_to_the_solved_shape() {
     let mut transaction = document.transaction("Settle again");
 
     transaction.settle_sketch(feature, &solved);
+
+    assert!(transaction.finish().is_empty());
+}
+
+#[test]
+fn settling_items_writes_the_texts_and_gears_named_that_the_solve_changed() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("New sketch");
+
+    let feature = transaction.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
+
+    document.apply(transaction.finish()).unwrap();
+
+    let mut transaction = document.transaction("Write");
+
+    let anchor = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
+    let other_anchor = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(0.0, 9.0)));
+    let lettering = |anchor| Text {
+        anchor,
+        content: "Vent".to_owned(),
+        height: Expression::measure(5.0, Unit::Millimetre),
+        angle: Expression::measure(0.0, Unit::Degree),
+        bold: false,
+        italic: false,
+        align: TextAlign::Left,
+    };
+
+    let text = transaction.add_sketch_text(feature, lettering(anchor));
+    let other = transaction.add_sketch_text(feature, lettering(other_anchor));
+
+    document.apply(transaction.finish()).unwrap();
+
+    let mut solved = sketch_of(&document, feature).clone();
+    let turned = Text {
+        angle: Expression::measure(90.0, Unit::Degree),
+        ..lettering(anchor)
+    };
+    let moved_anchor = Text {
+        anchor: other_anchor,
+        ..lettering(anchor)
+    };
+
+    solved.replace_text(text, turned.clone()).unwrap();
+    solved.replace_text(other, moved_anchor).unwrap();
+
+    let mut transaction = document.transaction("Settle");
+
+    transaction.settle_sketch_items(feature, &solved, &[text, other]);
+
+    let transaction = transaction.finish();
+
+    assert_eq!(
+        transaction.edits(),
+        &[Edit::SetSketchText {
+            feature,
+            id: text,
+            text: turned.clone(),
+        }]
+    );
+
+    document.apply(transaction).unwrap();
+
+    assert_eq!(sketch_of(&document, feature).text(text), Some(&turned));
+
+    let mut transaction = document.transaction("Settle again");
+
+    transaction.settle_sketch_items(feature, &solved, &[text]);
 
     assert!(transaction.finish().is_empty());
 }

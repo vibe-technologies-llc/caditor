@@ -52,6 +52,7 @@ pub struct Finished {
     pub revision: u64,
     pub sketch: Option<Arc<Sketch>>,
     pub join: Option<Join>,
+    pub posing: Vec<Drag>,
 }
 
 #[derive(Debug, Default)]
@@ -269,6 +270,7 @@ struct Active {
     join: Option<Join>,
     latest: Option<Arc<Sketch>>,
     previous: Option<Previous>,
+    posing: Vec<Drag>,
 }
 
 struct Queued {
@@ -520,6 +522,7 @@ impl SketchDragging {
                 join: None,
                 latest: None,
                 previous: None,
+                posing: Vec::new(),
             });
         }
         if self.worker.is_none() {
@@ -531,6 +534,11 @@ impl SketchDragging {
         };
 
         active.sent = active.sent.saturating_add(1);
+        active.posing = drags
+            .iter()
+            .filter(|drag| matches!(drag, Drag::Text { .. } | Drag::Gear { .. }))
+            .copied()
+            .collect();
 
         let job = Job {
             drag: active.drag,
@@ -580,6 +588,7 @@ impl Active {
             revision: self.revision,
             sketch: self.latest,
             join: self.join,
+            posing: self.posing,
         }
     }
 }

@@ -171,15 +171,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching and expressions
 
-- [low · easy] The ghost of a typed Move, Rotate or Scale draws what will not happen:
-  `Moving::preview`, `Transforming::preview` and `sketch_handles::preview_typed` walk the whole
-  selection, so selected projected geometry is drawn moving though it is left out, and they draw
-  nothing for texts and gears (`Sketch::faceted` knows only entities), which `app-sketching.md`
-  says the ghost includes. Found by reading, not run.
-- [low · medium] Rotate and Scale turn and scale a selection's curves but only move a text's anchor
-  and a gear's centre (`Drag` carries a point or a radius): a text keeps its angle and height and a
-  gear its rotation and module, so a selection turned a quarter turn leaves its text reading the
-  old way at a new place. Found by reading, not run.
 - [low · medium] Two splines sharing a stretch shorter than two sample steps of both (about 1/128
   of each) are still searched as crossings by trim and break (`intersect::spline_spline`), so they
   are cut where their polylines cross: two cubics with equal knots sharing the four control points

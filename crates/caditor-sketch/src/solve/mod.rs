@@ -13,6 +13,9 @@ mod kind_tests;
 mod memo;
 mod numeric;
 mod pair;
+mod pose;
+#[cfg(test)]
+mod pose_tests;
 #[cfg(test)]
 mod projection_tests;
 #[cfg(test)]
@@ -44,7 +47,11 @@ pub(crate) use crate::solve::{
     spline::{joined_at_end, joined_ends, not_joined, spline_gap, straight_spline},
     system::arc_joint,
 };
-pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
+pub use crate::solve::{
+    memo::SolveMemo,
+    numeric::Redundancy,
+    pose::{GearPose, Poses},
+};
 use crate::{
     constraint::Constraint,
     entity::Entity,
@@ -60,6 +67,7 @@ use crate::{
         },
         system::System,
     },
+    text::TextSize,
 };
 
 const SPACING_ROUNDS: usize = 8;
@@ -391,6 +399,8 @@ impl SketchSolution {
 pub enum Drag {
     Point { point: EntityId, to: Point2 },
     Radius { circle: EntityId, to: f64 },
+    Text { text: EntityId, to: TextSize },
+    Gear { gear: EntityId, to: GearPose },
 }
 
 impl Drag {
@@ -406,6 +416,7 @@ impl Drag {
                 .get(&circle)
                 .map(|&radius| vec![(radius, to)])
                 .unwrap_or_default(),
+            Self::Text { .. } | Self::Gear { .. } => Vec::new(),
         }
     }
 }
@@ -466,7 +477,10 @@ impl Sketch {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
-        self.solve_with(value_of, cancelled, drags, previous, |finished| {
+        let posed = self.posed(drags)?;
+        let posed = posed.as_ref();
+
+        posed.solve_with(value_of, cancelled, drags, previous, |finished| {
             let Finished {
                 dimensions,
                 system,
@@ -486,7 +500,7 @@ impl Sketch {
                 .collect::<Result<Vec<_>, Cancelled>>()?;
             let analysis = Analysis::combine(analyses);
             Ok(Solved {
-                geometry: self.with_values(system, &values),
+                geometry: posed.with_values(system, &values),
                 solution: SketchSolution::new(dimensions, system, analysis),
                 memo: recall.finish(),
             })
@@ -503,7 +517,10 @@ impl Sketch {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
-        self.solve_with(value_of, cancelled, drags, previous, |finished| {
+        let posed = self.posed(drags)?;
+        let posed = posed.as_ref();
+
+        posed.solve_with(value_of, cancelled, drags, previous, |finished| {
             let Finished {
                 system,
                 parts,
@@ -515,7 +532,7 @@ impl Sketch {
             for component in parts.iter() {
                 recall.remember_geometry(component, &values);
             }
-            Ok((self.with_values(system, &values), recall.finish()))
+            Ok((posed.with_values(system, &values), recall.finish()))
         })
     }
 

@@ -1,5 +1,6 @@
+use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{EntityId, Gear, Sketch, Text, TextAlign};
 use egui::{Key, Modifiers};
 
 use super::{DRAWN, Harness, edit_free_sketch, line_ends, run_from_palette};
@@ -228,4 +229,127 @@ fn selected_geometry_rotates_about_a_selected_point_and_scales_about_its_centre_
 
     assert!(centre.distance(Point2::new(40.0, 0.0)) < DRAWN);
     assert!((radius - 10.0).abs() < DRAWN);
+}
+
+fn literal(expression: &Expression) -> f64 {
+    let no_parameters =
+        |_: ParameterId| -> Result<Quantity, EvalError> { Err(EvalError::ParameterMissing) };
+    expression.evaluate(&no_parameters).unwrap().value
+}
+
+#[test]
+fn rotating_and_scaling_a_selection_turns_and_sizes_its_text_and_gear_in_one_undo_step() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
+    let (start, _) = line_ends(&sketch, line);
+    let anchor = sketch.add_point(Point2::new(0.0, 30.0));
+    let centre = sketch.add_point(Point2::new(60.0, 0.0));
+    let text = sketch
+        .add_text(Text {
+            anchor,
+            content: "Vent".to_owned(),
+            height: Expression::measure(5.0, Unit::Millimetre),
+            angle: Expression::measure(0.0, Unit::Degree),
+            bold: false,
+            italic: false,
+            align: TextAlign::Left,
+        })
+        .unwrap();
+    let gear = sketch
+        .add_parametric_gear(Gear {
+            centre,
+            module: Expression::measure(2.0, Unit::Millimetre),
+            teeth: Expression::number(20.0),
+            pressure_angle: Expression::measure(20.0, Unit::Degree),
+            profile_shift: Expression::number(0.0),
+            root_fillet: Expression::measure(0.5, Unit::Millimetre),
+            bore: Expression::measure(6.0, Unit::Millimetre),
+            turn: Expression::measure(0.0, Unit::Degree),
+            meshing: None,
+            chain: None,
+        })
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    let items = [line, text, gear, EntityId::ORIGIN]
+        .map(|entity| Pickable::SketchEntity { feature, entity });
+
+    harness.select(items);
+    run_from_palette(&mut harness, "rotate selected sketch");
+    harness.type_text("90");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the rotation is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 0.0))
+    });
+
+    let turned = harness.sketch(feature).clone();
+    let turn_label = harness.model.undo_label().map(str::to_owned);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    let undone = harness.sketch(feature).clone();
+
+    harness.select(items);
+    run_from_palette(&mut harness, "scale selected sketch");
+    harness.type_text("2");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the scale is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 0.0))
+    });
+
+    let scaled = harness.sketch(feature).clone();
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    let unscaled = harness.sketch(feature).clone();
+
+    assert_eq!(turn_label.as_deref(), Some("Rotate 3 items"));
+    assert!(
+        turned
+            .point(start)
+            .unwrap()
+            .distance(Point2::new(0.0, 10.0))
+            < DRAWN
+    );
+    assert!(
+        turned
+            .point(anchor)
+            .unwrap()
+            .distance(Point2::new(-30.0, 0.0))
+            < DRAWN
+    );
+    assert!(
+        turned
+            .point(centre)
+            .unwrap()
+            .distance(Point2::new(0.0, 60.0))
+            < DRAWN
+    );
+    assert!((literal(&turned.text(text).unwrap().angle) - 90.0).abs() < DRAWN);
+    assert!((literal(&turned.gear(gear).unwrap().turn) - 90.0).abs() < DRAWN);
+    assert!(
+        undone
+            .point(start)
+            .unwrap()
+            .distance(Point2::new(10.0, 0.0))
+            < DRAWN
+    );
+    assert!(literal(&undone.text(text).unwrap().angle).abs() < DRAWN);
+    assert!(literal(&undone.gear(gear).unwrap().turn).abs() < DRAWN);
+    assert!(
+        scaled
+            .point(start)
+            .unwrap()
+            .distance(Point2::new(20.0, 0.0))
+            < DRAWN
+    );
+    assert!((literal(&scaled.text(text).unwrap().height) - 10.0).abs() < DRAWN);
+    assert!((literal(&scaled.gear(gear).unwrap().module) - 4.0).abs() < DRAWN);
+    assert!((literal(&scaled.gear(gear).unwrap().bore) - 12.0).abs() < DRAWN);
+    assert!((literal(&unscaled.text(text).unwrap().height) - 5.0).abs() < DRAWN);
+    assert!((literal(&unscaled.gear(gear).unwrap().module) - 2.0).abs() < DRAWN);
 }

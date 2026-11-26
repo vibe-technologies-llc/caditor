@@ -77,6 +77,16 @@ paths:
 
 ## Dragging
 
+- A `Drag::Text` (a height and angle wanted) or `Drag::Gear` (a pitch radius and turn wanted) is
+  no solver target: `solve_from` and `solve_geometry_from` first pose the sketch (`solve/pose.rs`,
+  `Sketch::poses`, from the cached text sizes and gear values), writing each wanted value as a
+  literal in the unit it was written in (millimetres or degrees otherwise) where its expression
+  uses no parameter and keeping it otherwise. A spur gear's module, root fillet and bore scale
+  together by the pitch radius wanted, and not at all when its module uses a parameter; a
+  sprocket's size stays, its chain setting it. A meshing gear posed with its driver turns its
+  direction by what the driver actually turned and scales its bore by what the driver actually
+  scaled, so the pair turns and scales as one; partners of a posed driver take its new values.
+  Targets are absolute, so posing the last frame's solution again is the same pose.
 - `solve_dragging` takes `Drag`s (a point or a circle's radius with its target). It starts from the
   targets and first holds them there (`FROZEN`, one attempt without the perturbed retries
   (`Solver::retrying`): a pointer past what the geometry reaches fails every retry too, a third

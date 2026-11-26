@@ -9,10 +9,16 @@
 - {command:sketch.scale} scales it by a factor the same way — drag the scale handle or type a
   factor.
 
+Sketch text and gears in the selection turn and scale with it: a text's angle turns and its height
+scales, a gear's turn follows and its module, root fillet and bore scale, so a quarter turn leaves
+the text reading along the turned geometry. A value set by a parameter stays as the parameter
+says, as does a sprocket's size (its chain sets it) and a meshing gear's size (the gear it meshes
+with sets it; turned together, the pair turns as one), and a note says what was kept.
+
 Handles step in neat increments as you drag; hold Ctrl to move freely, click any handle to type an
 exact value for that axis, angle or scale, and press Escape to cancel a drag or close the handles.
-While typing a move, rotation or scale, the view marks the anchor or pivot and previews the moved
-curves live. Double-click sketch text or a gear with Select to edit it in its panel, or right-click
+While typing a move, rotation or scale, the view marks the anchor or pivot and previews live what
+will move, texts and gears included, as they will end up. Double-click sketch text or a gear with Select to edit it in its panel, or right-click
 it and choose **Edit text** or **Edit gear**.
 
 Constraints still hold, so geometry tied to the rest may not go all the way. With one dimension

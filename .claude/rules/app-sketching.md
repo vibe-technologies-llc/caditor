@@ -211,8 +211,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   undoable step on release; Escape mid-drag cancels and restores geometry, and Escape at rest
   dismisses the handles. Clicking a handle focuses the typed-value field for that handle's delta,
   angle or scale factor (`type_sketch_grip`, `apply_typed`, `preview_typed`). While the field is open,
-  `Moving::preview` and `Transforming::preview` show the anchor or pivot marker and a live ghost
-  preview of the transformed geometry (texts and gears included). Positions and the relative anchor
+  `Moving::preview`, `Transforming::preview` and `preview_typed` show the anchor or pivot marker and
+  a live ghost (`sketch_drag::ghost`) of exactly what the committed transform moves: the items
+  `movable` takes (never projected geometry), lone points as points, curves faceted, texts lettered
+  and gears outlined in the pose `Sketch::poses` gives them, kept values included. Positions and the relative anchor
   are taken afresh from the displayed sketch at Enter (`Moving::refreshed`, `Transforming::refreshed`),
   so a drag or undo made while the field waited is not undone; gone geometry or a recalculating
   sketch leaves the field open with the reason; a recalculating one also queues the entry
@@ -222,7 +224,19 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   unit is named, counter-clockwise) or "Scale by" (a factor above zero), acting about the one selected
   point no selected curve uses (a lone point or the origin), else the centre of the selection's
   extent (circle rims, whole ellipses, texts and gears included, `ellipse_half_extent`); a scale
-  also scales selected circles' radii. A lone point with nothing to turn about is refused in words.
+  also scales selected circles' radii. A lone point with nothing to turn about is refused in words;
+  a lone text or gear turns and scales about its anchor or centre. One `sketch_drag::Placement` (shift, turn or scale about the pivot) maps every point, radius and
+  pose for the typed field, the handles and the MCP tools alike (`Placement::drags`, from the
+  `points_of`, `circles_of` and `poses_of` taken when the transform starts). A selected text or
+  gear is also turned and scaled, not only moved by its anchor or centre: Rotate and Scale send a
+  `Drag::Text` (the text's height and angle wanted) and a `Drag::Gear` (its pitch radius and turn
+  wanted) beside the point drags, the solver poses them (`sketch-solver.md`), and
+  `Model::commit_drag` writes the posed texts and gears into the same settle transaction
+  (`settle_sketch_items`), one undo step. A value an expression with a parameter sets is kept, as a
+  dimension holds a curve, and so are a sprocket's size and a meshing gear's size and turn when its
+  driver does not turn or scale with it; the commit then says what was kept in an info notice
+  (`sketch_drag::kept`, `kept_notice`: "Scale 2 items kept the height of Text 3, which a parameter
+  sets."), and the MCP answer reports it as not `reached`.
 - Copy, Cut and Paste (`Command::CopyGeometry`, `CutGeometry`, `PasteGeometry`) work through a
   `SketchClip` (`Sketch::clip`): selected curves with their points, lone points, construction flags
   and every constraint among them (inactive staying inactive), never reference geometry or a

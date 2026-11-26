@@ -67,6 +67,13 @@ impl GearShape {
         }
     }
 
+    pub fn pitch_radius(&self) -> f64 {
+        match self {
+            Self::Spur(spur) => spur.module * f64::from(spur.teeth) / 2.0,
+            Self::Sprocket(sprocket) => sprocket.pitch_radius(),
+        }
+    }
+
     pub fn spur(&self) -> Option<&SpurGear> {
         match self {
             Self::Spur(spur) => Some(spur),
@@ -453,28 +460,7 @@ impl Gear {
         if !direction.is_finite() {
             return Err(GearValueError::DirectionNotFinite);
         }
-
-        let driver_shape = driver.shape.spur().ok_or(GearValueError::DriverUnknown)?;
-        let pair = GearPair {
-            driver: *driver_shape,
-            partner_teeth: whole_teeth(teeth)?,
-            partner_bore: bore,
-            direction: direction.to_radians(),
-        };
-        let spur = pair.partner();
-
-        spur.check().map_err(|error| {
-            GearValueError::Build(Box::new(GearError::Partner(Box::new(error))))
-        })?;
-        Ok(GearValues {
-            shape: GearShape::Spur(spur),
-            turn: pair.partner_turn(driver.turn.to_radians()).to_degrees(),
-            placement: Some(MeshPlacement {
-                driver: meshing.driver,
-                distance: pair.centre_distance(),
-                direction,
-            }),
-        })
+        meshing_values(meshing.driver, driver, whole_teeth(teeth)?, bore, direction)
     }
 
     pub fn literal_values(&self) -> Option<GearValues> {
@@ -485,6 +471,39 @@ impl Gear {
         self.meshed_values(driver, &|_| Err(EvalError::ParameterMissing))
             .ok()
     }
+}
+
+pub(crate) fn meshing_values(
+    driver_id: EntityId,
+    driver: &GearValues,
+    teeth: u32,
+    bore: f64,
+    direction: f64,
+) -> Result<GearValues, GearValueError> {
+    if !direction.is_finite() {
+        return Err(GearValueError::DirectionNotFinite);
+    }
+
+    let driver_shape = driver.shape.spur().ok_or(GearValueError::DriverUnknown)?;
+    let pair = GearPair {
+        driver: *driver_shape,
+        partner_teeth: teeth,
+        partner_bore: bore,
+        direction: direction.to_radians(),
+    };
+    let spur = pair.partner();
+
+    spur.check()
+        .map_err(|error| GearValueError::Build(Box::new(GearError::Partner(Box::new(error)))))?;
+    Ok(GearValues {
+        shape: GearShape::Spur(spur),
+        turn: pair.partner_turn(driver.turn.to_radians()).to_degrees(),
+        placement: Some(MeshPlacement {
+            driver: driver_id,
+            distance: pair.centre_distance(),
+            direction,
+        }),
+    })
 }
 
 fn whole_count(value: f64) -> Result<u32, GearValueError> {

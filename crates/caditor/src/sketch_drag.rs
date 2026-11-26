@@ -1,24 +1,29 @@
 use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
-use caditor_document::FeatureId;
+use caditor_document::{FeatureId, lettered_at};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Constraint, Drag, Entity, EntityId, EntityState, Faceting, MAX_LENGTH, Sketch, SketchSolution,
+    Constraint, Drag, Entity, EntityId, EntityState, Faceting, GearPose, MAX_LENGTH, Sketch,
+    SketchSolution, TextSize,
 };
 use thiserror::Error;
 
 use crate::{
     body_snap::BodySnaps,
     commands::Reason,
+    configuration_export::listed,
     drag_solver::{BodyJoin, DragCommand, Join},
+    drawing::Preview,
     feature_tree::count,
     inference::Inferences,
+    sketch_handles::wrapped,
     snap::{self, HELD_POINT_PULL, Hold, POINT_TOLERANCE, Pointer, Screen, Target},
     tracking::{self, Acquired, Landing, ShownOutlines, Tracks},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const SMALLEST_SNAPPED_RADIUS: f64 = 1e-3;
+const KEPT_TOLERANCE: f64 = 1e-6;
 pub const NOTHING_FREE: &str = "Everything in the sketch is fully constrained";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -551,6 +556,7 @@ pub struct Moving {
     pub label: String,
     pub anchor: Point2,
     selected: Vec<EntityId>,
+    moved: Vec<EntityId>,
     points: Vec<(EntityId, Point2)>,
 }
 
@@ -591,6 +597,7 @@ impl Moving {
             label: format!("Move {}", subject(sketch, &entities)),
             anchor,
             selected: selected.to_vec(),
+            moved: entities,
             points,
         })
     }
@@ -614,33 +621,23 @@ impl Moving {
         ]
     }
 
-    pub fn preview(
-        &self,
-        sketch: &Sketch,
-        target: Option<Point2>,
-        faceting: Faceting,
-    ) -> crate::drawing::Preview {
-        let mut preview = crate::drawing::Preview {
+    pub fn preview(&self, sketch: &Sketch, target: Option<Point2>, faceting: Faceting) -> Preview {
+        let mut preview = Preview {
             snap: Some(self.anchor),
-            ..crate::drawing::Preview::default()
+            ..Preview::default()
         };
         let Some(target) = target else {
             return preview;
         };
-        let offset = target - self.anchor;
 
         preview.guides.push([self.anchor, target]);
-        for entity in &self.selected {
-            if let Some(points) = sketch.faceted(*entity, faceting) {
-                if points.len() >= 2 {
-                    preview
-                        .curves
-                        .push(points.into_iter().map(|point| point + offset).collect());
-                } else if let Some(only) = points.first() {
-                    preview.points.push(*only + offset);
-                }
-            }
-        }
+        ghost(
+            sketch,
+            &self.moved,
+            Placement::Shift(target - self.anchor),
+            faceting,
+            &mut preview,
+        );
         preview
     }
 }
@@ -674,8 +671,10 @@ pub struct Transforming {
     pub label: String,
     pub pivot: Point2,
     selected: Vec<EntityId>,
+    moved: Vec<EntityId>,
     points: Vec<(EntityId, Point2)>,
     circles: Vec<(EntityId, f64)>,
+    poses: Vec<Drag>,
 }
 
 impl Transforming {
@@ -738,7 +737,7 @@ impl Transforming {
         let moved: Vec<EntityId> = present
             .iter()
             .copied()
-            .filter(|entity| !sketch.is_fixed(*entity) && Some(*entity) != pivot_point)
+            .filter(|entity| movable(sketch, *entity) && Some(*entity) != pivot_point)
             .collect();
         let points = points_of(sketch, &moved);
 
@@ -751,9 +750,11 @@ impl Transforming {
         }
 
         let circles = circles_of(sketch, &moved);
+        let poses = poses_of(sketch, &moved);
+
         let pivot = match pivot_point.and_then(|point| sketch.point(point)) {
             Some(pivot) => pivot,
-            None if points.len() == 1 && circles.is_empty() => {
+            None if points.len() == 1 && circles.is_empty() && poses.is_empty() => {
                 return Err(TransformError::NeedsPivot { transform });
             }
             None => extent_centre(sketch, &points, &circles),
@@ -764,8 +765,10 @@ impl Transforming {
             label: format!("{} {}", transform.verb(), subject(sketch, &moved)),
             pivot,
             selected: selected.to_vec(),
+            moved,
             points,
             circles,
+            poses,
         })
     }
 
@@ -778,78 +781,54 @@ impl Transforming {
     }
 
     pub fn rotated(&self, degrees: f64) -> Result<Vec<DragCommand>, TransformError> {
-        let turn = Vector2::from_angle(degrees.to_radians());
-        let drags = self
-            .points
-            .iter()
-            .map(|(point, at)| Drag::Point {
-                point: *point,
-                to: self.pivot + turn.rotate(*at - self.pivot),
-            })
-            .collect();
-        self.commands(drags)
+        self.commands(Placement::Turn {
+            pivot: self.pivot,
+            degrees,
+        })
     }
 
     pub fn scaled(&self, factor: f64) -> Result<Vec<DragCommand>, TransformError> {
         if !(factor.is_finite() && factor > 0.0) {
             return Err(TransformError::FactorNotPositive);
         }
-
-        let points = self.points.iter().map(|(point, at)| Drag::Point {
-            point: *point,
-            to: self.pivot + (*at - self.pivot) * factor,
-        });
-        let radii = self.circles.iter().map(|(circle, radius)| Drag::Radius {
-            circle: *circle,
-            to: radius * factor,
-        });
-        self.commands(points.chain(radii).collect())
+        self.commands(Placement::Scale {
+            pivot: self.pivot,
+            factor,
+        })
     }
 
-    pub fn preview(
-        &self,
-        sketch: &Sketch,
-        amount: Option<f64>,
-        faceting: Faceting,
-    ) -> crate::drawing::Preview {
-        let mut preview = crate::drawing::Preview {
+    pub fn preview(&self, sketch: &Sketch, amount: Option<f64>, faceting: Faceting) -> Preview {
+        let mut preview = Preview {
             snap: Some(self.pivot),
-            ..crate::drawing::Preview::default()
+            ..Preview::default()
         };
-        let Some(amount) = amount.filter(|amount| {
-            amount.is_finite() && (self.transform == Transform::Rotate || *amount > 0.0)
-        }) else {
+        let Some(placement) = amount.and_then(|amount| self.placement(amount)) else {
             return preview;
         };
-        let pivot = self.pivot;
 
-        let map = |point: Point2| match self.transform {
-            Transform::Rotate => {
-                let turn = Vector2::from_angle(amount.to_radians());
-                pivot + turn.rotate(point - pivot)
-            }
-            Transform::Scale => pivot + (point - pivot) * amount,
-        };
-
-        for entity in &self.selected {
-            if let Some(points) = sketch.faceted(*entity, faceting) {
-                if points.len() >= 2 {
-                    preview.curves.push(points.into_iter().map(map).collect());
-                } else if let Some(only) = points.first() {
-                    preview.points.push(map(*only));
-                }
-            }
-        }
+        ghost(sketch, &self.moved, placement, faceting, &mut preview);
         preview
     }
 
-    fn commands(&self, drags: Vec<Drag>) -> Result<Vec<DragCommand>, TransformError> {
-        let beyond = drags.iter().any(|drag| match drag {
-            Drag::Point { to, .. } => to.abs().max_element() > MAX_LENGTH,
-            Drag::Radius { to, .. } => *to > MAX_LENGTH,
-        });
+    fn placement(&self, amount: f64) -> Option<Placement> {
+        let pivot = self.pivot;
+        match self.transform {
+            Transform::Rotate if amount.is_finite() => Some(Placement::Turn {
+                pivot,
+                degrees: amount,
+            }),
+            Transform::Scale if amount.is_finite() && amount > 0.0 => Some(Placement::Scale {
+                pivot,
+                factor: amount,
+            }),
+            Transform::Rotate | Transform::Scale => None,
+        }
+    }
 
-        if beyond {
+    fn commands(&self, placement: Placement) -> Result<Vec<DragCommand>, TransformError> {
+        let drags = placement.drags(&self.points, &self.circles, &self.poses);
+
+        if !within_limits(&drags) {
             return Err(TransformError::TooFar);
         }
         Ok(vec![
@@ -861,6 +840,239 @@ impl Transforming {
             DragCommand::Finish { join: None },
         ])
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Placement {
+    Shift(Vector2),
+    Turn { pivot: Point2, degrees: f64 },
+    Scale { pivot: Point2, factor: f64 },
+}
+
+impl Placement {
+    pub(crate) fn point(self, at: Point2) -> Point2 {
+        match self {
+            Self::Shift(offset) => at + offset,
+            Self::Turn { pivot, degrees } => {
+                pivot + Vector2::from_angle(degrees.to_radians()).rotate(at - pivot)
+            }
+            Self::Scale { pivot, factor } => pivot + (at - pivot) * factor,
+        }
+    }
+
+    fn turn_and_factor(self) -> Option<(f64, f64)> {
+        match self {
+            Self::Shift(_) => None,
+            Self::Turn { degrees, .. } => Some((degrees, 1.0)),
+            Self::Scale { factor, .. } => Some((0.0, factor)),
+        }
+    }
+
+    pub(crate) fn drags(
+        self,
+        points: &[(EntityId, Point2)],
+        circles: &[(EntityId, f64)],
+        poses: &[Drag],
+    ) -> Vec<Drag> {
+        let moved = points.iter().map(|(point, at)| Drag::Point {
+            point: *point,
+            to: self.point(*at),
+        });
+        let radii = match self {
+            Self::Scale { factor, .. } => circles
+                .iter()
+                .map(|(circle, radius)| Drag::Radius {
+                    circle: *circle,
+                    to: radius * factor,
+                })
+                .collect(),
+            Self::Shift(_) | Self::Turn { .. } => Vec::new(),
+        };
+        moved.chain(radii).chain(self.posed(poses)).collect()
+    }
+
+    fn posed(self, poses: &[Drag]) -> Vec<Drag> {
+        let Some((degrees, factor)) = self.turn_and_factor() else {
+            return Vec::new();
+        };
+        poses
+            .iter()
+            .filter_map(|pose| match *pose {
+                Drag::Text { text, to } => Some(Drag::Text {
+                    text,
+                    to: TextSize {
+                        height: to.height * factor,
+                        angle: wrapped(to.angle + degrees),
+                    },
+                }),
+                Drag::Gear { gear, to } => Some(Drag::Gear {
+                    gear,
+                    to: GearPose {
+                        pitch_radius: to.pitch_radius * factor,
+                        turn: wrapped(to.turn + degrees),
+                    },
+                }),
+                Drag::Point { .. } | Drag::Radius { .. } => None,
+            })
+            .collect()
+    }
+}
+
+pub(crate) fn poses_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<Drag> {
+    entities
+        .iter()
+        .filter_map(|entity| {
+            if let Some(size) = sketch.text(*entity).and(sketch.text_size(*entity)) {
+                return Some(Drag::Text {
+                    text: *entity,
+                    to: size,
+                });
+            }
+
+            let values = sketch.gear(*entity).and(sketch.gear_values(*entity))?;
+            Some(Drag::Gear {
+                gear: *entity,
+                to: GearPose {
+                    pitch_radius: values.shape.pitch_radius(),
+                    turn: values.turn,
+                },
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn within_limits(drags: &[Drag]) -> bool {
+    drags.iter().all(|drag| match drag {
+        Drag::Point { to, .. } => to.is_finite() && to.abs().max_element() <= MAX_LENGTH,
+        Drag::Radius { to, .. } => to.is_finite() && *to > 0.0 && *to <= MAX_LENGTH,
+        Drag::Text { to, .. } => {
+            to.height.is_finite() && to.height > 0.0 && to.height <= MAX_LENGTH
+        }
+        Drag::Gear { to, .. } => {
+            to.pitch_radius.is_finite() && to.pitch_radius > 0.0 && to.pitch_radius <= MAX_LENGTH
+        }
+    })
+}
+
+pub(crate) fn ghost(
+    sketch: &Sketch,
+    moved: &[EntityId],
+    placement: Placement,
+    faceting: Faceting,
+    preview: &mut Preview,
+) {
+    let poses = sketch
+        .poses(&placement.posed(&poses_of(sketch, moved)))
+        .unwrap_or_default();
+
+    for entity in moved {
+        if let Some(Entity::Point(at)) = sketch.entity(*entity) {
+            preview.points.push(placement.point(*at));
+        } else if let Some(points) = sketch.faceted(*entity, faceting) {
+            preview.curves.push(
+                points
+                    .into_iter()
+                    .map(|point| placement.point(point))
+                    .collect(),
+            );
+        } else if let Some((text, size)) = poses
+            .text(*entity)
+            .or_else(|| sketch.text(*entity).zip(sketch.text_size(*entity)))
+        {
+            let placed = sketch
+                .point(text.anchor)
+                .and_then(|anchor| lettered_at(text, placement.point(anchor), size));
+
+            preview.curves.extend(
+                placed
+                    .map(|placed| placed.polylines(faceting))
+                    .unwrap_or_default(),
+            );
+        } else if let Some(gear) = sketch.gear(*entity) {
+            let values = poses
+                .gear(*entity)
+                .map(|(_, values)| values)
+                .or_else(|| sketch.gear_values(*entity));
+            let outline = values
+                .zip(sketch.point(gear.centre))
+                .and_then(|(values, centre)| {
+                    values
+                        .shape
+                        .outline_turned(placement.point(centre), values.turn.to_radians())
+                        .ok()
+                });
+
+            preview.curves.extend(
+                outline
+                    .map(|outline| outline.faceted(faceting))
+                    .unwrap_or_default(),
+            );
+        }
+    }
+}
+
+pub(crate) fn kept(solved: &Sketch, drags: &[Drag]) -> Vec<String> {
+    drags
+        .iter()
+        .flat_map(|drag| match *drag {
+            Drag::Text { text, to } => kept_of_text(solved, text, to),
+            Drag::Gear { gear, to } => kept_of_gear(solved, gear, to),
+            Drag::Point { .. } | Drag::Radius { .. } => Vec::new(),
+        })
+        .collect()
+}
+
+pub(crate) fn kept_notice(label: &str, kept: &[String]) -> Option<String> {
+    (!kept.is_empty()).then(|| format!("{label} kept {}.", listed(kept)))
+}
+
+fn kept_of_text(solved: &Sketch, text: EntityId, to: TextSize) -> Vec<String> {
+    let Some(size) = solved.text_size(text) else {
+        return Vec::new();
+    };
+    let label = solved.entity_label(text);
+    let mut kept = Vec::new();
+
+    if differs(size.height, to.height) {
+        kept.push(format!("the height of {label}, which a parameter sets"));
+    }
+    if wrapped(to.angle - size.angle).abs() > KEPT_TOLERANCE {
+        kept.push(format!("the angle of {label}, which a parameter sets"));
+    }
+    kept
+}
+
+fn kept_of_gear(solved: &Sketch, gear: EntityId, to: GearPose) -> Vec<String> {
+    let (Some(held), Some(values)) = (solved.gear(gear), solved.gear_values(gear)) else {
+        return Vec::new();
+    };
+    let label = solved.entity_label(gear);
+    let size_reason = if held.is_sprocket() {
+        "its chain sets"
+    } else if held.meshing.is_some() {
+        "the gear it meshes with sets"
+    } else {
+        "a parameter sets"
+    };
+    let turn_reason = match &held.meshing {
+        Some(meshing) if meshing.direction.parameters().is_empty() => {
+            "the gear it meshes with sets"
+        }
+        Some(_) | None => "a parameter sets",
+    };
+    let mut kept = Vec::new();
+
+    if differs(values.shape.pitch_radius(), to.pitch_radius) {
+        kept.push(format!("the size of {label}, which {size_reason}"));
+    }
+    if wrapped(to.turn - values.turn).abs() > KEPT_TOLERANCE {
+        kept.push(format!("the turn of {label}, which {turn_reason}"));
+    }
+    kept
+}
+
+fn differs(held: f64, wanted: f64) -> bool {
+    (wanted - held).abs() > KEPT_TOLERANCE * held.abs().max(1.0)
 }
 
 pub(crate) fn circles_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId, f64)> {
@@ -963,13 +1175,7 @@ pub(crate) fn points_of(sketch: &Sketch, entities: &[EntityId]) -> Vec<(EntityId
 }
 
 fn translated(points: &[(EntityId, Point2)], offset: Vector2) -> Vec<Drag> {
-    points
-        .iter()
-        .map(|(point, at)| Drag::Point {
-            point: *point,
-            to: *at + offset,
-        })
-        .collect()
+    Placement::Shift(offset).drags(points, &[], &[])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1316,7 +1522,7 @@ fn selectable(sketch: &Sketch, caught: impl Iterator<Item = EntityId>) -> Vec<En
 #[cfg(test)]
 mod tests {
     use caditor_document::{Document, FeatureKind};
-    use caditor_expression::{Expression, Unit};
+    use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
     use caditor_geometry::Plane;
     use caditor_sketch::{Gear, Text, TextAlign};
 
@@ -2028,6 +2234,273 @@ mod tests {
                 point: anchor,
                 to: Point2::new(2.0, 21.0)
             }]
+        );
+    }
+
+    struct Mixed {
+        sketch: Sketch,
+        line: EntityId,
+        projected: EntityId,
+        text: EntityId,
+        gear: EntityId,
+    }
+
+    fn mixed() -> Mixed {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        let projected = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(10.0, -10.0));
+        let (projected_start, projected_end) = ends(&sketch, projected);
+        let (text, _) = text_at(&mut sketch, Point2::new(0.0, 20.0));
+        let (gear, _) = gear_at(&mut sketch, Point2::new(50.0, 50.0));
+
+        for id in [projected, projected_start, projected_end] {
+            sketch.set_projected(id, true).unwrap();
+        }
+        Mixed {
+            sketch,
+            line,
+            projected,
+            text,
+            gear,
+        }
+    }
+
+    fn near_segment(point: Point2, from: Point2, to: Point2) -> bool {
+        let along = to - from;
+        let share =
+            ((point - from).dot(along) / along.length_squared().max(1e-300)).clamp(0.0, 1.0);
+        point.distance(from + along * share) < 0.02
+    }
+
+    fn close_curves(drawn: &[Vec<Point2>], expected: &[Vec<Point2>]) -> bool {
+        drawn.len() == expected.len()
+            && drawn.iter().zip(expected).all(|(drawn, expected)| {
+                drawn.iter().all(|drawn| {
+                    expected.windows(2).any(|pair| match pair {
+                        [from, to] => near_segment(*drawn, *from, *to),
+                        _ => false,
+                    })
+                })
+            })
+    }
+
+    #[test]
+    fn the_typed_ghost_draws_the_line_text_and_gear_moved_and_leaves_the_projection_out() {
+        let Mixed {
+            sketch,
+            line,
+            projected,
+            text,
+            gear,
+        } = mixed();
+        let feature = feature();
+        let faceting = Faceting::within(0.01);
+
+        let selected = [line, projected, text, gear];
+        let moving = Moving::of(&sketch, feature, &selected).unwrap();
+        let turning = Transforming::of(&sketch, feature, &selected, Transform::Rotate).unwrap();
+        let scaling = Transforming::of(&sketch, feature, &selected, Transform::Scale).unwrap();
+        let letters = caditor_document::placed_text(&sketch, text)
+            .unwrap()
+            .polylines(faceting);
+        let teeth = sketch.toothed_outline(gear).unwrap().faceted(faceting);
+
+        let expected = |placement: Placement| -> Vec<Vec<Point2>> {
+            [sketch.faceted(line, faceting).unwrap()]
+                .into_iter()
+                .chain(letters.iter().cloned())
+                .chain(teeth.iter().cloned())
+                .map(|curve| {
+                    curve
+                        .into_iter()
+                        .map(|point| placement.point(point))
+                        .collect()
+                })
+                .collect()
+        };
+
+        let moved = moving.preview(&sketch, Some(Point2::new(5.0, 5.0)), faceting);
+        let turned = turning.preview(&sketch, Some(90.0), faceting);
+        let scaled = scaling.preview(&sketch, Some(2.0), faceting);
+
+        assert!(close_curves(
+            &moved.curves,
+            &expected(Placement::Shift(Vector2::new(5.0, 5.0)))
+        ));
+        assert!(close_curves(
+            &turned.curves,
+            &expected(Placement::Turn {
+                pivot: turning.pivot,
+                degrees: 90.0
+            })
+        ));
+        assert!(moved.points.is_empty());
+        assert_eq!(
+            scaled.curves.len(),
+            1 + letters.len()
+                + sketch
+                    .toothed_outline(gear)
+                    .unwrap()
+                    .faceted(faceting)
+                    .len()
+        );
+
+        let bounds = |curves: &[Vec<Point2>]| {
+            curves.iter().flatten().fold(
+                (
+                    Point2::splat(f64::INFINITY),
+                    Point2::splat(f64::NEG_INFINITY),
+                ),
+                |(low, high), point| (low.min(*point), high.max(*point)),
+            )
+        };
+        let scale = Placement::Scale {
+            pivot: scaling.pivot,
+            factor: 2.0,
+        };
+        let (low, high) = bounds(&teeth);
+        let (scaled_low, scaled_high) = bounds(&scaled.curves[1 + letters.len()..]);
+        let (letters_low, letters_high) = bounds(&letters);
+        let (scaled_letters_low, scaled_letters_high) = bounds(&scaled.curves[1..=letters.len()]);
+
+        assert!(scaled_low.distance(scale.point(low)) < 0.05);
+        assert!(scaled_high.distance(scale.point(high)) < 0.05);
+        assert!(scaled_letters_low.distance(scale.point(letters_low)) < 0.05);
+        assert!(scaled_letters_high.distance(scale.point(letters_high)) < 0.05);
+    }
+
+    fn moved_by(commands: &[DragCommand]) -> Vec<Drag> {
+        commands
+            .iter()
+            .find_map(|command| match command {
+                DragCommand::Move { drags, .. } => Some(drags.clone()),
+                DragCommand::Finish { .. } | DragCommand::Cancel => None,
+            })
+            .unwrap()
+    }
+
+    fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
+        Err(EvalError::ParameterMissing)
+    }
+
+    #[test]
+    fn rotating_turns_a_selected_text_and_gear_and_scaling_doubles_their_size() {
+        let Mixed {
+            sketch,
+            line,
+            projected,
+            text,
+            gear,
+        } = mixed();
+        let feature = feature();
+
+        let selected = [line, projected, text, gear];
+        let turning = Transforming::of(&sketch, feature, &selected, Transform::Rotate).unwrap();
+        let scaling = Transforming::of(&sketch, feature, &selected, Transform::Scale).unwrap();
+        let turned = moved_by(&turning.rotated(90.0).unwrap());
+        let scaled = moved_by(&scaling.scaled(2.0).unwrap());
+
+        assert!(turned.contains(&Drag::Text {
+            text,
+            to: TextSize {
+                height: 5.0,
+                angle: 90.0
+            }
+        }));
+        assert!(turned.contains(&Drag::Gear {
+            gear,
+            to: GearPose {
+                pitch_radius: 20.0,
+                turn: 90.0
+            }
+        }));
+        assert!(scaled.contains(&Drag::Text {
+            text,
+            to: TextSize {
+                height: 10.0,
+                angle: 0.0
+            }
+        }));
+        assert!(scaled.contains(&Drag::Gear {
+            gear,
+            to: GearPose {
+                pitch_radius: 40.0,
+                turn: 0.0
+            }
+        }));
+
+        let solve = |drags: &[Drag]| {
+            sketch
+                .solve_geometry_from(&no_parameters, &|| false, drags, None)
+                .unwrap()
+                .0
+        };
+        let turned_sketch = solve(&turned);
+        let scaled_sketch = solve(&scaled);
+        let measure = |expression: &Expression| expression.evaluate(&no_parameters).unwrap().value;
+
+        assert!((measure(&turned_sketch.text(text).unwrap().angle) - 90.0).abs() < 1e-9);
+        assert!((measure(&turned_sketch.gear(gear).unwrap().turn) - 90.0).abs() < 1e-9);
+        assert!((measure(&scaled_sketch.text(text).unwrap().height) - 10.0).abs() < 1e-9);
+        assert!((measure(&scaled_sketch.gear(gear).unwrap().module) - 4.0).abs() < 1e-9);
+        assert!(kept(&turned_sketch, &turned).is_empty());
+        assert!(kept(&scaled_sketch, &scaled).is_empty());
+
+        let alone = Transforming::of(&sketch, feature, &[text], Transform::Rotate).unwrap();
+
+        assert_eq!(
+            Some(alone.pivot),
+            sketch.point(sketch.text(text).unwrap().anchor)
+        );
+    }
+
+    #[test]
+    fn a_text_height_a_parameter_sets_is_kept_by_a_scale_and_said_so() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let height = ParameterId::from_raw(1);
+        let (text, _) = text_at(&mut sketch, Point2::new(0.0, 20.0));
+        let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        let values = |id| {
+            if id == height {
+                Ok(Quantity::length(5.0))
+            } else {
+                Err(EvalError::ParameterMissing)
+            }
+        };
+
+        let driven = Text {
+            height: Expression::Parameter(height),
+            ..sketch.text(text).unwrap().clone()
+        };
+
+        sketch.replace_text(text, driven).unwrap();
+
+        let sketch = sketch.solve(&values, &|| false).unwrap().geometry;
+        let scaling =
+            Transforming::of(&sketch, feature(), &[line, text], Transform::Scale).unwrap();
+        let drags = moved_by(&scaling.scaled(2.0).unwrap());
+
+        let scaled = sketch
+            .solve_geometry_from(&values, &|| false, &drags, None)
+            .unwrap()
+            .0;
+        let kept = kept(&scaled, &drags);
+
+        assert_eq!(
+            scaled.text(text).unwrap().height,
+            Expression::Parameter(height)
+        );
+        assert_eq!(
+            kept_notice("Scale 2 items", &kept).as_deref(),
+            Some(
+                format!(
+                    "Scale 2 items kept the height of {}, which a parameter sets.",
+                    scaled.entity_label(text)
+                )
+                .as_str()
+            )
         );
     }
 

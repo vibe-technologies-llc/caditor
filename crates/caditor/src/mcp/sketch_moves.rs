@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_expression::Dimension;
 use caditor_geometry::Vector2;
-use caditor_sketch::{Drag, Entity, EntityId, MAX_LENGTH, Sketch};
+use caditor_sketch::{Drag, Entity, EntityId, Sketch};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -190,12 +190,7 @@ fn dragged(
         }
     }
 
-    let beyond = drags.iter().any(|drag| match drag {
-        Drag::Point { to, .. } => !to.is_finite() || to.abs().max_element() > MAX_LENGTH,
-        Drag::Radius { to, .. } => !to.is_finite() || *to > MAX_LENGTH,
-    });
-
-    if beyond {
+    if !sketch_drag::within_limits(&drags) {
         return Err(SketchEditError::OutOfReach.into());
     }
 
@@ -213,7 +208,17 @@ fn dragged(
     };
     let mut transaction = target.document.transaction(label);
 
+    let posed: Vec<EntityId> = drags
+        .iter()
+        .filter_map(|drag| match drag {
+            Drag::Text { text, .. } => Some(*text),
+            Drag::Gear { gear, .. } => Some(*gear),
+            Drag::Point { .. } | Drag::Radius { .. } => None,
+        })
+        .collect();
+
     transaction.settle_sketch(target.feature, &geometry);
+    transaction.settle_sketch_items(target.feature, &geometry, &posed);
 
     let transaction = transaction.finish();
 
@@ -242,6 +247,9 @@ fn dragged(
             ) => (radius - to).abs() <= REACHED_TOLERANCE * to.max(1.0),
             _ => false,
         },
+        Drag::Text { .. } | Drag::Gear { .. } => {
+            sketch_drag::kept(&geometry, std::slice::from_ref(drag)).is_empty()
+        }
     });
     let mut planned = Planned::of(transaction);
 
@@ -250,7 +258,8 @@ fn dragged(
         planned.details.insert(
             "note".to_owned(),
             json!(
-                "constraints kept part of it from going all the way; get_sketch shows where it is"
+                "constraints, or the parameters setting a text's or gear's size or angle, kept \
+                 part of it from going all the way; get_sketch shows where it is"
             ),
         );
     }

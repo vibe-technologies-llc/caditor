@@ -200,6 +200,46 @@ impl TransactionBuilder<'_> {
         self
     }
 
+    pub fn settle_sketch_items(
+        &mut self,
+        feature: FeatureId,
+        solved: &Sketch,
+        items: &[EntityId],
+    ) -> &mut Self {
+        let Some(defined) = self.sketch(feature) else {
+            return self;
+        };
+        let edits: Vec<Edit> = items
+            .iter()
+            .filter_map(|id| {
+                if let (Some(held), Some(settled)) = (defined.text(*id), solved.text(*id)) {
+                    let usable = held != settled && held.anchor == settled.anchor;
+
+                    return usable.then(|| Edit::SetSketchText {
+                        feature,
+                        id: *id,
+                        text: settled.clone(),
+                    });
+                }
+
+                let (held, settled) = (defined.gear(*id)?, solved.gear(*id)?);
+
+                let usable = held != settled
+                    && held.centre == settled.centre
+                    && held.driver() == settled.driver()
+                    && held.is_sprocket() == settled.is_sprocket();
+                usable.then(|| Edit::SetSketchGear {
+                    feature,
+                    id: *id,
+                    gear: settled.clone(),
+                })
+            })
+            .collect();
+
+        self.edits.extend(edits);
+        self
+    }
+
     pub fn reshape_sketch(
         &mut self,
         feature: FeatureId,
