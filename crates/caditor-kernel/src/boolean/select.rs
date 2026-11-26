@@ -17,6 +17,7 @@ use crate::{
     naming::{FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
+    tally,
     topology::{BoundaryClass, FaceId, PointClass, SolidClassifier},
 };
 
@@ -106,6 +107,8 @@ fn judge(
     fragment: &Fragment,
     twin: Twin,
 ) -> Result<Verdict, BooleanError> {
+    tally::add_judged_fragment();
+
     let other = key.operand.other();
     let classifier = input.classifier(other);
     let mut solid_side = None;
@@ -385,7 +388,7 @@ fn apart(input: &Input, key: FaceKey, other: Option<&Aabb>) -> bool {
         .is_some_and(|bounds| !boxes_overlap(&bounds.bounds, other, TOLERANCE))
 }
 
-fn is_seam(
+fn own_unshared(
     arrangement: &Arrangement,
     operand: Operand,
     shared: &BTreeSet<usize>,
@@ -417,7 +420,7 @@ fn seam_neighbour(
                 && verdict.basis == Basis::Sampled
                 && mine
                     .intersection(theirs)
-                    .any(|piece| is_seam(arrangement, operand, shared, *piece))
+                    .any(|piece| own_unshared(arrangement, operand, shared, *piece))
         })
         .map(|(_, (_, verdict))| verdict.class)
 }
@@ -458,6 +461,90 @@ fn settle_across_seams(
     }
 }
 
+struct Regions {
+    parents: Vec<usize>,
+    classes: Vec<Option<Class>>,
+}
+
+impl Regions {
+    fn of(
+        input: &Input,
+        arrangement: &Arrangement,
+        shared: &BTreeSet<usize>,
+        split: &[SplitFace],
+    ) -> Self {
+        let count = split.iter().map(|face| face.fragments.len()).sum();
+        let mut regions = Self {
+            parents: (0..count).collect(),
+            classes: vec![None; count],
+        };
+
+        if !input.carrying {
+            return regions;
+        }
+
+        let mut first_user: BTreeMap<usize, usize> = BTreeMap::new();
+        let fragments = split.iter().flat_map(|face| {
+            face.fragments
+                .iter()
+                .map(|fragment| (face.key.operand, fragment))
+        });
+
+        for (index, (operand, fragment)) in fragments.enumerate() {
+            for piece in boundary_pieces(fragment) {
+                if !own_unshared(arrangement, operand, shared, piece) {
+                    continue;
+                }
+                match first_user.get(&piece) {
+                    Some(user) => regions.join(*user, index),
+                    None => {
+                        first_user.insert(piece, index);
+                    }
+                }
+            }
+        }
+        regions
+    }
+
+    fn root(&mut self, mut index: usize) -> usize {
+        while let Some(parent) = self.parents.get(index).copied()
+            && parent != index
+        {
+            let grandparent = self.parents.get(parent).copied().unwrap_or(parent);
+
+            if let Some(slot) = self.parents.get_mut(index) {
+                *slot = grandparent;
+            }
+            index = grandparent;
+        }
+        index
+    }
+
+    fn join(&mut self, first: usize, second: usize) {
+        let (first, second) = (self.root(first), self.root(second));
+
+        if let Some(slot) = self.parents.get_mut(first.max(second)) {
+            *slot = first.min(second);
+        }
+    }
+
+    fn class(&self, root: usize) -> Option<Class> {
+        self.classes.get(root).copied().flatten()
+    }
+
+    fn learn(&mut self, root: usize, verdict: Verdict) {
+        let sided = matches!(verdict.class, Class::Inside | Class::Outside);
+
+        if let Some(slot) = self.classes.get_mut(root)
+            && slot.is_none()
+            && sided
+            && verdict.basis == Basis::Sampled
+        {
+            *slot = Some(verdict.class);
+        }
+    }
+}
+
 pub(super) fn select(
     input: &Input,
     arrangement: &Arrangement,
@@ -468,6 +555,8 @@ pub(super) fn select(
     let extents = Operand::BOTH.map(|operand| extent(input, operand));
     let [first_outlines, second_outlines] = Operand::BOTH.map(|operand| outlines(&split, operand));
     let shared = arrangement.shared_pieces();
+    let mut regions = Regions::of(input, arrangement, &shared, &split);
+    let mut index = 0;
     let mut shared_classes: BTreeMap<FaceKey, Class> = BTreeMap::new();
     let mut kept = Vec::new();
 
@@ -487,6 +576,10 @@ pub(super) fn select(
         let mut judged = Vec::with_capacity(face.fragments.len());
 
         for fragment in face.fragments {
+            let region = regions.root(index);
+
+            index += 1;
+
             let known = if face.untouched {
                 shared_classes.get(&root).copied()
             } else {
@@ -500,6 +593,7 @@ pub(super) fn select(
                 None if input.carrying && reaches_beyond(arrangement, &fragment, other_extent) => {
                     Verdict::sampled(Class::Outside)
                 }
+                None if let Some(class) = regions.class(region) => Verdict::sampled(class),
                 None => {
                     let others = match face.key.operand {
                         Operand::First => &second_outlines,
@@ -524,6 +618,7 @@ pub(super) fn select(
             if face.untouched && !matches!(verdict.class, Class::Coincident(_)) {
                 shared_classes.insert(root, verdict.class);
             }
+            regions.learn(region, verdict);
             judged.push((fragment, verdict));
         }
         settle_across_seams(arrangement, face.key.operand, &shared, &mut judged);

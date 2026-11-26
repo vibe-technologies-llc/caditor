@@ -6,12 +6,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [medium · hard] A modelled thread is slow to cut: in release an M4×20 shaft threaded its whole
-  length takes 0.7 to 0.9 s (about a third classifying fragments by rays through a hundred
-  one-turn flank faces, a third imprinting, a fifth validating the volume) and an M8 bore 12 mm
-  deep 0.35 s. With the groove's far face exactly on the shaft (no 5 % reach) the M4 took 0.5 s,
-  the crest then being the groove's own helix rather than a marched one, but coincident faces were
-  left out until they are known to hold on every face kind.
+- [medium · hard] A modelled thread is still slow to cut: in release an M4×20 shaft threaded its
+  whole length takes 0.26 to 0.32 s and an M8 bore 12 mm deep 0.1 s. Of the M4's cut, nearly
+  two fifths is marching the crest where each of the 60 one-turn flanks meets the shaft's cylinder
+  (about 2 ms a flank), a fifth tracing the flanks and the wall, an eighth healing (merging the
+  turns of the land and of the root into one face each, joining the crest's pieces across the
+  seam) and a tenth finding where edges meet faces; classifying (a few fragments, the rest taking
+  their region's class) and validation (new faces only) are a few milliseconds each. The crest is
+  exactly an iso-v row of each ruled flank, whose two helices are coaxial circles in plan, so its
+  radius is linear in v: an analytic intersection of a coaxial cylinder with such a flank would
+  give it without marching, but would change every thread's crest from a marched curve to a
+  spline. With the groove's far face exactly on the shaft (no 5 % reach) the crest would be the
+  groove's own helix, but coincident faces were left out until they are known to hold on every
+  face kind.
 - [medium · hard] A boolean still makes passes over every face, edge and loop of the body that the
   tool leaves alone, though the geometry work on them is carried, so a sequence of hole features
   stays quadratic: in release the 144th hole of a block takes 4.45 ms against 1.0 for the first

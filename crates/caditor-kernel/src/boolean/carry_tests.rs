@@ -1,18 +1,21 @@
 use std::time::{Duration, Instant};
 
-use caditor_geometry::{Plane, RigidTransform, Vector3};
+use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
     build::{LinearExtent, extrude},
+    fixtures,
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
     tally,
     test_support::{circle, rectangle},
+    thread::{Handedness, ThreadEnd, ThreadForm, ThreadSpec, ThreadedFace, thread_tools},
     topology::PcurveSample,
 };
 
 const PITCH: f64 = 10.0;
+const THREAD_FEATURE: u64 = 9;
 
 fn prism(curves: &[ProfileCurve], bottom: f64, height: f64, feature: u64) -> Solid {
     let regions = Profile::new(curves)
@@ -558,4 +561,119 @@ fn work_follows_the_contact_rather_than_the_body() {
         "a union with one of 32 blocks took {many} units of work, with one of 4 {few}: taking \
          every block through the pipeline grows two and a half times"
     );
+}
+
+fn iso_form(face: ThreadedFace, major: f64, pitch: f64) -> ThreadForm {
+    let depth = 5.0 / 8.0 * 3.0_f64.sqrt() / 2.0 * pitch;
+    let flank_angle = 30.0_f64.to_radians();
+    match face {
+        ThreadedFace::Shaft => ThreadForm {
+            pitch,
+            flank_angle,
+            root_radius: major / 2.0 - depth,
+            root_width: pitch / 4.0,
+            crest_radius: major / 2.0,
+        },
+        ThreadedFace::Bore => ThreadForm {
+            pitch,
+            flank_angle,
+            root_radius: major / 2.0,
+            root_width: pitch / 8.0,
+            crest_radius: major / 2.0 - depth,
+        },
+    }
+}
+
+fn thread_down_from(top: Point3, face: ThreadedFace, form: ThreadForm, radius: f64) -> ThreadSpec {
+    ThreadSpec {
+        frame: Plane::from_frame(top, -Vector3::Z, Vector3::X).unwrap(),
+        face,
+        face_radius: radius,
+        form,
+        hand: Handedness::Right,
+        length: top.z,
+        start: ThreadEnd::RunsOut,
+        end: ThreadEnd::RunsOut,
+    }
+}
+
+fn m4_shaft() -> (Solid, ThreadSpec) {
+    let form = iso_form(ThreadedFace::Shaft, 4.0, 0.7);
+    let top = Point3::new(0.0, 0.0, 20.0);
+    (
+        fixtures::cylinder(2.0, 20.0),
+        thread_down_from(top, ThreadedFace::Shaft, form, 2.0),
+    )
+}
+
+fn m8_bore() -> (Solid, ThreadSpec) {
+    let form = iso_form(ThreadedFace::Bore, 8.0, 1.25);
+    let block = fixtures::cuboid(Vector3::new(20.0, 20.0, 12.0));
+    let drill = fixtures::cylinder(3.4, 14.0)
+        .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, -1.0)).unwrap())
+        .unwrap();
+    let top = Point3::new(10.0, 10.0, 12.0);
+    (
+        boolean(&block, &drill, BooleanOperation::Difference).unwrap(),
+        thread_down_from(top, ThreadedFace::Bore, form, 3.4),
+    )
+}
+
+fn threaded_like_the_full_pipeline(name: &str, body: &Solid, spec: &ThreadSpec) -> Solid {
+    let mut threaded = body.clone();
+
+    for tool in thread_tools(spec, THREAD_FEATURE).unwrap() {
+        threaded = assert_same(name, &threaded, &tool, BooleanOperation::Difference);
+    }
+
+    assert!(threaded.faces().count() > body.faces().count(), "{name}");
+    threaded
+}
+
+#[test]
+fn threads_cut_like_the_full_pipeline() {
+    let (shaft, through) = m4_shaft();
+    let (bored, tapped) = m8_bore();
+    let stopping = ThreadSpec {
+        hand: Handedness::Left,
+        length: 8.0,
+        end: ThreadEnd::Stops,
+        ..through
+    };
+    let wide = fixtures::cylinder(2.3, 12.0);
+    let turned_down = ThreadSpec {
+        face_radius: 2.3,
+        length: 6.0,
+        frame: Plane::from_frame(Point3::new(0.0, 0.0, 12.0), -Vector3::Z, Vector3::X).unwrap(),
+        start: ThreadEnd::Stops,
+        ..through
+    };
+
+    threaded_like_the_full_pipeline("M4x20", &shaft, &through);
+    threaded_like_the_full_pipeline("M8 tapped", &bored, &tapped);
+    threaded_like_the_full_pipeline("M4 stopping", &shaft, &stopping);
+    threaded_like_the_full_pipeline("M4 turned down", &wide, &turned_down);
+}
+
+#[test]
+fn a_thread_judges_a_fragment_per_region_rather_than_per_turn() {
+    for (name, (body, spec)) in [("M4x20", m4_shaft()), ("M8 tapped", m8_bore())] {
+        let tool = thread_tools(&spec, THREAD_FEATURE).unwrap().remove(0);
+
+        let (carried, judged) =
+            tally::measure_judged_fragments(|| boolean(&body, &tool, BooleanOperation::Difference));
+        let (rebuilt, rebuilt_judged) =
+            tally::measure_judged_fragments(|| full(&body, &tool, BooleanOperation::Difference));
+
+        assert!(carried.is_ok() && rebuilt.is_ok(), "{name}");
+        assert!(
+            judged <= 4,
+            "{name}: {judged} fragments judged, where the face's land, the groove's root and its \
+             flanks each form one region across the seams and helices joining their turns"
+        );
+        assert!(
+            rebuilt_judged >= 60,
+            "{name}: the full pipeline judges every fragment of every turn, {rebuilt_judged}"
+        );
+    }
 }

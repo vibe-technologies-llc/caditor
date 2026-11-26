@@ -58,7 +58,8 @@ paths:
 - Tests bound an operation by its interrupt polls (`test_support::polls_during`), which are
   deterministic and count work from every thread, or by `tally` units for what has no poll: box
   tree nodes visited, intersection-curve segments handed to a closest-point search, half-edges of
-  the cycles `Arrangement::contains` tests. Never by time (`rust-style.md`).
+  the cycles `Arrangement::contains` tests, and the boolean's faces meshed for validation, loops
+  meshed and fragments judged by sampling (`tally::measure_judged_fragments`). Never by time (`rust-style.md`).
 
 ## Helper threads (`fan_out.rs`)
 

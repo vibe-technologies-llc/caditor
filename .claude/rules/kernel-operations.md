@@ -499,7 +499,19 @@ paths:
   meridian seam and the equator section, which lies along the other torus throughout, and taken as
   coincident the second's dropped while the fragments across both its seams stayed (`Open`).
   Faces that passed through share one class across unsplit edges no cut shares; one whose box
-  misses the other solid's is outside. Of coincident faces only the first solid's fragment can
+  misses the other solid's is outside. While carrying, fragments of one operand that share a
+  piece of that operand's own edge which no cut shares and nothing was joined into
+  (`own_unshared`) are one region (`Regions`, a union-find over every fragment of the operand):
+  the first fragment of a region given inside or outside by sampling or by the box tests gives
+  that class to the rest unsampled, since the other solid's boundary could part them only by
+  crossing the piece, which splits it there, or running along it, which makes it shared. A
+  fragment judged coincident or only by lying along gives nothing, and settling across seams
+  follows as before. A thread's land on the face, its groove's root and its flank sides are each
+  one region across the seam and helices joining their turns, so cutting an M4x20 shaft judges 3
+  fragments rather than 193 and an M8 bore 2 rather than 79
+  (`a_thread_judges_a_fragment_per_region_rather_than_per_turn`, `threads_cut_like_the_full_pipeline`
+  against `Input::with_carrying(.., false)`); with every flooded fragment also judged, no fragment
+  of the kernel suite changed between kept and dropped. Of coincident faces only the first solid's fragment can
   stay: same orientation for union and intersection, opposite for difference. A difference
   reverses the second solid's kept fragments. Every result edge must then have one use each way,
   else `Open`, or `NonManifold` when solids meet only along an edge. First, an edge two operands'
@@ -1164,8 +1176,9 @@ paths:
 - Faces are `FaceName::thread(feature, part)` with `FaceOrigin::Side { feature, entity: part }`:
   `GROOVE_PARTS` numbers root, leading flank, far face and trailing flank 1 to 4 plus `per_turn`
   (8) times the turn from the start, and the start and end caps 5 and 6.
-- Cost: an M4x20 shaft threaded its whole length takes about 0.7 to 0.9 s in release, an M8 bore
-  12 mm deep about 0.35 s (`thread/tests.rs` prints the times); volumes agree with the analytic
+- Cost: an M4x20 shaft threaded its whole length takes about 0.26 to 0.32 s in release, an M8 bore
+  12 mm deep about 0.1 s (`thread/tests.rs` prints the times), most of it marching the crests;
+  the fragments are judged once per region (`boolean/`); volumes agree with the analytic
   groove volume within 1e-4. Its exact mass (`mass_properties`) integrates every face, the flanks
   and crest band stripping across v (`kernel.md`), within 2e-8 of the analytic groove.
 
