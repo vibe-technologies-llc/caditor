@@ -700,6 +700,126 @@ fn a_plane_tangent_to_a_cylinder_touches_it_without_coinciding() {
     ));
 }
 
+fn cap_containments(
+    curves: &[crate::profile::ProfileCurve],
+    points: &[(f64, f64)],
+) -> Vec<Option<FaceContainment>> {
+    let regions = Profile::new(curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    let solid = extrude(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(2.0).unwrap(),
+        1,
+    )
+    .unwrap();
+
+    let caps: Vec<(FaceId, Surface, f64)> = solid
+        .faces()
+        .filter_map(|(id, face)| match face.surface() {
+            Surface::Plane(plane) if plane.frame().normal().z.abs() > 0.5 => {
+                Some((id, face.surface().clone(), plane.frame().origin().z))
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(caps.len(), 2);
+
+    caps.iter()
+        .flat_map(|(id, surface, height)| {
+            points.iter().map(|(x, y)| {
+                let uv = surface.project(Point3::new(*x, *y, *height), None);
+                solid.point_in_face(*id, uv)
+            })
+        })
+        .collect()
+}
+
+fn placed(turn: f64, side: f64, x: f64, y: f64) -> (f64, f64) {
+    let (sine, cosine) = (turn.sin_libm(), turn.cos_libm());
+    let x = side * x;
+    (5.0 + cosine * x - sine * y, 5.0 + sine * x + cosine * y)
+}
+
+fn spike(turn: f64, side: f64) -> Vec<crate::profile::ProfileCurve> {
+    let at = |x: f64, y: f64| placed(turn, side, x, y);
+    let (from, to) = if side > 0.0 {
+        (at(0.0, -2.0), at(2.0, 0.0))
+    } else {
+        (at(2.0, 0.0), at(0.0, -2.0))
+    };
+    vec![
+        line(1, at(2.0, -2.0), at(0.0, -2.0)),
+        arc(2, (5.0, 5.0), from, to),
+        line(3, at(2.0, 0.0), at(2.0, -2.0)),
+    ]
+}
+
+fn notched(turn: f64, side: f64) -> Vec<crate::profile::ProfileCurve> {
+    let at = |x: f64, y: f64| placed(turn, side, x, y);
+    let mut curves = spike(turn, side);
+
+    curves.retain(|curve| curve.entity != 3);
+    curves.extend([
+        line(4, at(2.0, -2.0), at(2.0, -4.0)),
+        line(5, at(2.0, -4.0), at(-2.0, -4.0)),
+        line(6, at(-2.0, -4.0), at(-2.0, 2.0)),
+        line(7, at(-2.0, 2.0), at(2.0, 2.0)),
+        line(8, at(2.0, 2.0), at(2.0, 0.0)),
+    ]);
+    curves
+}
+
+#[test]
+fn a_point_past_the_tip_of_a_cusp_is_outside_a_spike_and_inside_round_a_notch() {
+    for turn in [0.0, 0.3, 0.7, 1.1, 1.9, 2.6, 3.7, 5.1] {
+        for side in [1.0, -1.0] {
+            let past: Vec<(f64, f64)> = [-1e-8, 0.0, 1e-8]
+                .iter()
+                .map(|across| placed(turn, side, -1e-4, -2.0 + across))
+                .collect();
+            let within = [placed(turn, side, 1.0, -1.9)];
+
+            let spiked =
+                [&past[..], &within[..]].map(|points| cap_containments(&spike(turn, side), points));
+            let notch = [&past[..], &within[..]]
+                .map(|points| cap_containments(&notched(turn, side), points));
+
+            assert!(
+                spiked[0]
+                    .iter()
+                    .all(|class| *class == Some(FaceContainment::Outside)),
+                "past the tip of a spike turned {turn}, side {side}: {:?}",
+                spiked[0]
+            );
+            assert!(
+                spiked[1]
+                    .iter()
+                    .all(|class| *class == Some(FaceContainment::Inside)),
+                "in a spike turned {turn}, side {side}: {:?}",
+                spiked[1]
+            );
+            assert!(
+                notch[0]
+                    .iter()
+                    .all(|class| *class == Some(FaceContainment::Inside)),
+                "past the tip of a notch turned {turn}, side {side}: {:?}",
+                notch[0]
+            );
+            assert!(
+                notch[1]
+                    .iter()
+                    .all(|class| *class == Some(FaceContainment::Outside)),
+                "in a notch turned {turn}, side {side}: {:?}",
+                notch[1]
+            );
+        }
+    }
+}
+
 fn definition_of_plane_surface() -> Surface {
     Surface::Plane(
         crate::surface::PlaneSurface::new(

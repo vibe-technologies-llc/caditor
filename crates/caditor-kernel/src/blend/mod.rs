@@ -1087,22 +1087,27 @@ fn mitre(
     })
 }
 
+enum Span {
+    Between(Box<Ends>),
+    UsedUpByCorners,
+}
+
 fn ends(
     around: &Surroundings<'_>,
     geometry: &EdgeGeometry,
     reach: f64,
-) -> Result<Ends, BlendError> {
+) -> Result<Span, BlendError> {
     let definition = around
         .solid
         .edge(geometry.edge)
         .ok_or(BlendError::MissingEdge(geometry.edge))?;
 
     if definition.is_closed() {
-        return Ok(Ends {
+        return Ok(Span::Between(Box::new(Ends {
             at: [End::Flush, End::Flush],
             faces: [None, None],
             beside: [Vec::new(), Vec::new()],
-        });
+        })));
     }
 
     let blended = geometry.blended();
@@ -1115,18 +1120,24 @@ fn ends(
     )?;
     let (end, end_face) = end_at(around, &blended, definition.end(), reach, SquareEnd::Flush)?;
 
-    if let Sweep::Along { length } = geometry.sweep
-        && length + start.extension() + end.extension() <= LINEAR_RESOLUTION
-    {
-        return Err(BlendError::TooLarge(geometry.edge));
+    if let Sweep::Along { length } = geometry.sweep {
+        let left = length + start.extension() + end.extension();
+        let between_corners = matches!((start, end), (End::Setback(_), End::Setback(_)));
+
+        if between_corners && left.abs() <= LINEAR_RESOLUTION {
+            return Ok(Span::UsedUpByCorners);
+        }
+        if left <= LINEAR_RESOLUTION {
+            return Err(BlendError::TooLarge(geometry.edge));
+        }
     }
 
     let [beside_start, beside_end] = beside_ends(around.solid, around.topology, &blended);
-    Ok(Ends {
+    Ok(Span::Between(Box::new(Ends {
         at: [start, end],
         faces: [start_face, end_face],
         beside: [beside_start, beside_end],
-    })
+    })))
 }
 
 fn faces_at(solid: &Solid, topology: &Topology, vertex: VertexId) -> BTreeSet<FaceId> {
@@ -2351,13 +2362,17 @@ fn apply_plan(
     for (geometry, blend, reach) in &planned {
         interrupt::check()?;
 
-        let ends = ends(&around, geometry, *reach)?;
         let edge_name = solid
             .edge(geometry.edge)
             .ok_or(BlendError::MissingEdge(geometry.edge))?
             .name();
 
         blend_names.insert(geometry.edge, FaceName::blend(feature, edge_name));
+
+        let Span::Between(ends) = ends(&around, geometry, *reach)? else {
+            continue;
+        };
+
         tools.push(
             tool(solid, geometry, blend, &ends, shape, feature)
                 .map_err(|error| error.at(Some(geometry.edge)))?,

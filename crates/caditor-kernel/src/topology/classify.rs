@@ -34,6 +34,9 @@ const POLE_PROBES: usize = 5;
 const OWN_FACE_REACH: f64 = 100.0 * TOLERANCE;
 const RAY_TOUCH: f64 = 8.0 * TOLERANCE;
 const OVERLAP_PROBES: usize = 17;
+const CUSP_SINE: f64 = 1e-6;
+const CUSP_STEP: f64 = 1e-2;
+const CUSP_BEND: f64 = 1e-3;
 const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [0.573_462, 0.612_378, 0.544_223],
     [-0.408_248, 0.707_817, 0.576_479],
@@ -48,6 +51,12 @@ const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [0.980_581, -0.078_446, 0.179_605],
     [-0.057_735, 0.519_615, -0.852_332],
 ];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cusp {
+    Outward,
+    Inward,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointClass {
@@ -467,6 +476,16 @@ impl<'a> SolidClassifier<'a> {
         let (incoming, outgoing) = self.corner(coedge, vertex)?;
         let tangent_in = self.coedge_tangent(incoming.0, incoming.1)?;
         let tangent_out = self.coedge_tangent(outgoing.0, outgoing.1)?;
+
+        if let Some(tip) = self.cusp(
+            normal,
+            foot,
+            [incoming, outgoing],
+            [tangent_in, tangent_out],
+        ) {
+            return Some(tip == Cusp::Inward);
+        }
+
         let left_in = self.left_of(normal, tangent_in, foot, point);
         let left_out = self.left_of(normal, tangent_out, foot, point);
 
@@ -475,6 +494,45 @@ impl<'a> SolidClassifier<'a> {
             left_in && left_out
         } else {
             left_in || left_out
+        })
+    }
+
+    fn cusp(
+        &self,
+        normal: Vector3,
+        tip: Point3,
+        coedges: [(CoedgeId, f64); 2],
+        tangents: [Vector3; 2],
+    ) -> Option<Cusp> {
+        let [arriving, leaving] = tangents.map(Vector3::normalize_or_zero);
+
+        if arriving.dot(leaving) >= 0.0 || arriving.cross(leaving).length() > CUSP_SINE {
+            return None;
+        }
+
+        let left = normal.cross(arriving);
+        let [bend_in, bend_out] = coedges.map(|(coedge, parameter)| {
+            let (start, end) = self.solid.coedge_parameters(coedge)?;
+            let curve = self.solid.edge(self.solid.coedge(coedge)?.edge())?.curve();
+
+            let far = if parameter == end { start } else { end };
+
+            let offset = curve.point(parameter + CUSP_STEP * (far - parameter)) - tip;
+            let back = -offset.dot(arriving);
+            (back > 0.0).then(|| offset.dot(left) / (back * back))
+        });
+
+        let (bend_in, bend_out) = (bend_in?, bend_out?);
+
+        let apart = bend_out - bend_in;
+
+        if apart.abs() <= CUSP_BEND * (bend_in.abs() + bend_out.abs()) {
+            return None;
+        }
+        Some(if apart > 0.0 {
+            Cusp::Outward
+        } else {
+            Cusp::Inward
         })
     }
 

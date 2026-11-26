@@ -273,7 +273,15 @@ paths:
   strip per turn) carries uvs many periods away. Near the boundary it uses the exact edge (the side
   of the nearest non-seam coedge, or of both coedges at a vertex: convex corners need both); within
   `LINEAR_RESOLUTION` of an edge it answers `OnBoundary`, while `exactly_inside_face` gives the side
-  even there. Seams bound nothing (the face lies on both sides), so a point within the resolution of
+  even there. At a cusp (the coedges' tangents opposite within `CUSP_SINE`), where the sign of the
+  turn is rounding noise, a point nearest the vertex lies past the tip: outside when the face is the
+  spike between the curves, inside when the spike is a notch in it, told apart by which curve bends
+  farther to the left of the arriving tangent `CUSP_STEP` of the way along each (`Cusp`), the old
+  rule left where they bend alike. A concave fillet's spandrel ends in such a tip where its round
+  meets a wall it is tangent to, and the point 1e-4 past it (the widened patch's end) read inside,
+  so a fill meeting its neighbour at the tip pooled a vertex there that split the wall's edge and
+  the round's, the boolean then cut the round with the wall's piece lying within 2.5e-9 of it
+  (`Split`). Seams bound nothing (the face lies on both sides), so a point within the resolution of
   a seam edge and away from every other edge is inside: parity there sits on the seam's own polygon
   edge and answered either way, losing the vertex where two holes' axis-aligned seams cross. The classifier keeps a tree of face boxes (`box_tree.rs`) and each face indexes its
   boundary on first use (`PolygonIndex`, `topology/polygons.rs`): building is linear, a query

@@ -79,15 +79,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner rebuilt from the arrangement of its offset planes under its own union and intersection
   formula (convex edges intersect, concave ones unite), with an edge allowed to change its pair of
   faces and faces of one plane allowed to merge; the plan builds one face per original face.
-- [low · hard] Fills that use up a whole face along with its edges: a 4 mm pocket's twelve edges
-  filleted 2 mm (`fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels`) is
-  `TooLarge` for a floor edge, since the ball corners' setbacks take its whole length; leaving that
-  edge's tool out lets the corners meet, but the fill's boolean is then `Split` where the corner
-  rounds meet the one sphere the four ball corners share. Chamfered, or filleted without the floor
-  edges, the rim is carried onto the edges round the corner fills. A pocket a little wider than
-  twice the size keeps a sliver of each wall, and then only the sliver's rim is blended: the top's
-  edges along the corner fills stay sharp, so the result jumps when the walls are used up exactly;
-  the rim would be carried onto those edges too.
+- [low · hard] A pocket a little wider than twice a chamfer's size keeps a sliver of each wall, and
+  chamfering its twelve edges bevels only the sliver's rim: the top's edges along the corner bevels
+  stay sharp, so the result jumps when the walls are used up exactly (a 4.01 mm pocket chamfered
+  2 mm keeps 975.8 mm³ of a 10 mm block, the 4 mm pocket 942.7,
+  `fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels`); the rim would be carried
+  onto those edges too, as `carried_onto_bevels` does when the walls are gone. Filleted, the rim's
+  tangent chain runs on round the corner fills, so the result follows the width (944.6 against
+  944.9).
 - [medium · hard] An edge ending at a corner earlier fillets made meets them along a crease, or is
   refused. The uprights of a 40×30×20 box whose top edges were filleted 2 mm take any fillet or
   chamfer, but only a 2 mm fillet ends in a smooth ball corner (`corner::after_blends`); a 1 mm one

@@ -1221,6 +1221,7 @@ fn fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels() {
     let corners = edges_where(&pocketed, |middle| {
         inside(middle) && (middle.z - 8.0).abs() < 1e-9
     });
+    let below_rim = edges_where(&pocketed, |middle| inside(middle) && middle.z < 10.0 - 1e-9);
     let one_rim: Vec<EdgeId> = [edge_through(&pocketed, (5.0, 3.0, 10.0))]
         .into_iter()
         .chain(corners.iter().copied())
@@ -1233,15 +1234,20 @@ fn fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels() {
     let rim_bevel = (2.0 * 2.0 / 2.0) * 2.0 * 2f64.sqrt();
     let rim_bevel_mitre = 4.0 / 3.0;
     let rim_round_the_bore = spandrel(2.0) * 2.0 * PI * (2.0 + 2.0 * SPANDREL_CENTROID);
+    let bore_over_the_ball = PI * 2.0 * 2.0 * 2.0;
+    let ball_under_the_bore = 2.0 / 3.0 * PI * 2.0 * 2.0 * 2.0;
 
     let every_edge = run(&pocketed, &pocket, chamfer(2.0));
     let without_floor = run(&pocketed, &above_floor, chamfer(2.0));
     let one_wall = run(&pocketed, &one_rim, chamfer(2.0));
     let rounded = run(&pocketed, &above_floor, fillet(2.0));
+    let filled_round = run(&pocketed, &below_rim, fillet(2.0));
+    let every_edge_rounded = run(&pocketed, &pocket, fillet(2.0));
 
     assert_eq!(pocket.len(), 12);
     assert_eq!(above_floor.len(), 8);
     assert_eq!(corners.len(), 4);
+    assert_eq!(below_rim.len(), 8);
 
     check(
         "every edge",
@@ -1266,6 +1272,16 @@ fn fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels() {
         &rounded,
         1000.0 - PI * 2.0 * 2.0 * 4.0 - rim_round_the_bore,
     );
+    check(
+        "corners and floor rounded",
+        &filled_round,
+        1000.0 - bore_over_the_ball - ball_under_the_bore,
+    );
+    check(
+        "every edge rounded",
+        &every_edge_rounded,
+        1000.0 - bore_over_the_ball - ball_under_the_bore - rim_round_the_bore,
+    );
 
     assert!(!has_edge_through(&every_edge, (4.0, 4.0, 10.0)));
     assert!(has_edge_through(&every_edge, (4.0, 4.0, 8.0)));
@@ -1275,7 +1291,9 @@ fn fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels() {
     ));
     assert!(has_edge_through(&one_wall, (4.0, 6.0, 10.0)));
     assert!(blend(&pocketed, &pocket, chamfer(1.9), 50).is_ok());
-    assert!(is_too_large(blend(&pocketed, &pocket, fillet(2.0), 50)));
+    assert!(!has_edge_through(&every_edge_rounded, (5.0, 3.0, 9.0)));
+    assert!(has_edge_through(&every_edge_rounded, (5.0, 3.0, 8.0)));
+    assert!(has_edge_through(&every_edge_rounded, (5.0, 1.0, 10.0)));
 }
 
 fn has_edge_through(solid: &Solid, point: (f64, f64, f64)) -> bool {

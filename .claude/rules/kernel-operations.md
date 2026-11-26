@@ -744,17 +744,23 @@ paths:
   edge on that face anywhere within some 2e-3 of the tangent circle and left the fillet's face
   untraceable (`Split`).
 - Refused corners, each pinned by a test: the upright of a boss whose foot an earlier blend rounded
-  is `UnsupportedEnd` (the fills' seam there is concave); a 4 mm pocket's twelve edges filleted
-  2 mm is `TooLarge` for a floor edge, whose ball corners' setbacks take its whole length. A
-  circular edge whose extended sweep would pass a full turn is `WrapsAround`. `survey.rs`
-  (ignored, in the stress job) chamfers and fillets every corner of twenty bodies, and every one
-  blends.
+  is `UnsupportedEnd` (the fills' seam there is concave). A circular edge whose extended sweep
+  would pass a full turn is `WrapsAround`. `survey.rs` (ignored, in the stress job) chamfers and
+  fillets every corner of twenty bodies, and every one blends.
 - Three straight edges of one kind filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball, subtracted at a convex corner and added at a
   concave one, a pocket's inside corner at its floor); other corners mitre. The corner is built
   in the planes' normals turned to face away from the tool (`away_from_tool`): outward for a
   convex corner, whose tool lies in the material, inward for a concave one, whose tool lies in
   the air, so one construction serves both.
+- A straight edge whose ball corners' setbacks at its two ends meet within the resolution is used
+  up by the corners and has no tool of its own (`Span::UsedUpByCorners`); setbacks passing each
+  other are `TooLarge`. A 4 mm pocket's corners and floor edges filleted 2 mm so fill it to a bore
+  over a hemisphere, the four ball corners sharing one sphere, and with its rim edges too the rim
+  is carried onto the bore's circle (`carried_onto_bevels`) and rounded into a torus meeting the
+  hemisphere tangentially, the walls used up (`fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels`).
+  The corner rounds touch each other along the walls' middles, so united in pairs they are
+  `NonManifold` and stay apart, and each is added to the body alone.
 - A straight edge filleted, alone at its vertex, with the radius of the two earlier cylinder
   fillets that rise from its faces there and rest on one flat face (`after_blends`: the uprights
   of a box whose top edges were filleted at the same radius, convex, or the corners of a pocket
