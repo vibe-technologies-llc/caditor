@@ -1318,6 +1318,7 @@ pub(crate) fn arc_joint(sketch: &Sketch, arc: EntityId, other: EntityId) -> Opti
 pub(super) struct Joints {
     parents: BTreeMap<EntityId, EntityId>,
     on_curve: BTreeMap<EntityId, BTreeSet<EntityId>>,
+    holders: BTreeMap<(EntityId, EntityId), ConstraintId>,
 }
 
 impl Joints {
@@ -1325,9 +1326,10 @@ impl Joints {
         let mut joints = Self {
             parents: BTreeMap::new(),
             on_curve: BTreeMap::new(),
+            holders: BTreeMap::new(),
         };
 
-        for (_, constraint) in sketch.active_constraints() {
+        for (id, constraint) in sketch.active_constraints() {
             let Constraint::Coincident(a, b) = *constraint else {
                 continue;
             };
@@ -1338,16 +1340,27 @@ impl Joints {
                         joints.parents.insert(a.max(b), a.min(b));
                     }
                 }
-                (Some(Role::Point), Some(_)) => {
-                    joints.on_curve.entry(b).or_default().insert(a);
-                }
-                (Some(_), Some(Role::Point)) => {
-                    joints.on_curve.entry(a).or_default().insert(b);
-                }
+                (Some(Role::Point), Some(_)) => joints.hold(b, a, id),
+                (Some(_), Some(Role::Point)) => joints.hold(a, b, id),
                 _ => {}
             }
         }
         joints
+    }
+
+    fn hold(&mut self, curve: EntityId, point: EntityId, by: ConstraintId) {
+        self.on_curve.entry(curve).or_default().insert(point);
+        self.holders.entry((curve, point)).or_insert(by);
+    }
+
+    pub(super) fn holders_on(
+        &self,
+        curve: EntityId,
+    ) -> impl Iterator<Item = (EntityId, ConstraintId)> + '_ {
+        self.holders
+            .range((curve, EntityId::from_raw(0))..)
+            .take_while(move |((held_on, _), _)| *held_on == curve)
+            .map(|((_, point), by)| (*point, *by))
     }
 
     pub(super) fn joint(

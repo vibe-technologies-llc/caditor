@@ -296,44 +296,36 @@ fn a_fit_spline_is_trimmed_exactly_into_a_control_spline() {
 }
 
 #[test]
-fn a_fit_spline_with_a_held_point_is_trimmed_through_its_points() {
+fn a_fit_spline_with_a_fixed_point_is_trimmed_exactly_with_the_point_held_on_it() {
     let mut sketch = Sketch::new(Plane::XY);
-    let through = [
-        at(0.0, 0.0),
-        at(10.0, 8.0),
-        at(20.0, -4.0),
-        at(30.0, 6.0),
-        at(40.0, 0.0),
-    ];
 
-    let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
+    let fit = five_point_fit(&mut sketch);
     let kept = points_of(&sketch, fit);
     let held = sketch.point(kept[1]).unwrap();
 
-    sketch
-        .add_constraint(Constraint::Fix {
-            point: kept[1],
-            at: held,
-        })
-        .unwrap();
+    let fix = Constraint::Fix {
+        point: kept[1],
+        at: held,
+    };
+
+    sketch.add_constraint(fix.clone()).unwrap();
 
     let post = upright(&mut sketch, 25.0);
+    let whole = sketch.spline(fit).unwrap();
 
     assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
 
     let points = points_of(&sketch, fit);
+    let cut = points[points.len() - 1];
 
-    assert_eq!(&points[..3], &kept[..3]);
-    assert_eq!(points.len(), 4);
-    assert_eq!(
-        kind_of(&sketch, fit),
-        SplineKind::Fit {
-            closed: false,
-            spacing: FitSpacing::Centripetal
-        }
-    );
+    assert_eq!(points[0], kept[0]);
+    assert!(!points.contains(&kept[1]));
+    assert!(!kind_of(&sketch, fit).passes_its_points());
+    assert!(has(&sketch, &fix));
+    assert!(has(&sketch, &Constraint::Coincident(kept[1], fit)));
+    assert!(sketch.entity(kept[2]).is_none());
 
-    let cut = points[3];
+    assert_lies_on(&sketch.spline(fit).unwrap(), &whole);
 
     assert!((sketch.point(cut).unwrap().x - at(25.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(cut, post)));
@@ -915,4 +907,152 @@ fn a_short_copy_of_a_piece_of_a_spline_trims_and_breaks_it_only_at_the_ends_of_t
     assert!(middle_end.distance(end) < 1e-6);
     assert!(last_start.distance(end) < 1e-6);
     assert!(last_end.distance(bump()[3]) < EXACT);
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Cutting {
+    Trim,
+    Split,
+    Break,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ThirdPoint {
+    Coincident,
+    Handle,
+}
+
+fn five_point_fit(sketch: &mut Sketch) -> EntityId {
+    sketch.add_spline_of(
+        &[
+            at(0.0, 0.0),
+            at(10.0, 8.0),
+            at(20.0, -4.0),
+            at(30.0, 6.0),
+            at(40.0, 0.0),
+        ],
+        SplineKind::fit(false),
+    )
+}
+
+fn cut_fit(sketch: &mut Sketch, fit: EntityId, cutting: Cutting) {
+    match cutting {
+        Cutting::Trim => {
+            upright(sketch, 25.0);
+
+            assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
+        }
+        Cutting::Split => {
+            let curve = sketch.spline(fit).unwrap();
+            let cut = sketch.add_point(curve.point_at(0.8));
+
+            sketch
+                .add_constraint(Constraint::Coincident(cut, fit))
+                .unwrap();
+            sketch.split_at(fit, cut).unwrap();
+        }
+        Cutting::Break => {
+            upright(sketch, 25.0);
+
+            assert_eq!(sketch.break_curve(fit).unwrap().len(), 1);
+        }
+    }
+}
+
+fn tangent_off(sketch: &Sketch, spline: EntityId, line: EntityId, anchor: EntityId) -> f64 {
+    let curve = sketch.spline(spline).unwrap();
+    let (start, end) = sketch.line_endpoints(line).unwrap();
+    let anchor = sketch.point(anchor).unwrap();
+
+    let [tangent, _] = curve.derivatives(closest_spline_parameter(&curve, anchor));
+    let along = (end - start).normalize();
+    along.perp_dot(tangent.normalize()).abs()
+}
+
+#[test]
+fn a_fit_spline_cut_with_its_third_point_held_keeps_its_shape_and_the_hold() {
+    for cutting in [Cutting::Trim, Cutting::Split, Cutting::Break] {
+        for third in [ThirdPoint::Coincident, ThirdPoint::Handle] {
+            let mut sketch = Sketch::new(Plane::XY);
+
+            let fit = five_point_fit(&mut sketch);
+            let held = points_of(&sketch, fit)[2];
+            let position = sketch.point(held).unwrap();
+
+            let holding = match third {
+                ThirdPoint::Coincident => {
+                    let lone = sketch.add_point(position);
+
+                    sketch
+                        .add_constraint(Constraint::Coincident(held, lone))
+                        .unwrap();
+                    lone
+                }
+                ThirdPoint::Handle => sketch.add_spline_handle(fit, held).unwrap().0,
+            };
+            let whole = sketch.spline(fit).unwrap();
+
+            cut_fit(&mut sketch, fit, cutting);
+
+            let case = format!("{cutting:?} with a {third:?} on the third point");
+
+            assert!(!kind_of(&sketch, fit).passes_its_points(), "{case}");
+            assert!(!points_of(&sketch, fit).contains(&held), "{case}");
+            assert!(has(&sketch, &Constraint::Coincident(held, fit)), "{case}");
+            assert_eq!(sketch.point(held), Some(position), "{case}");
+
+            assert_lies_on(&sketch.spline(fit).unwrap(), &whole);
+
+            match third {
+                ThirdPoint::Coincident => {
+                    assert!(
+                        has(&sketch, &Constraint::Coincident(held, holding)),
+                        "{case}"
+                    );
+                }
+                ThirdPoint::Handle => {
+                    assert!(sketch.spline_handles(fit).is_empty(), "{case}");
+                    assert!(has(&sketch, &Constraint::Tangent(holding, fit)), "{case}");
+                    assert!(tangent_off(&sketch, fit, holding, held) < EXACT, "{case}");
+
+                    let tangent = sketch
+                        .constraints()
+                        .find(|(_, constraint)| **constraint == Constraint::Tangent(holding, fit))
+                        .map(|(id, _)| id)
+                        .unwrap();
+                    let mut untouched = sketch.clone();
+
+                    untouched.remove_constraint(tangent).unwrap();
+
+                    let freedom = |sketch: &Sketch| solve(sketch).solution.degrees_of_freedom();
+
+                    assert_eq!(freedom(&sketch) + 1, freedom(&untouched), "{case}");
+                }
+            }
+
+            let solved = solve(&sketch).geometry;
+
+            assert!(
+                distance_from(&solved.spline(fit).unwrap(), solved.point(held).unwrap()) < EXACT,
+                "{case}"
+            );
+
+            match third {
+                ThirdPoint::Coincident => {
+                    let apart = solved
+                        .point(held)
+                        .unwrap()
+                        .distance(solved.point(holding).unwrap());
+
+                    assert!(apart < EXACT, "{case}");
+                }
+                ThirdPoint::Handle => {
+                    assert!(tangent_off(&solved, fit, holding, held) < EXACT, "{case}");
+                }
+            }
+
+            assert_solves_in_place(&sketch);
+            assert_solves_in_place(&solved);
+        }
+    }
 }

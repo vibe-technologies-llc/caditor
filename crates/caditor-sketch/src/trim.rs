@@ -855,8 +855,10 @@ impl Sketch {
     }
 
     fn shape_cutters(&self, excluding: EntityId) -> impl Iterator<Item = (EntityId, Cutter)> + '_ {
+        let handles = self.handle_lines(excluding);
+
         self.entities()
-            .filter(move |(id, _)| *id != excluding)
+            .filter(move |(id, _)| *id != excluding && !handles.contains(id))
             .filter_map(|(id, _)| Some((id, Cutter::Shape(self.shape_of(id)?))))
     }
 

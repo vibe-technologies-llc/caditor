@@ -14,7 +14,6 @@ use crate::{
 
 const KNOT_SNAP: f64 = 1e-9;
 const SAME_POINT: f64 = 1e-9;
-const HELD_SLACK: f64 = 1e-6;
 const UNIFORM_SLACK: f64 = 1e-9;
 const CLOSED_TURNS: usize = 2;
 const END_SAMPLES: usize = 256;
@@ -460,13 +459,35 @@ pub(crate) enum Slot {
     At(Point2),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Hold {
+    On(EntityId),
+    Tangent(EntityId),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Reshape {
     pub(crate) kind: SplineKind,
     pub(crate) slots: Vec<Slot>,
+    pub(crate) holds: Vec<Hold>,
 }
 
 impl Reshape {
+    pub(crate) fn unheld(kind: SplineKind, slots: Vec<Slot>) -> Self {
+        Self {
+            kind,
+            slots,
+            holds: Vec::new(),
+        }
+    }
+
+    fn held_points(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.holds.iter().filter_map(|hold| match *hold {
+            Hold::On(point) => Some(point),
+            Hold::Tangent(_) => None,
+        })
+    }
+
     pub(crate) fn set_end(&mut self, at_end: bool, slot: Slot) {
         let end = if at_end {
             self.slots.last_mut()
@@ -600,18 +621,15 @@ impl Sketch {
                 spacing,
             };
 
-            return Some(Reshape {
+            return Some(Reshape::unheld(
                 kind,
-                slots: self.fit_slots(curve, &source.points, closed, kept)?,
-            });
+                self.fit_slots(curve, &source.points, closed, kept)?,
+            ));
         }
 
         let part = source.knotted.between(from, to)?;
         let kind = part.kind(source.width, source.rational)?;
-        Some(Reshape {
-            kind,
-            slots: source.slots(&part)?,
-        })
+        Some(Reshape::unheld(kind, source.slots(&part)?))
     }
 
     fn exact_fit_piece(
@@ -624,10 +642,8 @@ impl Sketch {
         if closed && (kept.from < 0.0 || kept.to > 1.0) {
             return None;
         }
-        if self.fit_piece_is_held(curve, &source.points, closed, kept)? {
-            return None;
-        }
 
+        let holds = self.fit_holds(curve, &source.points, closed, kept)?;
         let part = source.knotted.between(kept.from, kept.to)?;
         let kind = part.kind(None, false)?;
         let slots = part
@@ -636,7 +652,7 @@ impl Sketch {
             .map(|point| Part::position(*point).map(Slot::At))
             .collect::<Option<Vec<_>>>()?;
 
-        let mut reshape = Reshape { kind, slots };
+        let mut reshape = Reshape { kind, slots, holds };
 
         if !closed && kept.from <= 0.0 {
             reshape.set_end(false, Slot::Kept(*source.points.first()?));
@@ -647,39 +663,73 @@ impl Sketch {
         Some(reshape)
     }
 
-    fn fit_piece_is_held(
+    fn fit_holds(
         &self,
         curve: EntityId,
         points: &[EntityId],
         closed: bool,
         kept: Stretch,
-    ) -> Option<bool> {
+    ) -> Option<Vec<Hold>> {
         let layout = self.fit_layout(curve)?;
-        let handled: Vec<EntityId> = self
+        let spline = self.spline(curve)?;
+        let tolerance = TOLERANCE * SplineCourse::reach_of(&spline).max(1.0);
+        let at = |parameter: f64| {
+            spline.point_at(if closed {
+                parameter.rem_euclid(1.0)
+            } else {
+                parameter
+            })
+        };
+        let cuts = [
+            (closed || kept.from > 0.0).then(|| at(kept.from)),
+            (closed || kept.to < 1.0).then(|| at(kept.to)),
+        ];
+
+        let clear_of_cuts = |position: Point2| {
+            cuts.iter()
+                .flatten()
+                .all(|cut| cut.distance(position) > tolerance)
+        };
+        let handles: Vec<(EntityId, EntityId)> = self
             .constraints_using(curve)
             .into_iter()
             .filter_map(|id| match self.constraint(id) {
-                Some(Constraint::SplineHandle { line, .. }) => self.handle_anchor(curve, *line),
+                Some(Constraint::SplineHandle { line, .. }) => {
+                    Some((*line, self.handle_anchor(curve, *line)?))
+                }
                 _ => None,
             })
             .collect();
         let last = points.len().checked_sub(1)?;
-        Some(
-            points
+        let kept_end = |index: usize| {
+            !closed && ((index == 0 && kept.from <= 0.0) || (index == last && kept.to >= 1.0))
+        };
+        let mut holds = Vec::new();
+
+        for (index, (point, parameter)) in points.iter().zip(&layout.parameters).enumerate() {
+            let position = self.point(*point)?;
+
+            let inside = *parameter > kept.from && *parameter < kept.to && clear_of_cuts(position);
+            let lines: Vec<EntityId> = handles
                 .iter()
-                .zip(&layout.parameters)
-                .enumerate()
-                .filter(|(_, (_, parameter))| {
-                    **parameter >= kept.from - HELD_SLACK && **parameter <= kept.to + HELD_SLACK
-                })
-                .any(|(index, (point, _))| {
-                    let is_end = !closed && (index == 0 || index == last);
-                    handled.contains(point)
-                        || (!is_end
-                            && (self.entities_using(*point) != [curve]
-                                || !self.constraints_using(*point).is_empty()))
-                }),
-        )
+                .filter(|(_, anchor)| anchor == point)
+                .map(|(line, _)| *line)
+                .collect();
+
+            if !inside && !kept_end(index) {
+                continue;
+            }
+
+            let held = !lines.is_empty()
+                || self.entities_using(*point) != [curve]
+                || !self.constraints_using(*point).is_empty();
+
+            if inside && held {
+                holds.push(Hold::On(*point));
+            }
+            holds.extend(lines.into_iter().map(Hold::Tangent));
+        }
+        Some(holds)
     }
 
     fn fit_slots(
@@ -763,12 +813,13 @@ impl Sketch {
                 };
                 let shape = reshape(kept)?;
                 let fates = self.spline_fates(curve, kept, None);
+                let held: Vec<EntityId> = shape.held_points().collect();
 
                 let (start, end) = self.place_spline(curve, shape, &fates.leaving())?;
 
                 self.join(start, &second, curve)?;
                 self.join(end, &first, curve)?;
-                self.drop_unused(&points)?;
+                self.drop_released(&points, &held)?;
                 Ok(Trimmed::Opened)
             }
             (None, Some(cut)) => self.shorten_spline(curve, &points, cut, false),
@@ -786,21 +837,18 @@ impl Sketch {
                 let (near_shape, far_shape) = (reshape(near)?, reshape(far)?);
                 let fates = self.spline_fates(curve, near, Some(far));
 
+                let held: Vec<EntityId> = near_shape
+                    .held_points()
+                    .chain(far_shape.held_points())
+                    .collect();
+
                 let (_, near_end) = self.place_spline(curve, near_shape, &fates.leaving())?;
-                let far_points = self.slot_points(&far_shape.slots);
-                let far_start = *far_points.first().ok_or_else(no_piece)?;
-                let split = self.add_piece(
-                    curve,
-                    Entity::Spline {
-                        points: far_points,
-                        kind: far_shape.kind,
-                    },
-                )?;
+                let (split, far_start) = self.add_spline_piece(curve, far_shape)?;
 
                 self.move_constraints(fates.moved, curve, split)?;
                 self.join(near_end, &first, curve)?;
                 self.join(far_start, &second, curve)?;
-                self.drop_unused(&points)?;
+                self.drop_released(&points, &held)?;
                 Ok(Trimmed::Split { piece: split })
             }
             (None, None) => {
@@ -878,19 +926,19 @@ impl Sketch {
 
         halves.near_shape.set_end(true, Slot::Kept(point));
         halves.far_shape.set_end(false, Slot::Kept(point));
+
+        let held: Vec<EntityId> = halves
+            .near_shape
+            .held_points()
+            .chain(halves.far_shape.held_points())
+            .collect();
+
         self.place_spline(curve, halves.near_shape, &fates.leaving())?;
 
-        let far_points = self.slot_points(&halves.far_shape.slots);
-        let piece = self.add_piece(
-            curve,
-            Entity::Spline {
-                points: far_points,
-                kind: halves.far_shape.kind,
-            },
-        )?;
+        let (piece, _) = self.add_spline_piece(curve, halves.far_shape)?;
 
         self.move_constraints(fates.moved, curve, piece)?;
-        self.drop_unused(&points)?;
+        self.drop_released(&points, &held)?;
         Ok(piece)
     }
 
@@ -932,13 +980,16 @@ impl Sketch {
         let fates = self.spline_fates(curve, kept, None);
 
         shape.set_end(keeps_start, Slot::Kept(moved));
+
+        let held: Vec<EntityId> = shape.held_points().collect();
+
         self.place_spline(curve, shape, &fates.leaving())?;
 
         let left: Vec<EntityId> = points
             .into_iter()
             .filter(|point| *point != corner_end)
             .collect();
-        self.drop_unused(&left)
+        self.drop_released(&left, &held)
     }
 
     fn shorten_spline(
@@ -966,13 +1017,14 @@ impl Sketch {
                 label: self.entity_label(curve),
             })?;
         let fates = self.spline_fates(curve, kept, None);
+        let held: Vec<EntityId> = shape.held_points().collect();
 
         let (start, end) = self.place_spline(curve, shape, &fates.leaving())?;
 
         let cut_end = if keeps_start { end } else { start };
 
         self.join(cut_end, &cut, curve)?;
-        self.drop_unused(points)?;
+        self.drop_released(points, &held)?;
         Ok(Trimmed::Shortened)
     }
 
@@ -1000,22 +1052,61 @@ impl Sketch {
         shape: Reshape,
         leaving: &[ConstraintId],
     ) -> Result<(EntityId, EntityId), SketchError> {
-        let points = self.slot_points(&shape.slots);
+        let Reshape { kind, slots, holds } = shape;
+        let points = self.slot_points(&slots);
         let ends = (points.first().copied(), points.last().copied());
+        let takes_handles = kind.passes_its_points();
 
         self.restructure(
             curve,
-            Entity::Spline {
-                points,
-                kind: shape.kind,
-            },
+            Entity::Spline { points, kind },
             leaving,
-            |_| true,
+            |constraint| takes_handles || !matches!(constraint, Constraint::SplineHandle { .. }),
         )?;
+        self.hold_on(curve, &holds)?;
         match ends {
             (Some(start), Some(end)) => Ok((start, end)),
             _ => Err(SketchError::TooFewControlPoints),
         }
+    }
+
+    fn add_spline_piece(
+        &mut self,
+        curve: EntityId,
+        shape: Reshape,
+    ) -> Result<(EntityId, EntityId), SketchError> {
+        let Reshape { kind, slots, holds } = shape;
+        let points = self.slot_points(&slots);
+        let start = *points.first().ok_or(SketchError::TooFewControlPoints)?;
+
+        let piece = self.add_piece(curve, Entity::Spline { points, kind })?;
+
+        self.hold_on(piece, &holds)?;
+        Ok((piece, start))
+    }
+
+    fn hold_on(&mut self, piece: EntityId, holds: &[Hold]) -> Result<(), SketchError> {
+        let own = self.entity(piece).map(Entity::points).unwrap_or_default();
+
+        for hold in holds {
+            let constraint = match *hold {
+                Hold::On(point) if own.contains(&point) => continue,
+                Hold::On(point) => Constraint::Coincident(point, piece),
+                Hold::Tangent(line) => Constraint::Tangent(line, piece),
+            };
+
+            self.add_constraint(constraint)?;
+        }
+        Ok(())
+    }
+
+    fn drop_released(&mut self, points: &[EntityId], held: &[EntityId]) -> Result<(), SketchError> {
+        let released: Vec<EntityId> = points
+            .iter()
+            .copied()
+            .filter(|point| !held.contains(point))
+            .collect();
+        self.drop_unused(&released)
     }
 
     pub(crate) fn drop_unused(&mut self, points: &[EntityId]) -> Result<(), SketchError> {
@@ -1217,10 +1308,7 @@ impl SplineSource {
             } else {
                 slots.insert(1.min(slots.len()), inner);
             }
-            return Some(Reshape {
-                kind: self.kind.clone(),
-                slots,
-            });
+            return Some(Reshape::unheld(self.kind.clone(), slots));
         }
 
         let part = if at_end {
@@ -1228,10 +1316,7 @@ impl SplineSource {
         } else {
             self.knotted.between(reached, high)?
         };
-        let mut shape = Reshape {
-            kind: part.kind(self.width, self.rational)?,
-            slots: self.slots(&part)?,
-        };
+        let mut shape = Reshape::unheld(part.kind(self.width, self.rational)?, self.slots(&part)?);
 
         shape.set_end(at_end, Slot::Kept(end));
         Some(shape)

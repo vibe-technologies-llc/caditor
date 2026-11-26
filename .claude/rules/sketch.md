@@ -168,9 +168,10 @@ paths:
     (`AlreadyHandled`, add only; loading keeps it, shaping nothing). `add_spline_handle(spline,
     point)` adds a construction line along the curve as it is (`spline_handle_reach`; `NotAFitPoint`,
     `NoTangent`) and the constraint. Mirror and the patterns copy a handle whose spline and line
-    are both copied (`copy_handles`), exact since the interpolation is similarity-invariant; trim
-    keeps a handle whose anchor stays a fit point of the kept piece (on it and clear of the cuts,
-    which become new end points) and drops the rest; opening a closed spline keeps its handles so.
+    are both copied (`copy_handles`), exact since the interpolation is similarity-invariant; trim,
+    split and break turn a handle whose anchor lies on a kept piece clear of the cuts (which
+    become new end points) into a `Tangent` to that piece, the anchor held on it, and drop the
+    rest; opening a closed spline across its seam keeps a fit spline and so keeps those handles.
 - Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
   the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
   `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,
@@ -395,8 +396,9 @@ the sketch only if every step succeeded. A changed curve is removed and inserted
 same ID (`restructure`), with every constraint still true of it. Joints are judged by a `TOLERANCE`
 relative to the extent.
 
-- Trim and extend (`trim.rs`): cutters are every other curve (construction and splines included)
-  and the two reference axes as infinite lines (`Cutter::Axis`; the origin and lone points are not
+- Trim and extend (`trim.rs`): cutters are every other curve (construction and splines included,
+  the target's own tangent handle lines not: they end on its fit points, along it, and shape it
+  rather than cross it, `handle_lines`) and the two reference axes as infinite lines (`Cutter::Axis`; the origin and lone points are not
   cutters); targets are every curve but those, axes never trimmed or extended (`Reference`). A
   crossing at a curve's own end is a joint, not a cut.
   - Splines (`trim/spline.rs`) are cut where `Cutter::spline_cut_positions` finds crossings, by the
@@ -412,12 +414,21 @@ relative to the extent.
     spline's piece is cut out of its drawn curve the same way (`exact_fit_piece`: handles included,
     since the drawn curve reads them) and becomes a control spline, its first or last fit point
     kept as the end it still is and every fit point inside the stretch replaced by control points
-    (a closed spline's stretch must lie within one turn). That holds unless a fit point inside the
-    stretch carries a constraint or is used by another curve, or a tangent handle's anchor lies in
-    it (`fit_piece_is_held`: the constraints on a point go when the point does, and a handle needs
-    a fit spline): then the piece is a fit spline of the same spacing through the cut and the fit
-    points inside the stretch (a point within the tolerance of a cut gives way to it), its shape
-    near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
+    (a closed spline's stretch must lie within one turn). A fit point inside the stretch and clear
+    of its cuts that carries a constraint or is used by another curve or a tangent handle stays, as
+    a point held on the piece by a `Coincident` (`fit_holds`, `Hold::On`), so its constraints and
+    the curves ending on it keep working; it is no longer one of the curve's points, so it slides
+    along the piece instead of shaping it. A handle whose anchor is such a point or a kept end
+    becomes a `Tangent` between its line and the piece (`Hold::Tangent`; the `SplineHandle` goes,
+    since a handle needs a fit spline): at a kept end it is the end's leg, inside the stretch the
+    line touching the piece at its anchor (`sketch-solver.md`). `place_spline` and
+    `add_spline_piece` add the holds after placing the piece and `drop_released` keeps their points.
+    A refit could not keep the shape: a fit spline's knots and parameters follow from its points,
+    so no choice of points on the piece reproduces its knots. Only where no exact piece exists (a
+    closed spline's stretch over its seam) is the piece a fit spline of the same spacing through
+    the cut and the fit points inside the stretch (a point within the tolerance of a cut gives way
+    to it), its shape near the cut shifting slightly. `NoPiece` refuses a stretch with no such
+    spline.
   - On a trimmed spline `Equal` and `Rho` are dropped; a `Coincident` point or `Distance` (where it
     measures on the spline) stays on the piece it lies on, moves to the far piece or is dropped
     with a removed stretch; `Tangent`, `Curvature` and `Angle` joined at a removed end are dropped, joined
@@ -772,8 +783,8 @@ relative to the extent.
   blossoming trim uses (`spline_halves`): the point is the last control point of the near piece
   and the first of the far one, the constraints fall as in a trim of the stretch (`spline_fates`),
   and the pieces get no constraint to each other. Control splines, pieces, conics and fit-point
-  splines split (a fit spline's pieces are control splines, or refitted fit splines where a fit
-  point is held, as in a trim); a closed one (`ClosedSpline`: one point only opens it) is refused
+  splines split (a fit spline's pieces are control splines, its held fit points held on the
+  piece they lie on and its handles there tangents, as in a trim); a closed one (`ClosedSpline`: one point only opens it) is refused
   in words, as are circles, whole ellipses and projected curves.
 - Break (`breaking.rs`): `break_curve` splits a line, arc, elliptical arc or open spline at
   every crossing with the other curves and the two axes, found as trim finds cuts (`open_cuts`).

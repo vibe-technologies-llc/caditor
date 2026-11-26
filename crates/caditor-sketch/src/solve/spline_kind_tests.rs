@@ -835,3 +835,50 @@ fn a_spline_with_three_of_four_points_coincident_stays_within_a_micrometre_howev
         }
     }
 }
+
+#[test]
+fn a_line_tangent_where_it_ends_on_a_point_held_on_a_spline_takes_one_freedom_and_stays_put() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 20.0),
+        Point2::new(25.0, -15.0),
+        Point2::new(40.0, 10.0),
+        Point2::new(55.0, 0.0),
+    ]);
+    let curve = sketch.spline(spline).unwrap();
+    let [direction, _] = curve.derivatives(0.4);
+    let anchor = curve.point_at(0.4);
+
+    let line = sketch.add_line(anchor, anchor + direction.normalize() * 12.0);
+    let (held, other) = match sketch.entity(line) {
+        Some(Entity::Line { start, end }) => (*start, *end),
+        found => panic!("expected a line, found {found:?}"),
+    };
+
+    sketch
+        .add_constraint(Constraint::Coincident(held, spline))
+        .unwrap();
+
+    let untouched = solve(&sketch).unwrap().solution.degrees_of_freedom();
+
+    sketch
+        .add_constraint(Constraint::Tangent(line, spline))
+        .unwrap();
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_eq!(solved.solution.degrees_of_freedom() + 1, untouched);
+    assert!(solved.solution.redundancies().is_empty());
+
+    for point in [held, other] {
+        let moved = solved
+            .geometry
+            .point(point)
+            .unwrap()
+            .distance(sketch.point(point).unwrap());
+
+        assert!(moved < EXACT, "{point:?} moved by {moved}");
+    }
+}

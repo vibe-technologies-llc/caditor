@@ -144,14 +144,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   itself, as a spline's end on a line already is (`Joints::spline_end_on`), would remove the double
   root, but needs the origin counted as a point on the axes and a form at a fixed parameter. The
   spline also passes one point twice; the cause found does not involve it.
-- [low · hard] A point held on an open centripetal fit spline through three points, whose tangent
-  nearly vanishes at its start, moves by 2.6e-3 mm when solved again from its own result (seed
-  55494 of `a_solved_sketch_does_not_move_when_solved_again`, beyond the cases the stress job runs,
-  kept as the ignored
-  `a_point_held_on_an_open_centripetal_spline_through_three_points_stays_put_when_solved_again`):
-  the first solve holds the point at parameter 0.6994 and the second starts it at the sample
-  0.6875, so the point slides along the curve and drags the fit points with it. The cause was not
-  worked out further.
 - [low · hard] A sketch with a closed degree-one spline (a polygon of its control points) and a
   `Distance` dimension from it to another curve moves by 0.4 mm when solved again from its own
   result (seed 1555 of `a_solved_sketch_of_splines_of_chosen_degrees_does_not_move_when_solved_again`

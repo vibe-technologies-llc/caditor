@@ -43,8 +43,9 @@ take them too, which sets the direction the spline starts or finishes in. On a c
 point takes one, and the curve stays smooth all the way round. Undo takes a handle away.
 
 Mirroring or patterning a spline together with its handles gives the copies handles of their own,
-so they keep the same shape. Trimming keeps the handles on fit points still on the kept piece, and
-opening a closed spline by trimming keeps those left on it. Splines drawn by control points and
+so they keep the same shape. Trimming, splitting or breaking a spline turns a handle on a fit point still on a kept piece into a
+tangent between the handle line and that piece, and opening a closed spline by trimming across where
+its loop starts keeps the handles left on it. Splines drawn by control points and
 conics take no handles.
 
 ## Adding control points

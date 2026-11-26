@@ -120,10 +120,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   point cannot be removed while keeping the shape (only approximately possible); and a point cannot be inserted into a conic
   keeping the shape (its two halves would be rational arcs with weights of their own, which no
   spline kind but the conic holds).
-- [low · hard] A fit-point spline whose kept stretch holds a fit point carrying a constraint, a tangent
-  handle or another curve is still refitted through its points by a trim, split or break (the
-  constraints on a point go with it when the control spline replaces it), so its shape near the cut
-  shifts slightly.
+- [low · hard] A closed fit-point spline trimmed open across its seam is still refitted through
+  its points, so its shape near the cuts shifts slightly: its drawn curve is the periodic spline
+  clamped at the seam (`BSpline::periodic_clamped`), so `exact_fit_piece` has no knots past it to
+  blossom from; unrolling the unclamped periodic spline over two turns, as a closed control spline
+  is (`Knotted::periodic`), would cut it out exactly.
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the

@@ -256,7 +256,6 @@ fn a_closed_spline_tangent_to_a_line_at_a_fit_point_held_on_it_stays_put_when_so
 }
 
 #[test]
-#[ignore = "still moves by 2.6 micrometres, a known failure in docs/BUGS.md"]
 fn a_point_held_on_an_open_centripetal_spline_through_three_points_stays_put_when_solved_again() {
     replay_case(55494, |_, input| stays_put(input));
 }

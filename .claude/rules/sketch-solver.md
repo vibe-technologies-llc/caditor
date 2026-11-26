@@ -162,6 +162,14 @@ paths:
 - A tangent whose curves share a point (directly or through coincidences) is the radius there
   perpendicular to the line (or both radii along one line), keeping full rank where the distance
   form has none. A zero distance between points is solved as a coincidence.
+- A line tangent to a spline at a point of the line held on the spline by a `Coincident` is the
+  spline's tangent along the line at that coincidence's own parameter (`held_contact`,
+  `Form::SplineAlongLine` alone, no parameter of its own), when the spline already runs along the
+  line there at the start (sine within `HELD_CONTACT_SINE`; `Joints::holders_on` names the
+  coincidence): a contact parameter of its own would be a double root there, its row the sum of
+  the coincidence's, so the tangent took no freedom. Otherwise, as a line from a point on an
+  S-curve tangent to another bump, it keeps its own contact; the branch comes from the starting
+  geometry, so a solve never flips it. Trim turns a cut fit spline's handle into such a tangent.
 
 ## Splines (`solve/spline.rs`)
 
@@ -220,7 +228,10 @@ paths:
   refined by Newton so geometry that already holds does not move (only a refinement that settles
   is a candidate of its own: one still creeping after `REFINEMENTS`, as at a cusp where the first
   and second derivative vanish, is the sample it started from, never a parameter chosen by the
-  rounding of the distances; a clamped end counts as
+  rounding of the distances. Settling is a step within `f64::EPSILON`, or one within `ROUNDING_STEP`
+  no shorter than the one before: Newton on a converged point can cycle between two floats a few
+  ulps apart, and taking that for creeping started a point lying exactly on a spline at the sample
+  beside it, so the solve pulled point and curve together by millimetres; a clamped end counts as
   stationary when the Newton step there is within `SETTLED_AT_END`, so a spline square to a
   distance at its end keeps that end over the other end tied with it); among starts equally near (within
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the

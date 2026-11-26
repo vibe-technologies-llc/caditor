@@ -27,6 +27,8 @@ const SAMPLES_PER_SPAN: usize = 16;
 const REFINEMENTS: usize = 32;
 const TIE: f64 = 1e-9;
 const SETTLED_AT_END: f64 = 1e-9;
+const ROUNDING_STEP: f64 = 1e-12;
+const HELD_CONTACT_SINE: f64 = 1e-4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Wanted {
@@ -128,10 +130,56 @@ impl System {
         spline: EntityId,
         other: EntityId,
     ) -> Result<Vec<f64>, SketchError> {
-        if joints.spline_end_on(sketch, spline, other).is_some() {
+        if joints.spline_end_on(sketch, spline, other).is_some()
+            || self.held_contact(sketch, joints, spline, other)?.is_some()
+        {
             return Ok(Vec::new());
         }
         Ok(vec![self.touching_start(sketch, spline, other)?])
+    }
+
+    fn held_contact(
+        &self,
+        sketch: &Sketch,
+        joints: &Joints,
+        spline: EntityId,
+        line: EntityId,
+    ) -> Result<Option<ConstraintId>, SketchError> {
+        if sketch.role(line) != Some(Role::Line) {
+            return Ok(None);
+        }
+
+        let on_line: Vec<EntityId> = joints
+            .points_on(sketch, line)
+            .into_iter()
+            .map(|point| joints.class(point))
+            .collect();
+        let handle = self.line(sketch, line)?;
+        let Some(along) =
+            (handle.end.at(&self.values) - handle.start.at(&self.values)).try_normalize()
+        else {
+            return Ok(None);
+        };
+        let curve = self.curve(sketch, spline)?;
+
+        for (point, holder) in joints.holders_on(spline) {
+            if !on_line.contains(&joints.class(point)) {
+                continue;
+            }
+
+            let at = self.point(point)?.at(&self.values);
+            let parameter = self.closest_parameter(sketch, spline, at)?;
+            let [tangent, _] = curve.derivatives(parameter);
+
+            let runs_along = tangent
+                .try_normalize()
+                .is_some_and(|tangent| along.perp_dot(tangent).abs() <= HELD_CONTACT_SINE);
+
+            if runs_along {
+                return Ok(Some(holder));
+            }
+        }
+        Ok(None)
     }
 
     fn touching_start(
@@ -253,6 +301,22 @@ impl System {
             } else {
                 let circle = self.circle(sketch, other)?;
                 Form::Perpendicular(self.radius_line(end, circle.center), leg)
+            }]);
+        }
+
+        if let Some(holder) = self.held_contact(sketch, joints, spline, other)? {
+            let parameter = self.parameter_of(holder)?;
+            let curve = self.curve(sketch, spline)?;
+            let line = self.line(sketch, other)?;
+
+            let start = self.values.get(parameter).copied().unwrap_or(0.0);
+            let along = self.initial_direction(line.start, line.end);
+
+            return Ok(vec![Form::SplineAlongLine {
+                spline: self.spline_handle(sketch, spline)?,
+                parameter,
+                line,
+                fallback: start_tangent(&curve, start, along),
             }]);
         }
 
@@ -1137,6 +1201,7 @@ fn refine(
     slope: impl Fn(Point2, Vector2, Vector2) -> (f64, f64),
 ) -> (f64, bool) {
     let mut parameter = start;
+    let mut last_move = f64::INFINITY;
 
     for _ in 0..REFINEMENTS {
         let [tangent, bend] = curve.derivatives(parameter);
@@ -1153,11 +1218,15 @@ fn refine(
         let moved = (next - parameter).abs();
 
         parameter = next;
-        if moved <= f64::EPSILON {
+
+        let cycling_in_rounding = moved <= ROUNDING_STEP && moved >= last_move;
+
+        if moved <= f64::EPSILON || cycling_in_rounding {
             let inside = parameter > 0.0 && parameter < 1.0;
 
             return (parameter, inside || step.abs() <= SETTLED_AT_END);
         }
+        last_move = moved;
     }
     (parameter, false)
 }

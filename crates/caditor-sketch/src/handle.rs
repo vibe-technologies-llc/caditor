@@ -348,6 +348,19 @@ impl Sketch {
         Ok(())
     }
 
+    pub(crate) fn handle_lines(&self, spline: EntityId) -> Vec<EntityId> {
+        self.constraints_using(spline)
+            .into_iter()
+            .filter_map(|id| match self.constraint(id) {
+                Some(Constraint::SplineHandle {
+                    spline: shaped,
+                    line,
+                }) if *shaped == spline => Some(*line),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn handle_anchor(&self, spline: EntityId, line: EntityId) -> Option<EntityId> {
         let Some(Entity::Spline { points, .. }) = self.entity(spline) else {
             return None;

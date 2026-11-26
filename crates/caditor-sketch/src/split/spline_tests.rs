@@ -242,13 +242,14 @@ fn a_fit_spline_splits_into_two_control_splines_of_the_same_curve() {
 }
 
 #[test]
-fn a_fit_spline_with_a_held_fit_point_splits_through_its_points_instead() {
+fn a_fit_spline_with_a_held_fit_point_splits_exactly_with_the_point_held_on_its_piece() {
     let mut sketch = Sketch::new(Plane::XY);
 
     let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
     let cut = on_spline(&mut sketch, fit, 0.2);
     let held = sketch.entity(fit).unwrap().points()[4];
     let at = sketch.point(held).unwrap();
+    let whole = sketch.spline(fit).unwrap();
 
     let fix = Constraint::Fix { point: held, at };
 
@@ -256,15 +257,22 @@ fn a_fit_spline_with_a_held_fit_point_splits_through_its_points_instead() {
 
     let piece = sketch.split_at(fit, cut).unwrap();
 
+    let near = sketch.spline(fit).unwrap();
+    let far = sketch.spline(piece).unwrap();
+
+    assert_pieces_keep_the_shape(&whole, &[&near, &far]);
+
     assert!(
-        sketch
+        !sketch
             .entity(piece)
             .and_then(Entity::spline_kind)
             .unwrap()
             .passes_its_points()
     );
-    assert!(sketch.entity(piece).unwrap().points().contains(&held));
+    assert!(!sketch.entity(piece).unwrap().points().contains(&held));
     assert!(has(&sketch, &fix));
+    assert!(has(&sketch, &Constraint::Coincident(held, piece)));
+    assert!(!has(&sketch, &Constraint::Coincident(held, fit)));
 }
 
 #[test]
