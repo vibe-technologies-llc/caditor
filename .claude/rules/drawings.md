@@ -146,7 +146,10 @@ lines, never a picture of the 3D view.
   with Y up, right along -X, left along +X, isometric along (-1, 1, -1) with Z up.
 - `drawing_view(view, solids)` runs kernel `hidden_lines` (`kernel-hidden-lines.md`) at
   `MeshQuality::SMOOTH`'s tolerance for the bodies' extent, under `catch_unwind`, and keeps sharp
-  edges and silhouettes only: tangent edges and seams are left out, as ISO 128 draws them. It is
+  edges, silhouettes and crossings only: tangent edges and seams are left out, as ISO 128 draws
+  them. A crossing (`ViewSource::Crossing`, two bodies overlapping without a combine) names the two
+  faces, not an edge, so `pick_edge` and `centre_target_at` pass it by and nothing annotates it;
+  it draws and exports like an edge, the sheet and export never reading a piece's source. It is
   interruptible (`Cancelled`); no solid is `NoBodies`. `ViewLines::bounds` sizes the view on the
   sheet. `drawn_bodies` resolves which bodies a drawing draws in an `Evaluation` (with every body
   standing that is not hidden when none are chosen) and names the chosen ones missing.

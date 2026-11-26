@@ -1392,3 +1392,190 @@ fn walking_the_outline_polls_at_every_step_and_can_be_cancelled_anywhere() {
         |error| matches!(error, HiddenLineError::Cancelled(_)),
     );
 }
+
+fn block(min: Point3, max: Point3) -> Solid {
+    let mut fixture = Fixture::new();
+
+    add_cuboid(&mut fixture, min, max, Tweak::default());
+    fixture.build()
+}
+
+fn is_crossing(piece: &ViewPiece) -> bool {
+    matches!(piece.source, ViewSource::Crossing { .. })
+}
+
+fn crossings(lines: &HiddenLines) -> Vec<&ViewPiece> {
+    lines
+        .pieces
+        .iter()
+        .filter(|piece| is_crossing(piece))
+        .collect()
+}
+
+fn upright_at(piece: &ViewPiece, x: f64) -> bool {
+    let (start, end) = ends(piece);
+    (start.x - x).abs() <= CLOSE && (end.x - x).abs() <= CLOSE
+}
+
+fn block_and_pin_through_it() -> (Solid, Solid) {
+    let block = block(Point3::ZERO, Point3::new(20.0, 10.0, 10.0));
+    let pin = cylinder(6.0, 14.0)
+        .transformed(&RigidTransform::translation(Vector3::new(10.0, 5.0, -2.0)).unwrap())
+        .unwrap();
+    (block, pin)
+}
+
+#[test]
+fn a_pin_through_a_block_crosses_its_front_face_in_seen_lines_and_its_back_face_in_hidden_ones() {
+    let (block, pin) = block_and_pin_through_it();
+
+    let lines = hidden_lines(&[&block, &pin], &from_front(), &tolerance()).unwrap();
+    let crossing = crossings(&lines);
+    let half_chord = 11.0_f64.sqrt();
+
+    assert_eq!(lines.undecided, 0);
+
+    for x in [10.0 - half_chord, 10.0 + half_chord] {
+        let upright: Vec<&ViewPiece> = crossing
+            .iter()
+            .copied()
+            .filter(|piece| upright_at(piece, x))
+            .collect();
+
+        assert_close(
+            total(upright.iter().copied(), Visibility::Visible),
+            10.0,
+            "the pin meets the front face in a seen line",
+        );
+        assert_close(
+            total(upright.iter().copied(), Visibility::Hidden),
+            10.0,
+            "the pin meets the back face in a hidden line behind it",
+        );
+    }
+    assert_close(
+        total(crossing.iter().copied(), Visibility::Visible),
+        20.0,
+        "the arcs on the top and bottom faces, seen edge-on, are hidden",
+    );
+
+    assert!(
+        crossing
+            .iter()
+            .all(|piece| matches!(piece.source, ViewSource::Crossing { solids: [0, 1], .. })),
+        "every crossing names both bodies"
+    );
+}
+
+#[test]
+fn a_pin_through_a_block_seen_obliquely_shows_its_crossings_on_the_faces_turned_to_the_view() {
+    let (block, pin) = block_and_pin_through_it();
+    let view = HiddenLineView::new(Vector3::new(0.3, 1.0, -0.6), Vector3::Z).unwrap();
+
+    let lines = hidden_lines(&[&block, &pin], &view, &tolerance()).unwrap();
+    let crossing = crossings(&lines);
+
+    assert_eq!(lines.undecided, 0);
+    assert!(total(crossing.iter().copied(), Visibility::Visible) > 10.0);
+    assert!(total(crossing.iter().copied(), Visibility::Hidden) > 10.0);
+}
+
+#[test]
+fn separated_blocks_add_no_crossing_lines_and_no_work_beyond_finding_them_apart() {
+    let view = from_front();
+
+    for count in [2, 32] {
+        let blocks = row_of_blocks(count);
+        let solids: Vec<&Solid> = blocks.iter().collect();
+        let scene = Scene::of(&solids);
+        let build = Build {
+            view: view.frame(),
+            tolerance: &tolerance(),
+            threads: 1,
+        };
+
+        let (pairs, looked_up) = tally::measure(|| crossings::face_pairs(&scene));
+        let (found, work) = tally::measure(|| build.crossing_tracks(&scene).unwrap());
+
+        assert!(pairs.is_empty(), "no two blocks' boxes meet");
+        assert!(found.tracks.is_empty() && found.failed == 0);
+        assert_eq!(work, looked_up, "the only work is looking the blocks up");
+        assert!(
+            looked_up <= 8 * count,
+            "one box-tree look-up a block: {looked_up} for {count}"
+        );
+    }
+
+    let blocks = row_of_blocks(2);
+    let lines = hidden_lines(&[&blocks[0], &blocks[1]], &view, &tolerance()).unwrap();
+
+    assert!(crossings(&lines).is_empty());
+}
+
+fn moved(solid: Solid, offset: Vector3) -> Solid {
+    solid
+        .transformed(&RigidTransform::translation(offset).unwrap())
+        .unwrap()
+}
+
+#[test]
+fn bodies_sharing_face_planes_or_touching_add_no_crossing_lines() {
+    let views = [from_front(), from_above(), oblique_over_a_plate()];
+    let lying = cylinder(0.5, 3.0)
+        .transformed(&RigidTransform::rotation_about(Point3::ZERO, Vector3::X, FRAC_PI_2).unwrap())
+        .unwrap();
+    let pairs = [
+        (
+            block(Point3::ZERO, Point3::new(2.0, 1.0, 1.0)),
+            block(Point3::new(1.0, 0.0, 0.0), Point3::new(3.0, 1.0, 1.0)),
+        ),
+        (
+            block(Point3::ZERO, Point3::new(1.0, 1.0, 1.0)),
+            block(Point3::new(1.0, 0.0, 0.0), Point3::new(2.0, 1.0, 1.0)),
+        ),
+        (
+            block(Point3::ZERO, Point3::new(4.0, 4.0, 1.0)),
+            block(Point3::new(1.0, 1.0, 1.0), Point3::new(2.0, 2.0, 2.0)),
+        ),
+        (
+            block(Point3::ZERO, Point3::new(4.0, 1.0, 1.0)),
+            moved(cylinder(0.5, 2.0), Vector3::new(4.5, 0.5, 0.0)),
+        ),
+        (
+            block(Point3::ZERO, Point3::new(4.0, 1.0, 1.0)),
+            moved(lying, Vector3::new(2.0, 2.0, 1.5)),
+        ),
+    ];
+
+    for (index, (first, second)) in pairs.iter().enumerate() {
+        for view in &views {
+            let lines = hidden_lines(&[first, second], view, &tolerance()).unwrap();
+
+            assert!(
+                crossings(&lines).is_empty(),
+                "pair {index}: {:?}",
+                crossings(&lines)
+            );
+        }
+    }
+}
+
+#[test]
+fn crossings_are_found_on_many_threads_as_on_one_and_can_be_cancelled_anywhere() {
+    let (block, pin) = block_and_pin_through_it();
+    let view = oblique_over_a_plate();
+
+    let alone = hidden_lines_on(&[&block, &pin], &view, &tolerance(), 1).unwrap();
+    let shared = hidden_lines_on(&[&block, &pin], &view, &tolerance(), 6).unwrap();
+
+    assert_eq!(alone, shared);
+    assert!(!crossings(&alone).is_empty());
+
+    let polls = assert_cancelled_anywhere(
+        "crossing lines",
+        || hidden_lines_on(&[&block, &pin], &view, &tolerance(), 1),
+        |error| matches!(error, HiddenLineError::Cancelled(_)),
+    );
+
+    assert!(polls > 1);
+}

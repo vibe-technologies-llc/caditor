@@ -158,7 +158,7 @@ impl ViewLines {
 fn drawn(piece: &ViewPiece) -> bool {
     match piece.source {
         ViewSource::Edge { kind, .. } => kind == ViewEdgeKind::Sharp,
-        ViewSource::Silhouette { .. } => true,
+        ViewSource::Silhouette { .. } | ViewSource::Crossing { .. } => true,
     }
 }
 

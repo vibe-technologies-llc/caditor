@@ -140,12 +140,44 @@ fn contour_hides_itself(
     Some((surface.point_at(uv), hidden))
 }
 
+fn face_hides(solid: &Solid, face: FaceId, point: Point3, toward: Vector3) -> Option<bool> {
+    let definition = solid.face(face)?;
+    let surface = definition.surface();
+    let uv = surface.project(point, None);
+
+    let normal = surface.normal(uv.x, uv.y)? * definition.sense().sign();
+    let facing = toward.dot(normal);
+
+    if facing.abs() <= ALONG_FACE {
+        return Some(
+            bend_along(surface, definition.sense(), uv, toward)
+                .is_none_or(|bend| bend >= -FLAT_CURVATURE),
+        );
+    }
+    Some(facing < 0.0)
+}
+
+fn crossing_hides_itself(
+    scene: &Scene<'_>,
+    owners: [usize; 2],
+    faces: [FaceId; 2],
+    point: Point3,
+    toward: Vector3,
+) -> bool {
+    owners.into_iter().zip(faces).any(|(owner, face)| {
+        scene
+            .views
+            .get(owner)
+            .and_then(|view| face_hides(view.solid, face, point, toward))
+            .unwrap_or(false)
+    })
+}
+
 pub(super) fn covered_along(
     scene: &Scene<'_>,
     origin: Point3,
     direction: Vector3,
-    own_solid: Option<usize>,
-    own: &[FaceId],
+    own: &[(usize, &[FaceId])],
 ) -> RayView {
     let mut doubtful = false;
     let reaching = scene.tree.matching(|bounds| {
@@ -156,7 +188,10 @@ pub(super) fn covered_along(
         let Some(view) = scene.views.get(index) else {
             continue;
         };
-        let faces = if own_solid == Some(index) { own } else { &[] };
+        let faces = own
+            .iter()
+            .find(|(solid, _)| *solid == index)
+            .map_or(&[][..], |(_, faces)| *faces);
         match view.classifier.ray_view(origin, direction, faces) {
             RayView::Covered => return RayView::Covered,
             RayView::Clear => {}
@@ -197,13 +232,31 @@ pub(super) fn verdict(
                 None => false,
             }
         }
+        Own::Crossing { other, faces } => {
+            crossing_hides_itself(scene, [track.solid, other], faces, point, toward)
+        }
     };
 
     if hidden_locally {
         return Ok(Verdict::Hidden);
     }
 
-    let seen = covered_along(scene, point, toward, Some(track.solid), &track.faces);
+    let theirs = match track.own {
+        Own::Crossing {
+            other,
+            faces: [_, face],
+        } => Some((other, [face])),
+        Own::Edge(_) | Own::Contour(_) => None,
+    };
+    let mut own = vec![(track.solid, track.faces.as_slice())];
+
+    own.extend(
+        theirs
+            .as_ref()
+            .map(|(other, faces)| (*other, faces.as_slice())),
+    );
+
+    let seen = covered_along(scene, point, toward, &own);
 
     interrupt::check()?;
     Ok(match seen {

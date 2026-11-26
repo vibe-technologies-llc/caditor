@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Aabb2, Point2, Point3, Vector2};
-use caditor_kernel::{Curve2, ViewPiece, Visibility};
+use caditor_kernel::{Curve2, ViewPiece, ViewSource, Visibility};
 
 use crate::{
     combine_tests::{Pair, evaluate, pair},
@@ -243,6 +243,40 @@ fn edges_behind_another_body_are_hidden_and_can_be_left_out() {
     assert!(hidden > 0);
     assert_eq!(top.drawn_pieces(true).count(), top.pieces.len());
     assert_eq!(top.drawn_pieces(false).count(), top.pieces.len() - hidden);
+}
+
+#[test]
+fn bodies_overlapping_without_a_combine_draw_where_they_cross_and_those_lines_pick_no_edge() {
+    let pair = pair();
+    let drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    let view = StandardView::Isometric;
+
+    let lines = view_lines(&pair, view, &drawing);
+    let crossing: Vec<&ViewPiece> = lines
+        .drawn_pieces(false)
+        .filter(|piece| matches!(piece.source, ViewSource::Crossing { .. }))
+        .collect();
+
+    assert!(
+        !crossing.is_empty(),
+        "the peg meets the plate's top in a seen line"
+    );
+
+    let extents = BTreeMap::from([(DrawnView::Standard(view), lines.bounds.unwrap())]);
+    let layout = lay_out_sheet(
+        &drawing,
+        &TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+    let placed = placed(&layout, view);
+    let drawn = BTreeMap::from([(DrawnView::Standard(view), &lines)]);
+
+    for piece in crossing {
+        let at = placed.on_sheet(piece.curve.point(piece.range.middle()));
+
+        assert_eq!(pick_edge(&layout, &drawn, false, at, 0.01), None);
+    }
 }
 
 #[test]

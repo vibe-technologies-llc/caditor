@@ -296,6 +296,10 @@ impl<'a> SolidClassifier<'a> {
         self.data(face).map(|data| data.uv_box)
     }
 
+    pub(crate) fn face_bounds(&self, face: FaceId) -> Option<Aabb> {
+        self.data(face).map(|data| data.bounds)
+    }
+
     fn outward_normal(&self, face: FaceId, uv: Point2) -> Option<Vector3> {
         let face = self.solid.face(face)?;
         let surface = face.surface();

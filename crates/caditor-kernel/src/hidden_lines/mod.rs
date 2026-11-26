@@ -1,4 +1,5 @@
 mod contour;
+mod crossings;
 mod events;
 mod flatten;
 mod outline;
@@ -115,6 +116,11 @@ pub enum ViewSource {
         face: FaceId,
         name: FaceName,
     },
+    Crossing {
+        solids: [usize; 2],
+        faces: [FaceId; 2],
+        names: [FaceName; 2],
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -143,6 +149,16 @@ pub struct HiddenLines {
 enum Own {
     Edge(EdgeId),
     Contour(FaceId),
+    Crossing { other: usize, faces: [FaceId; 2] },
+}
+
+impl Own {
+    fn other_solid(self) -> Option<usize> {
+        match self {
+            Self::Crossing { other, .. } => Some(other),
+            Self::Edge(_) | Self::Contour(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -206,10 +222,14 @@ fn tracks_of_scene(
         tracks.extend(edge_tracks);
         tracks.extend(build.contour_tracks(solid_view, index, &boundary)?);
     }
+
+    let crossings = build.crossing_tracks(scene)?;
+
+    tracks.extend(crossings.tracks);
     add_crossings(&mut tracks, plane, tolerance.chord(), threads)?;
 
     let failed = add_piercings(&mut tracks, scene, threads)?;
-    Ok((tracks, failed))
+    Ok((tracks, failed + crossings.failed))
 }
 
 fn samples_of(
@@ -559,7 +579,8 @@ fn piercings_of(track: &Track, scene: &Scene<'_>) -> Result<Piercings, HiddenLin
     let box_of_track = track.curve.bounding_box(track.flat.range);
 
     for index in scene.tree.overlapping(&box_of_track, 0.0) {
-        let Some(view) = scene.views.get(index).filter(|_| index != track.solid) else {
+        let own = index == track.solid || track.own.other_solid() == Some(index);
+        let Some(view) = scene.views.get(index).filter(|_| !own) else {
             continue;
         };
         for (face, uv_box) in view.classifier.faces_overlapping(&box_of_track) {

@@ -52,6 +52,7 @@ fn rank_of(source: &ViewSource) -> Option<u8> {
             ViewEdgeKind::Seam => None,
         },
         ViewSource::Silhouette { .. } => Some(2),
+        ViewSource::Crossing { .. } => None,
     }
 }
 
@@ -64,7 +65,7 @@ struct Sides<'a> {
 impl Sides<'_> {
     fn material_at(&self, point: Point2) -> Result<bool, HiddenLineError> {
         let origin = self.view.to_world(point) + self.view.normal() * self.start_height;
-        match covered_along(self.scene, origin, self.view.normal(), None, &[]) {
+        match covered_along(self.scene, origin, self.view.normal(), &[]) {
             RayView::Covered => Ok(true),
             RayView::Clear => Ok(false),
             RayView::Undecided => {
@@ -529,12 +530,17 @@ fn piece_of(run: &Run, track: &Track, view: &Plane) -> Option<OutlinePiece> {
 enum SourceKey {
     Edge(usize),
     Face(usize),
+    Crossing(usize, usize),
 }
 
 fn source_key(source: &ViewSource) -> SourceKey {
     match source {
         ViewSource::Edge { edge, .. } => SourceKey::Edge(edge.index()),
         ViewSource::Silhouette { face, .. } => SourceKey::Face(face.index()),
+        ViewSource::Crossing {
+            faces: [mine, theirs],
+            ..
+        } => SourceKey::Crossing(mine.index(), theirs.index()),
     }
 }
 

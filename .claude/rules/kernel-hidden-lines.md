@@ -6,9 +6,10 @@ paths:
 # Hidden lines (`hidden_lines/`)
 
 - `hidden_lines(solids, view, tolerance)` returns a `HiddenLines`: every edge and silhouette of the
-  solids as `ViewPiece`s in the view's plane, each a `Curve2` over a range, `Visible` or `Hidden`,
-  carrying its `ViewSource` (an edge with its `EdgeName` and `ViewEdgeKind`, or the silhouette of a
-  named face) and whether it is `exact`. A `HiddenLineView` is a look direction and an up
+  solids, and every crossing of two solids' faces, as `ViewPiece`s in the view's plane, each a
+  `Curve2` over a range, `Visible` or `Hidden`, carrying its `ViewSource` (an edge with its
+  `EdgeName` and `ViewEdgeKind`, the silhouette of a named face, or the crossing of two named faces
+  of two solids) and whether it is `exact`. A `HiddenLineView` is a look direction and an up
   (`new`), or a plane seen square (`square_to`); either way a `Plane` whose normal points at the
   viewer, so its local coordinates are the view's. Orthographic only. It runs on
   the calling thread and the scoped threads it fans out (below): callers keep it off the UI thread
@@ -71,6 +72,27 @@ paths:
   lies strictly inside the face. A contour lying along an edge reads `OnBoundary` and is dropped,
   since the edge draws it. The same roots split the edge.
 
+## Crossings (`crossings.rs`)
+
+- Solids overlapping without a boolean meet where their faces cross, a line of the union neither
+  solid has as an edge. `face_pairs` takes each pair of solids whose boxes overlap (`Scene::tree`),
+  each face of the first overlapping the second's box and each face of the second overlapping that
+  face's box (`SolidClassifier::faces_overlapping`, `face_bounds`); a view of separated solids does
+  one box-tree look-up a solid and nothing else
+  (`separated_blocks_add_no_crossing_lines_and_no_work_beyond_finding_them_apart`). Pairs fan out
+  (`PAIRS_PER_THREAD`), each polling the interrupt, under `intersect_surfaces` of the two faces'
+  patches with its own budgets; a failing pair counts in `undecided`.
+- A coincident pair or a tangent branch (faces touching) gives no line. A branch is cut to both
+  faces: its range, sampled (`CROSSING_SAMPLES`) and seeded with where each face's boundary edges
+  meet the other's surface (`inside_intervals`), keeps what lies strictly inside both faces, each
+  end snapped onto the seed it bisected towards. So a line along either face's boundary is left to
+  the edge drawing it: two blocks sharing a face plane, touching, or one resting on the other add
+  nothing. A closed conic cut at its seam is joined round it.
+- A crossing track belongs to the first solid with `Own::Crossing` naming the second and both
+  faces. Locally it is hidden when the view enters either face (`face_hides`, along a face the
+  bend as for an edge), since the material of each solid lies behind its own face; its ray skips
+  near hits on both faces, and piercings skip both solids.
+
 ## Splitting (`events.rs`, `add_piercings`)
 
 - Visibility can only change along a curve where it passes over another curve's projection, ends on
@@ -80,8 +102,8 @@ paths:
   of a segment, refined by its nearest point on that curve (a silhouette meets a rim tangentially,
   where a crossing test sees nothing); reversals of the sampled direction (`add_turn_backs`, a
   contour's cusp); and, for several solids, intersections with the faces of other solids whose boxes
-  it overlaps. A failed piercing counts in `undecided`. The segments share one `BoxTree`; spare
-  splits only cost a ray and merge away. Splits within `SAME_SPLIT` in the view are one.
+  it overlaps (for a crossing, solids other than its two). A failed piercing counts in
+  `undecided`. The segments share one `BoxTree`; spare splits only cost a ray and merge away. Splits within `SAME_SPLIT` in the view are one.
 
 ## Visibility (`visibility.rs`, `SolidClassifier::ray_view`)
 
@@ -135,4 +157,8 @@ paths:
   `it_can_be_cancelled_anywhere_on_many_threads` hold the fan-out to the serial answer and to
   cancelling at every poll. A ring of bars whose hole meets the outside at one corner, built in
   every order, and checkerboards with their edges shuffled hold the outline walk to the outside
-  alone; `walking_the_outline_grows_about_linearly` holds its cost by `tally`.
+  alone; `walking_the_outline_grows_about_linearly` holds its cost by `tally`. A pin through a
+  block holds crossings to the lines on its front face seen and on its back face hidden, blocks
+  sharing face planes, touching or resting on each other and cylinders against or lying on a block
+  to none, and `crossings_are_found_on_many_threads_as_on_one_and_can_be_cancelled_anywhere` the
+  crossing stage to the serial answer and to cancelling at every poll.

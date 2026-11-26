@@ -125,10 +125,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   resolve to the other edge without `Ambiguous` (`kernel-naming.md` calls the grid coarse enough
   never to swap them). Unreproduced; an order from the feature itself (the profile entity, the
   parameter along the generating curve) would not depend on placement.
-- [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
-  boolean show no line where their surfaces cross (each hides its part inside the other, and the
-  stretches are right). A traced silhouette on a revolution or spline face misses a closed loop
-  smaller than a cell of its grid (`hidden_lines/trace.rs`, `MAX_CELLS` a side), and a contour
+- [low · hard] A traced silhouette in `hidden_lines` on a revolution or spline face misses a closed
+  loop smaller than a cell of its grid (`hidden_lines/trace.rs`, `MAX_CELLS` a side), and a contour
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 

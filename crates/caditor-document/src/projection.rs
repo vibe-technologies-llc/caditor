@@ -612,6 +612,7 @@ pub fn body_outline(
                 ViewSource::Silhouette { face, .. } => {
                     OutlineOrigin::Silhouette(FaceReference::capture(solid, face)?)
                 }
+                ViewSource::Crossing { .. } => return None,
             };
             let part = OutlinePart {
                 origin,

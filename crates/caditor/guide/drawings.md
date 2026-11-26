@@ -21,7 +21,9 @@ and opens it. A model keeps up to 32 drawings, each with a name of its own.
 - **Hidden lines** draws the edges behind the bodies dashed. Edges between faces that meet
   smoothly are left out.
 - **Bodies**: every shown body, or those chosen with **Use the selected bodies**. A chosen body that
-  is deleted later is named in the panel; the rest are still drawn.
+  is deleted later is named in the panel; the rest are still drawn. Bodies that overlap without
+  being combined are drawn with a line where their faces cross, seen or hidden like an edge; it is
+  not an edge of either body, so it cannot be dimensioned or given a centre mark.
 
 ## Section views
 

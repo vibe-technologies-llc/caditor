@@ -237,6 +237,7 @@ pub fn centre_target_at(lines: &ViewLines, source: ViewSource) -> Option<CentreT
             cylinder_axis(lines, name).ok()?;
             Some(CentreTarget::Cylinder(name))
         }
+        ViewSource::Crossing { .. } => None,
     }
 }
 
