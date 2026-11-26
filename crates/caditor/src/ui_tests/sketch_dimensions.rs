@@ -162,6 +162,79 @@ fn double_clicking_a_dimension_label_selects_it_and_opens_its_field() {
 }
 
 #[test]
+fn a_distance_too_short_for_its_arrows_shows_its_value_beyond_them_and_a_double_click_there_opens_its_field()
+ {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let short = sketch.add_line(Point2::ZERO, Point2::new(1.0, 0.0));
+    let [start, end] = sketch.entity(short).unwrap().points()[..] else {
+        panic!("line has two endpoints");
+    };
+
+    let distance = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(1.0, Unit::Millimetre),
+        })
+        .unwrap();
+
+    sketch.add_line(Point2::new(0.0, 5.0), Point2::new(120.0, 5.0));
+
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.frame();
+    harness.frame();
+
+    let near = harness.on_screen(Point2::ZERO);
+    let far = harness.on_screen(Point2::new(1.0, 0.0));
+
+    assert!(far.x - near.x > 5.0 && far.x - near.x < 20.0);
+    assert!(harness.shows("1 mm"));
+
+    let viewport = harness.workspace.viewport.rect().unwrap();
+    let rect = harness
+        .texts
+        .iter()
+        .find(|(text, rect)| text == "1 mm" && viewport.contains(rect.center()))
+        .map(|(_, rect)| *rect)
+        .unwrap();
+    let label = rect.center();
+
+    assert!(rect.min.x > far.x + 9.0);
+    assert_eq!(harness.sketch(feature).label_offset(distance), None);
+
+    harness.click_screen(label);
+    harness.press(label);
+    harness.frame();
+
+    assert_eq!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![Pickable::SketchConstraint {
+            feature,
+            constraint: distance,
+        }]
+    );
+    assert_eq!(
+        harness.focused(),
+        Some(annotations::field_id(feature, distance))
+    );
+
+    let field = harness
+        .context
+        .memory(|memory| memory.area_rect(annotations::field_id(feature, distance).with("area")))
+        .unwrap();
+
+    assert!((field.center().x - label.x).abs() < 2.0);
+}
+
+#[test]
 fn a_horizontal_distance_between_two_points_is_a_dimension_edited_on_the_canvas() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

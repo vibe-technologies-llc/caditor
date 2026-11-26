@@ -3,7 +3,10 @@ use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4, PI, TAU};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, Constraint, Entity, EntityId, PointTarget, Sketch,
-    annotation::{CIRCLE_LEADER_DIRECTION, Footprint, LineSpan, Measured, Obstacles, away_from},
+    annotation::{
+        ARROW_STUB, CIRCLE_LEADER_DIRECTION, Footprint, LineSpan, Measured, Obstacles, SpanEnd,
+        SpanLayout, arrow_fits, away_from,
+    },
 };
 
 use crate::snap::Screen;
@@ -39,6 +42,7 @@ const MOST_GLYPH_COVER: f64 = 0.25;
 const MOST_LABEL_COVER: f64 = 0.5;
 const LABEL_SLACK: f64 = 4.0;
 const COLLAPSED_BELOW: f64 = 4.0;
+const UPRIGHT_SINE: f64 = 1e-3;
 const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
     Vector2::ONE,
     Vector2::new(-1.0, 1.0),
@@ -354,25 +358,240 @@ impl<'a, S: Screen> Projector<'a, S> {
     }
 }
 
+fn extent_along(chip: Vector2, direction: Vector2) -> f64 {
+    direction.x.abs() * chip.x + direction.y.abs() * chip.y
+}
+
+fn reading_end<S: Screen>(projector: &Projector<'_, S>, at: Point2, direction: Vector2) -> SpanEnd {
+    let screen = projector.direction(at, direction).unwrap_or(Vector2::X);
+    let rightward = if screen.x.abs() > UPRIGHT_SINE {
+        screen.x > 0.0
+    } else {
+        screen.y < 0.0
+    };
+
+    if rightward {
+        SpanEnd::End
+    } else {
+        SpanEnd::Start
+    }
+}
+
+fn leaning_end(offset: f64, length: f64) -> SpanEnd {
+    if offset * 2.0 >= length {
+        SpanEnd::End
+    } else {
+        SpanEnd::Start
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Lean {
+    Reading,
+    Toward(Point2),
+}
+
+struct Straight {
+    layout: SpanLayout,
+    start: Point2,
+    end: Point2,
+    direction: Vector2,
+    within: bool,
+}
+
+impl Straight {
+    fn new<S: Screen>(
+        projector: &Projector<'_, S>,
+        (start, end): (Point2, Point2),
+        direction: Vector2,
+        chip: Vector2,
+        lean: Lean,
+    ) -> Self {
+        let width = projector
+            .direction(start, direction)
+            .map_or(chip.x, |screen| extent_along(chip, screen));
+        let length = start.distance(end);
+        let (side, within) = match lean {
+            Lean::Reading => (reading_end(projector, start, direction), false),
+            Lean::Toward(at) => {
+                let offset = (at - start).dot(direction);
+
+                (
+                    leaning_end(offset, length),
+                    (0.0..=length).contains(&offset),
+                )
+            }
+        };
+        Self {
+            layout: SpanLayout::new(length / projector.units(1.0), width, ARROW_LENGTH, side),
+            start,
+            end,
+            direction,
+            within,
+        }
+    }
+
+    fn at<S: Screen>(&self, projector: &Projector<'_, S>, parameter: f64) -> Point2 {
+        if parameter == 0.0 {
+            self.start
+        } else if parameter == self.layout.length {
+            self.end
+        } else {
+            self.start + self.direction * projector.units(parameter)
+        }
+    }
+
+    fn line<S: Screen>(&self, projector: &Projector<'_, S>) -> Option<Vec<Vector2>> {
+        projector.polyline(&[
+            self.at(projector, self.layout.line.0),
+            self.at(projector, self.layout.line.1),
+        ])
+    }
+
+    fn arrows<S: Screen>(&self, projector: &Projector<'_, S>) -> Option<Vec<Arrow>> {
+        self.layout
+            .arrows()
+            .into_iter()
+            .map(|(tip, pointing)| {
+                projector.arrow(self.at(projector, tip), self.direction * pointing)
+            })
+            .collect()
+    }
+
+    fn value<S: Screen>(&self, projector: &Projector<'_, S>) -> Point2 {
+        self.at(projector, self.layout.value)
+    }
+
+    fn moved_value<S: Screen>(&self, projector: &Projector<'_, S>, at: Point2) -> Point2 {
+        if self.within && self.layout.value_outside.is_some() {
+            self.value(projector)
+        } else {
+            at
+        }
+    }
+}
+
+struct Swept {
+    layout: SpanLayout,
+    center: Point2,
+    radius: f64,
+    start: f64,
+    sweep: f64,
+    points: f64,
+    within: bool,
+}
+
+impl Swept {
+    fn new<S: Screen>(
+        projector: &Projector<'_, S>,
+        (center, radius): (Point2, f64),
+        (start, sweep): (f64, f64),
+        chip: Vector2,
+        lean: Lean,
+    ) -> Self {
+        let points = radius / projector.units(1.0);
+        let middle = center + Vector2::from_angle(start + sweep / 2.0) * radius;
+        let tangent = Vector2::from_angle(start + sweep / 2.0).perp();
+
+        let width = projector
+            .direction(middle, tangent)
+            .map_or(chip.x, |screen| extent_along(chip, screen));
+
+        let turning = if sweep < 0.0 { -1.0 } else { 1.0 };
+        let length = points * sweep.abs();
+
+        let (side, within) = match lean {
+            Lean::Reading => (SpanEnd::End, false),
+            Lean::Toward(at) => {
+                let offset =
+                    (((at - center).to_angle() - start) * turning).rem_euclid(TAU) * points;
+
+                (leaning_end(offset, length), offset <= length)
+            }
+        };
+        Self {
+            layout: SpanLayout::new(length, width, ARROW_LENGTH, side),
+            center,
+            radius,
+            start,
+            sweep,
+            points,
+            within,
+        }
+    }
+
+    fn turning(&self) -> f64 {
+        if self.sweep < 0.0 { -1.0 } else { 1.0 }
+    }
+
+    fn angle(&self, parameter: f64) -> f64 {
+        if parameter == 0.0 {
+            self.start
+        } else if parameter == self.layout.length {
+            self.start + self.sweep
+        } else {
+            self.start + self.turning() * parameter / self.points
+        }
+    }
+
+    fn arc(&self) -> Vec<Point2> {
+        let (from, to) = self.layout.line;
+
+        let reaches = from == 0.0 && to == self.layout.length;
+
+        let begin = self.angle(from);
+        let sweep = if reaches {
+            self.sweep
+        } else {
+            self.turning() * (to - from).min(TAU * self.points) / self.points
+        };
+        arc_polyline(self.center, self.radius, begin, sweep)
+    }
+
+    fn arrows<S: Screen>(&self, projector: &Projector<'_, S>) -> Option<Vec<Arrow>> {
+        self.layout
+            .arrows()
+            .into_iter()
+            .map(|(tip, pointing)| {
+                let angle = self.angle(tip);
+
+                projector.arrow(
+                    self.center + Vector2::from_angle(angle) * self.radius,
+                    Vector2::from_angle(angle).perp() * (self.turning() * pointing),
+                )
+            })
+            .collect()
+    }
+
+    fn value_angle(&self) -> f64 {
+        self.angle(self.layout.value)
+    }
+
+    fn value_moved(&self) -> bool {
+        self.layout.value_outside.is_some()
+    }
+}
+
 pub fn layout(
     measured: &Measured,
     screen: &impl Screen,
     centre: Option<Point2>,
     lane: usize,
     placed: Option<Point2>,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let offset = DIMENSION_OFFSET + LANE_SPACING * lane as f64;
     match (*measured, placed) {
-        (Measured::Points(a, b), Some(at)) => placed_points_layout(screen, a, b, at),
-        (Measured::Points(a, b), None) => points_layout(screen, a, b, centre, offset),
+        (Measured::Points(a, b), Some(at)) => placed_points_layout(screen, a, b, at, chip),
+        (Measured::Points(a, b), None) => points_layout(screen, a, b, centre, offset, chip),
         (Measured::Aligned { from, to, along }, Some(at)) => {
-            placed_aligned_layout(screen, from, to, along, at)
+            placed_aligned_layout(screen, from, to, along, at, chip)
         }
         (Measured::Aligned { from, to, along }, None) => {
-            aligned_layout(screen, from, to, along, centre, offset)
+            aligned_layout(screen, from, to, along, centre, offset, chip)
         }
         (Measured::PointToLine(point, line), placed) => led_to(
-            point_to_line_layout(screen, point, line, centre)?,
+            point_to_line_layout(screen, point, line, centre, chip)?,
             screen,
             placed,
         ),
@@ -384,12 +603,12 @@ pub fn layout(
             },
             placed,
         ) => led_to(
-            point_to_circle_layout(screen, point, center, radius)?,
+            point_to_circle_layout(screen, point, center, radius, chip)?,
             screen,
             placed,
         ),
         (Measured::Angle(first, second, reversed), placed) => {
-            angle_layout(screen, first, second, reversed, placed)
+            angle_layout(screen, first, second, reversed, placed, chip)
         }
         (
             Measured::Radius {
@@ -408,7 +627,7 @@ pub fn layout(
             placed,
         ) => diameter_layout(screen, center, radius, toward, placed),
         (Measured::AlongArc { arc, from_centre }, placed) => {
-            along_arc_layout(screen, &arc, from_centre, placed)
+            along_arc_layout(screen, &arc, from_centre, placed, chip)
         }
     }
 }
@@ -509,6 +728,7 @@ fn along_arc_layout(
     arc: &ArcGeometry,
     from_centre: bool,
     placed: Option<Point2>,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let middle = arc.point_at(arc.start_angle + arc.sweep / 2.0);
     let projector = Projector::new(screen, middle)?;
@@ -518,8 +738,14 @@ fn along_arc_layout(
         at.distance(arc.center)
     });
     let ray = |fraction: f64| Vector2::from_angle(arc.start_angle + arc.sweep * fraction);
-    let dimension = arc_polyline(arc.center, radius, arc.start_angle, arc.sweep);
-    let mut strokes = vec![projector.polyline(&dimension)?];
+    let swept = Swept::new(
+        &projector,
+        (arc.center, radius),
+        (arc.start_angle, arc.sweep),
+        chip,
+        placed.map_or(Lean::Reading, Lean::Toward),
+    );
+    let mut strokes = vec![projector.polyline(&swept.arc())?];
 
     if let Some(reaching) =
         placed.and_then(|at| arc_reaching(arc.center, radius, (arc.start_angle, arc.sweep), at))
@@ -538,8 +764,15 @@ fn along_arc_layout(
         strokes.push(projector.polyline(&[inner, outer])?);
     }
 
-    let bisector = ray(0.5);
+    let bisector = if swept.value_moved() {
+        Vector2::from_angle(swept.value_angle())
+    } else {
+        ray(0.5)
+    };
     let (label_at, label_side) = match placed {
+        Some(_) if swept.within && swept.value_moved() => {
+            (arc.center + bisector * radius, Vector2::ZERO)
+        }
         Some(at) => (at, Vector2::ZERO),
         None => {
             let label_at = arc.center + bisector * radius;
@@ -548,10 +781,7 @@ fn along_arc_layout(
     };
     Some(DimensionLayout {
         strokes,
-        arrows: vec![
-            projector.arrow(arc.center + ray(0.0) * radius, -ray(0.0).perp())?,
-            projector.arrow(arc.center + ray(1.0) * radius, ray(1.0).perp())?,
-        ],
+        arrows: swept.arrows(&projector)?,
         label: projector.point(label_at)?,
         label_side,
         at: label_at,
@@ -576,6 +806,7 @@ fn points_layout(
     b: Point2,
     centre: Option<Point2>,
     reach: f64,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let middle = (a + b) / 2.0;
     let projector = Projector::new(screen, middle)?;
@@ -589,20 +820,20 @@ fn points_layout(
             point + normal * projector.units(reach + EXTENSION_OVERSHOOT),
         ])
     };
-    let (start, end) = (a + offset, b + offset);
+    let run = Straight::new(
+        &projector,
+        (a + offset, b + offset),
+        along,
+        chip,
+        Lean::Reading,
+    );
+    let value = run.value(&projector);
     Some(DimensionLayout {
-        strokes: vec![
-            extension(a)?,
-            extension(b)?,
-            projector.polyline(&[start, end])?,
-        ],
-        arrows: vec![
-            projector.arrow(start, -along)?,
-            projector.arrow(end, along)?,
-        ],
-        label: projector.point(middle + offset)?,
+        strokes: vec![extension(a)?, extension(b)?, run.line(&projector)?],
+        arrows: run.arrows(&projector)?,
+        label: projector.point(value)?,
         label_side: Vector2::ZERO,
-        at: middle + offset,
+        at: value,
     })
 }
 
@@ -611,6 +842,7 @@ fn placed_points_layout(
     a: Point2,
     b: Point2,
     at: Point2,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let middle = (a + b) / 2.0;
     let projector = Projector::new(screen, middle)?;
@@ -619,6 +851,8 @@ fn placed_points_layout(
 
     let reach = (at - middle).dot(normal);
     let (start, end) = (a + normal * reach, b + normal * reach);
+
+    let run = Straight::new(&projector, (start, end), along, chip, Lean::Toward(at));
     let mut strokes = Vec::new();
 
     if reach.abs() > projector.units(EXTENSION_GAP) {
@@ -632,19 +866,18 @@ fn placed_points_layout(
             ])?);
         }
     }
-    strokes.push(projector.polyline(&[start, end])?);
+    strokes.push(run.line(&projector)?);
     if let Some(extension) = extended_to(start, end, at) {
         strokes.push(projector.polyline(&extension)?);
     }
+
+    let label = run.moved_value(&projector, at);
     Some(DimensionLayout {
         strokes,
-        arrows: vec![
-            projector.arrow(start, -along)?,
-            projector.arrow(end, along)?,
-        ],
-        label: projector.point(at)?,
+        arrows: run.arrows(&projector)?,
+        label: projector.point(label)?,
         label_side: Vector2::ZERO,
-        at,
+        at: label,
     })
 }
 
@@ -655,6 +888,7 @@ fn aligned_layout(
     along: Vector2,
     centre: Option<Point2>,
     offset: f64,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let middle = (from + to) / 2.0;
     let projector = Projector::new(screen, middle)?;
@@ -673,19 +907,18 @@ fn aligned_layout(
     };
 
     let direction = (end - start).try_normalize().unwrap_or(along);
+    let run = Straight::new(&projector, (start, end), direction, chip, Lean::Reading);
+    let value = run.value(&projector);
     Some(DimensionLayout {
         strokes: vec![
             extension(from, start)?,
             extension(to, end)?,
-            projector.polyline(&[start, end])?,
+            run.line(&projector)?,
         ],
-        arrows: vec![
-            projector.arrow(start, -direction)?,
-            projector.arrow(end, direction)?,
-        ],
-        label: projector.point((start + end) / 2.0)?,
+        arrows: run.arrows(&projector)?,
+        label: projector.point(value)?,
         label_side: Vector2::ZERO,
-        at: (start + end) / 2.0,
+        at: value,
     })
 }
 
@@ -695,6 +928,7 @@ fn placed_aligned_layout(
     to: Point2,
     along: Vector2,
     at: Point2,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let projector = Projector::new(screen, (from + to) / 2.0)?;
     let side = along.try_normalize()?.perp();
@@ -715,21 +949,22 @@ fn placed_aligned_layout(
             ])?);
         }
     }
-    strokes.push(projector.polyline(&[start, end])?);
+
+    let direction = (end - start).try_normalize().unwrap_or(along);
+    let run = Straight::new(&projector, (start, end), direction, chip, Lean::Toward(at));
+
+    strokes.push(run.line(&projector)?);
     if let Some(extension) = extended_to(start, end, at) {
         strokes.push(projector.polyline(&extension)?);
     }
 
-    let direction = (end - start).try_normalize().unwrap_or(along);
+    let label = run.moved_value(&projector, at);
     Some(DimensionLayout {
         strokes,
-        arrows: vec![
-            projector.arrow(start, -direction)?,
-            projector.arrow(end, direction)?,
-        ],
-        label: projector.point(at)?,
+        arrows: run.arrows(&projector)?,
+        label: projector.point(label)?,
         label_side: Vector2::ZERO,
-        at,
+        at: label,
     })
 }
 
@@ -738,30 +973,29 @@ fn point_to_circle_layout(
     point: Point2,
     center: Point2,
     radius: f64,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let outward = (point - center).try_normalize().unwrap_or(Vector2::X);
     let on_circle = center + outward * radius;
     let projector = Projector::new(screen, (point + on_circle) / 2.0)?;
 
-    let strokes = vec![projector.polyline(&[on_circle, point])?];
     let Some(along) = (point - on_circle).try_normalize() else {
         return Some(DimensionLayout {
-            strokes,
+            strokes: vec![projector.polyline(&[on_circle, point])?],
             arrows: Vec::new(),
             label: projector.point(point)?,
             label_side: projector.direction(point, outward)?,
             at: point,
         });
     };
+    let run = Straight::new(&projector, (on_circle, point), along, chip, Lean::Reading);
+    let value = run.value(&projector);
     Some(DimensionLayout {
-        strokes,
-        arrows: vec![
-            projector.arrow(on_circle, -along)?,
-            projector.arrow(point, along)?,
-        ],
-        label: projector.point((point + on_circle) / 2.0)?,
+        strokes: vec![run.line(&projector)?],
+        arrows: run.arrows(&projector)?,
+        label: projector.point(value)?,
         label_side: Vector2::ZERO,
-        at: (point + on_circle) / 2.0,
+        at: value,
     })
 }
 
@@ -770,11 +1004,18 @@ fn point_to_line_layout(
     point: Point2,
     line: LineSpan,
     centre: Option<Point2>,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let foot = line.foot(point);
     let projector = Projector::new(screen, (point + foot) / 2.0)?;
 
-    let mut strokes = vec![projector.polyline(&[foot, point])?];
+    let run = (point - foot)
+        .try_normalize()
+        .map(|along| Straight::new(&projector, (foot, point), along, chip, Lean::Reading));
+    let mut strokes = vec![match &run {
+        Some(run) => run.line(&projector)?,
+        None => projector.polyline(&[foot, point])?,
+    }];
     let parameter = line.parameter(foot);
     let clamped = line.clamped(parameter);
 
@@ -784,7 +1025,7 @@ fn point_to_line_layout(
         strokes.push(projector.polyline(&[line.at(clamped), line.at(parameter + beyond)])?);
     }
 
-    let Some(along) = (point - foot).try_normalize() else {
+    let Some(run) = run else {
         let side = away_from(line.direction().perp(), point, centre);
 
         return Some(DimensionLayout {
@@ -795,15 +1036,13 @@ fn point_to_line_layout(
             at: point,
         });
     };
+    let value = run.value(&projector);
     Some(DimensionLayout {
         strokes,
-        arrows: vec![
-            projector.arrow(foot, -along)?,
-            projector.arrow(point, along)?,
-        ],
-        label: projector.point((point + foot) / 2.0)?,
+        arrows: run.arrows(&projector)?,
+        label: projector.point(value)?,
         label_side: Vector2::ZERO,
-        at: (point + foot) / 2.0,
+        at: value,
     })
 }
 
@@ -813,6 +1052,7 @@ fn angle_layout(
     second: LineSpan,
     reversed: bool,
     placed: Option<Point2>,
+    chip: Vector2,
 ) -> Option<DimensionLayout> {
     let Some(corner) = Corner::of(first, second, reversed) else {
         return led_to(parallel_layout(screen, first, second)?, screen, placed);
@@ -825,9 +1065,14 @@ fn angle_layout(
     let (start_angle, signed) = (corner.start.to_angle(), corner.signed);
     let ray = |fraction: f64| corner.ray(fraction);
 
-    let arc = arc_polyline(vertex, radius, start_angle, signed);
-    let turning = signed.signum();
-    let mut strokes = vec![projector.polyline(&arc)?];
+    let swept = Swept::new(
+        &projector,
+        (vertex, radius),
+        (start_angle, signed),
+        chip,
+        placed.map_or(Lean::Reading, Lean::Toward),
+    );
+    let mut strokes = vec![projector.polyline(&swept.arc())?];
 
     if let Some(reaching) =
         placed.and_then(|at| arc_reaching(vertex, radius, (start_angle, signed), at))
@@ -846,8 +1091,15 @@ fn angle_layout(
         }
     }
 
-    let bisector = ray(0.5);
+    let bisector = if swept.value_moved() {
+        Vector2::from_angle(swept.value_angle())
+    } else {
+        ray(0.5)
+    };
     let (label_at, label_side) = match placed {
+        Some(_) if swept.within && swept.value_moved() => {
+            (vertex + bisector * radius, Vector2::ZERO)
+        }
         Some(at) => (at, Vector2::ZERO),
         None => {
             let label_at = vertex + bisector * radius;
@@ -856,10 +1108,7 @@ fn angle_layout(
     };
     Some(DimensionLayout {
         strokes,
-        arrows: vec![
-            projector.arrow(vertex + ray(0.0) * radius, -ray(0.0).perp() * turning)?,
-            projector.arrow(vertex + ray(1.0) * radius, ray(1.0).perp() * turning)?,
-        ],
+        arrows: swept.arrows(&projector)?,
         label: projector.point(label_at)?,
         label_side,
         at: label_at,
@@ -908,8 +1157,13 @@ fn radius_layout(
     let on_curve = center + toward * radius;
     let projector = Projector::new(screen, on_curve)?;
 
+    let (outward, stub) = leader_arrow(&projector, radius, toward);
+
     let (end, label_side) = match placed {
-        Some(at) => (farther(center, at, on_curve), Vector2::ZERO),
+        Some(at) => (
+            farther(center, farther(center, at, on_curve), on_curve + stub),
+            Vector2::ZERO,
+        ),
         None => {
             let end = on_curve + toward * projector.units(RADIUS_OVERSHOOT);
             (end, projector.direction(end, toward)?)
@@ -918,7 +1172,7 @@ fn radius_layout(
     let label_at = placed.unwrap_or(end);
     Some(DimensionLayout {
         strokes: vec![projector.polyline(&[center, end])?],
-        arrows: vec![projector.arrow(on_curve, toward)?],
+        arrows: vec![projector.arrow(on_curve, outward)?],
         label: projector.point(label_at)?,
         label_side,
         at: label_at,
@@ -938,8 +1192,13 @@ fn diameter_layout(
     let (near, far) = (center - toward * radius, center + toward * radius);
     let projector = Projector::new(screen, far)?;
 
+    let (outward, stub) = leader_arrow(&projector, radius, toward);
+
     let (end, label_side) = match placed {
-        Some(at) => (farther(center, at, far), Vector2::ZERO),
+        Some(at) => (
+            farther(center, farther(center, at, far), far + stub),
+            Vector2::ZERO,
+        ),
         None => {
             let end = far + toward * projector.units(RADIUS_OVERSHOOT);
             (end, projector.direction(end, toward)?)
@@ -947,15 +1206,30 @@ fn diameter_layout(
     };
     let label_at = placed.unwrap_or(end);
     Some(DimensionLayout {
-        strokes: vec![projector.polyline(&[near, end])?],
+        strokes: vec![projector.polyline(&[near - stub, end])?],
         arrows: vec![
-            projector.arrow(far, toward)?,
-            projector.arrow(near, -toward)?,
+            projector.arrow(far, outward)?,
+            projector.arrow(near, -outward)?,
         ],
         label: projector.point(label_at)?,
         label_side,
         at: label_at,
     })
+}
+
+fn leader_arrow<S: Screen>(
+    projector: &Projector<'_, S>,
+    radius: f64,
+    toward: Vector2,
+) -> (Vector2, Vector2) {
+    if arrow_fits(radius / projector.units(1.0), ARROW_LENGTH) {
+        (toward, Vector2::ZERO)
+    } else {
+        (
+            -toward,
+            toward * projector.units(ARROW_LENGTH * (1.0 + ARROW_STUB)),
+        )
+    }
 }
 
 fn farther(center: Point2, first: Point2, second: Point2) -> Point2 {
@@ -1441,6 +1715,8 @@ mod tests {
 
     use super::*;
 
+    const CHIP: Vector2 = Vector2::new(20.0, 12.0);
+
     struct Flat;
 
     impl Screen for Flat {
@@ -1484,7 +1760,15 @@ mod tests {
     #[test]
     fn a_horizontal_distance_sits_above_the_line_away_from_the_sketch() {
         let measured = Measured::Points(Point2::ZERO, Point2::new(40.0, 0.0));
-        let layout = layout(&measured, &Flat, Some(Point2::new(20.0, -10.0)), 0, None).unwrap();
+        let layout = layout(
+            &measured,
+            &Flat,
+            Some(Point2::new(20.0, -10.0)),
+            0,
+            None,
+            CHIP,
+        )
+        .unwrap();
 
         assert_close(layout.label, Vector2::new(140.0, 272.0));
 
@@ -1502,7 +1786,15 @@ mod tests {
             vec![Vector2::new(100.0, 272.0), Vector2::new(180.0, 272.0)]
         );
 
-        let below = self::layout(&measured, &Flat, Some(Point2::new(20.0, 10.0)), 0, None).unwrap();
+        let below = self::layout(
+            &measured,
+            &Flat,
+            Some(Point2::new(20.0, 10.0)),
+            0,
+            None,
+            CHIP,
+        )
+        .unwrap();
 
         assert_close(below.label, Vector2::new(140.0, 328.0));
     }
@@ -1510,7 +1802,7 @@ mod tests {
     #[test]
     fn a_rotated_distance_is_parallel_to_the_measured_segment() {
         let measured = Measured::Points(Point2::ZERO, Point2::new(30.0, 40.0));
-        let layout = layout(&measured, &Flat, None, 0, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(77.6, 283.2));
         assert_close(layout.arrows[0].direction, Vector2::new(-0.6, 0.8));
@@ -1524,23 +1816,23 @@ mod tests {
         let mut sketch = Sketch::new(Plane::XY);
 
         let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
-        let point = sketch.add_point(Point2::new(20.0, 5.0));
+        let point = sketch.add_point(Point2::new(20.0, 15.0));
 
         let measured = measured(
             &sketch,
             &Constraint::Distance {
                 from: point,
                 to: line,
-                value: caditor_expression::Expression::Number(5.0),
+                value: caditor_expression::Expression::Number(15.0),
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None, 0, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(140.0, 300.0));
         assert_close(layout.arrows[0].direction, Vector2::new(0.0, 1.0));
-        assert_close(layout.arrows[1].tip, Vector2::new(140.0, 290.0));
-        assert_close(layout.label, Vector2::new(140.0, 295.0));
+        assert_close(layout.arrows[1].tip, Vector2::new(140.0, 270.0));
+        assert_close(layout.label, Vector2::new(140.0, 285.0));
 
         assert_eq!(
             layout.strokes[1],
@@ -1565,7 +1857,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None, 0, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
 
         let half = PI / 8.0;
 
@@ -1615,7 +1907,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None, 0, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
 
         assert!(layout.arrows.is_empty());
 
@@ -1629,19 +1921,19 @@ mod tests {
     fn a_radius_is_a_leader_from_the_centre_through_the_curve() {
         let mut sketch = Sketch::new(Plane::XY);
 
-        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
+        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 10.0);
         let measured = measured(
             &sketch,
             &Constraint::Radius {
                 entity: circle,
-                value: caditor_expression::Expression::Number(5.0),
+                value: caditor_expression::Expression::Number(10.0),
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None, 0, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
 
         let outward = Vector2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
-        let on_curve = Vector2::new(120.0, 280.0) + outward * 10.0;
+        let on_curve = Vector2::new(120.0, 280.0) + outward * 20.0;
 
         assert_close(layout.arrows[0].tip, on_curve);
         assert_close(layout.arrows[0].direction, outward);
@@ -1666,7 +1958,15 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, Some(Point2::new(15.0, -20.0)), 0, None).unwrap();
+        let layout = layout(
+            &measured,
+            &Flat,
+            Some(Point2::new(15.0, -20.0)),
+            0,
+            None,
+            CHIP,
+        )
+        .unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(100.0, 252.0));
         assert_close(layout.arrows[0].direction, Vector2::new(-1.0, 0.0));
@@ -1687,26 +1987,26 @@ mod tests {
     fn a_diameter_spans_the_circle_and_a_point_to_circle_distance_meets_it_squarely() {
         let mut sketch = Sketch::new(Plane::XY);
 
-        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
-        let point = sketch.add_point(Point2::new(25.0, 10.0));
+        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 6.0);
+        let point = sketch.add_point(Point2::new(32.0, 10.0));
         let diameter = measured(
             &sketch,
             &Constraint::Diameter {
                 entity: circle,
-                value: caditor_expression::Expression::Number(10.0),
+                value: caditor_expression::Expression::Number(12.0),
             },
         )
         .unwrap();
-        let spanned = layout(&diameter, &Flat, None, 0, None).unwrap();
+        let spanned = layout(&diameter, &Flat, None, 0, None, CHIP).unwrap();
 
         let outward = Vector2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
         let centre = Vector2::new(120.0, 280.0);
 
-        assert_close(spanned.arrows[0].tip, centre + outward * 10.0);
-        assert_close(spanned.arrows[1].tip, centre - outward * 10.0);
+        assert_close(spanned.arrows[0].tip, centre + outward * 12.0);
+        assert_close(spanned.arrows[1].tip, centre - outward * 12.0);
         assert_close(spanned.arrows[1].direction, -outward);
-        assert_close(spanned.strokes[0][0], centre - outward * 10.0);
-        assert_close(spanned.label, centre + outward * 34.0);
+        assert_close(spanned.strokes[0][0], centre - outward * 12.0);
+        assert_close(spanned.label, centre + outward * 36.0);
 
         let distance = measured(
             &sketch,
@@ -1717,11 +2017,11 @@ mod tests {
             },
         )
         .unwrap();
-        let squarely = layout(&distance, &Flat, None, 0, None).unwrap();
+        let squarely = layout(&distance, &Flat, None, 0, None, CHIP).unwrap();
 
-        assert_close(squarely.arrows[0].tip, Vector2::new(130.0, 280.0));
-        assert_close(squarely.arrows[1].tip, Vector2::new(150.0, 280.0));
-        assert_close(squarely.label, Vector2::new(140.0, 280.0));
+        assert_close(squarely.arrows[0].tip, Vector2::new(132.0, 280.0));
+        assert_close(squarely.arrows[1].tip, Vector2::new(164.0, 280.0));
+        assert_close(squarely.label, Vector2::new(148.0, 280.0));
     }
 
     #[test]
@@ -1741,7 +2041,7 @@ mod tests {
         .unwrap();
         let sweep = measured(&sketch, &Constraint::Sweep { arc, value }).unwrap();
 
-        let along = layout(&length, &Flat, None, 0, None).unwrap();
+        let along = layout(&length, &Flat, None, 0, None, CHIP).unwrap();
         let centre = Vector2::new(100.0, 300.0);
         let reach = 20.0 + DIMENSION_OFFSET;
         let half = FRAC_1_SQRT_2;
@@ -1756,7 +2056,7 @@ mod tests {
             Vector2::new(120.0 + EXTENSION_GAP, 300.0),
         );
 
-        let turned = layout(&sweep, &Flat, None, 0, None).unwrap();
+        let turned = layout(&sweep, &Flat, None, 0, None, CHIP).unwrap();
 
         assert_close(turned.strokes[1][0], centre);
         assert_close(turned.strokes[2][0], centre);
@@ -1785,8 +2085,8 @@ mod tests {
 
         assert_eq!(lanes, vec![1, 0, 0, 0, 0]);
 
-        let near = layout(measured[1].as_ref().unwrap(), &Flat, centre, 0, None).unwrap();
-        let far = layout(measured[0].as_ref().unwrap(), &Flat, centre, 1, None).unwrap();
+        let near = layout(measured[1].as_ref().unwrap(), &Flat, centre, 0, None, CHIP).unwrap();
+        let far = layout(measured[0].as_ref().unwrap(), &Flat, centre, 1, None, CHIP).unwrap();
 
         assert_close(far.label - near.label, Vector2::new(25.0, LANE_SPACING));
     }
@@ -1982,8 +2282,15 @@ mod tests {
                     .on_screen(None, &Flat)
                     .unwrap()
                     .label_neighbourhood(lane, chip);
-                let layout =
-                    layout(&measured, &Flat, Some(Point2::new(20.0, -30.0)), lane, None).unwrap();
+                let layout = layout(
+                    &measured,
+                    &Flat,
+                    Some(Point2::new(20.0, -30.0)),
+                    lane,
+                    None,
+                    CHIP,
+                )
+                .unwrap();
                 let side = layout.label_side;
                 let reach = side.x.abs() * chip.x / 2.0 + side.y.abs() * chip.y / 2.0 + 3.0;
 
@@ -2089,7 +2396,7 @@ mod tests {
         let frame = label_frame(&measured).unwrap();
         let placed = frame.place(Vector2::new(30.0, 12.0));
 
-        let layout = layout(&measured, &Flat, None, 0, Some(placed)).unwrap();
+        let layout = layout(&measured, &Flat, None, 0, Some(placed), CHIP).unwrap();
 
         assert_close(placed, Point2::new(50.0, 12.0));
         assert_close(layout.at, placed);
@@ -2120,27 +2427,43 @@ mod tests {
     fn a_placed_radius_points_its_leader_at_the_label_inside_or_outside_the_circle() {
         let measured = Measured::Radius {
             center: Point2::new(10.0, 10.0),
-            radius: 5.0,
+            radius: 10.0,
             toward: CIRCLE_LEADER_DIRECTION,
         };
 
-        let outside = layout(&measured, &Flat, None, 0, Some(Point2::new(10.0, 30.0))).unwrap();
-        let inside = layout(&measured, &Flat, None, 0, Some(Point2::new(10.0, 12.0))).unwrap();
+        let outside = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(10.0, 40.0)),
+            CHIP,
+        )
+        .unwrap();
+        let inside = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(10.0, 12.0)),
+            CHIP,
+        )
+        .unwrap();
 
-        assert_close(outside.label, Vector2::new(120.0, 240.0));
-        assert_close(outside.arrows[0].tip, Vector2::new(120.0, 270.0));
+        assert_close(outside.label, Vector2::new(120.0, 220.0));
+        assert_close(outside.arrows[0].tip, Vector2::new(120.0, 260.0));
         assert_close(outside.arrows[0].direction, Vector2::new(0.0, -1.0));
 
         assert_eq!(
             outside.strokes,
-            vec![vec![Vector2::new(120.0, 280.0), Vector2::new(120.0, 240.0)]]
+            vec![vec![Vector2::new(120.0, 280.0), Vector2::new(120.0, 220.0)]]
         );
 
         assert_close(inside.label, Vector2::new(120.0, 276.0));
 
         assert_eq!(
             inside.strokes,
-            vec![vec![Vector2::new(120.0, 280.0), Vector2::new(120.0, 270.0)]]
+            vec![vec![Vector2::new(120.0, 280.0), Vector2::new(120.0, 260.0)]]
         );
     }
 
@@ -2162,7 +2485,15 @@ mod tests {
         )
         .unwrap();
 
-        let layout = layout(&measured, &Flat, None, 0, Some(Point2::new(0.0, 20.0))).unwrap();
+        let layout = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(0.0, 20.0)),
+            CHIP,
+        )
+        .unwrap();
 
         assert_close(layout.label, Vector2::new(100.0, 260.0));
         assert_close(layout.arrows[0].tip, Vector2::new(140.0, 300.0));
@@ -2178,5 +2509,174 @@ mod tests {
                 .iter()
                 .all(|point| (point.distance(Vector2::new(100.0, 300.0)) - 40.0).abs() < 1e-9)
         );
+    }
+
+    fn arrow_footprint(arrow: &Arrow) -> Footprint {
+        Footprint {
+            center: arrow.tip - arrow.direction * (ARROW_LENGTH / 2.0),
+            half: Vector2::splat(ARROW_LENGTH / 2.0),
+        }
+    }
+
+    fn chip_footprint(layout: &DimensionLayout, chip: Vector2) -> Footprint {
+        Footprint {
+            center: layout.label,
+            half: chip / 2.0,
+        }
+    }
+
+    #[test]
+    fn a_distance_too_short_for_its_arrows_turns_them_in_from_outside_and_sets_its_value_beyond_one()
+     {
+        let measured = Measured::Points(Point2::ZERO, Point2::new(1.0, 0.0));
+        let centre = Some(Point2::new(0.5, -10.0));
+
+        let layout = layout(&measured, &Flat, centre, 0, None, CHIP).unwrap();
+
+        let stub = ARROW_LENGTH * (1.0 + ARROW_STUB);
+        let beyond = ARROW_LENGTH + ARROW_LENGTH * 0.5 + CHIP.x / 2.0;
+
+        assert_close(layout.arrows[0].tip, Vector2::new(100.0, 272.0));
+        assert_close(layout.arrows[0].direction, Vector2::new(1.0, 0.0));
+        assert_close(layout.arrows[1].tip, Vector2::new(102.0, 272.0));
+        assert_close(layout.arrows[1].direction, Vector2::new(-1.0, 0.0));
+        assert_close(layout.label, Vector2::new(102.0 + beyond, 272.0));
+
+        assert_eq!(layout.label_side, Vector2::ZERO);
+
+        assert_close(layout.strokes[2][0], Vector2::new(100.0 - stub, 272.0));
+        assert_close(
+            layout.strokes[2][1],
+            Vector2::new(102.0 + beyond + CHIP.x / 2.0, 272.0),
+        );
+
+        let value = chip_footprint(&layout, CHIP);
+
+        assert!(
+            layout
+                .arrows
+                .iter()
+                .all(|arrow| arrow_footprint(arrow).overlap(&value) == 0.0)
+        );
+    }
+
+    #[test]
+    fn a_value_wider_than_the_span_sits_beyond_the_arrows_that_still_fit_inside() {
+        let measured = Measured::Points(Point2::ZERO, Point2::new(15.0, 0.0));
+        let wide = Vector2::new(40.0, 12.0);
+        let centre = Some(Point2::new(7.5, -10.0));
+
+        let layout = layout(&measured, &Flat, centre, 0, None, wide).unwrap();
+
+        let beyond = wide.x / 2.0 + ARROW_LENGTH * 0.5;
+
+        assert_close(layout.arrows[0].direction, Vector2::new(-1.0, 0.0));
+        assert_close(layout.arrows[1].direction, Vector2::new(1.0, 0.0));
+        assert_close(layout.label, Vector2::new(130.0 + beyond, 272.0));
+    }
+
+    #[test]
+    fn a_placed_distance_too_short_for_its_value_puts_it_beyond_the_end_the_label_leans_to() {
+        let measured = Measured::Points(Point2::ZERO, Point2::new(1.0, 0.0));
+        let beyond = ARROW_LENGTH * 1.5 + CHIP.x / 2.0;
+
+        let toward_end = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(0.9, 14.0)),
+            CHIP,
+        )
+        .unwrap();
+        let toward_start = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(0.1, 14.0)),
+            CHIP,
+        )
+        .unwrap();
+        let past_end = layout(
+            &measured,
+            &Flat,
+            None,
+            0,
+            Some(Point2::new(5.0, 14.0)),
+            CHIP,
+        )
+        .unwrap();
+
+        assert_close(toward_end.label, Vector2::new(102.0 + beyond, 272.0));
+        assert_close(toward_start.label, Vector2::new(100.0 - beyond, 272.0));
+        assert_close(past_end.label, Vector2::new(110.0, 272.0));
+        assert_close(toward_start.arrows[0].direction, Vector2::new(1.0, 0.0));
+    }
+
+    #[test]
+    fn a_circle_too_small_for_an_arrow_inside_points_its_arrows_in_from_outside() {
+        let centre = Vector2::new(120.0, 280.0);
+
+        let radius = Measured::Radius {
+            center: Point2::new(10.0, 10.0),
+            radius: 3.0,
+            toward: Vector2::X,
+        };
+        let diameter = Measured::Diameter {
+            center: Point2::new(10.0, 10.0),
+            radius: 3.0,
+            toward: Vector2::X,
+        };
+
+        let radial = layout(&radius, &Flat, None, 0, None, CHIP).unwrap();
+        let spanned = layout(&diameter, &Flat, None, 0, None, CHIP).unwrap();
+
+        assert_close(radial.arrows[0].tip, centre + Vector2::new(6.0, 0.0));
+        assert_close(radial.arrows[0].direction, Vector2::new(-1.0, 0.0));
+
+        assert_close(spanned.arrows[0].direction, Vector2::new(-1.0, 0.0));
+        assert_close(spanned.arrows[1].tip, centre - Vector2::new(6.0, 0.0));
+        assert_close(spanned.arrows[1].direction, Vector2::new(1.0, 0.0));
+        assert_close(
+            spanned.strokes[0][0],
+            centre - Vector2::new(6.0 + ARROW_LENGTH * (1.0 + ARROW_STUB), 0.0),
+        );
+    }
+
+    #[test]
+    fn a_narrow_angle_turns_its_arrows_in_from_outside_and_sets_its_value_along_the_arc() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let narrow = 1.5_f64.to_radians();
+
+        let first = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+        let second = sketch.add_line(
+            Point2::ZERO,
+            Point2::new(40.0 * narrow.cos(), 40.0 * narrow.sin()),
+        );
+
+        let measured = measured(
+            &sketch,
+            &Constraint::Angle {
+                from: first,
+                to: second,
+                reversed: false,
+                value: caditor_expression::Expression::Number(1.5),
+            },
+        )
+        .unwrap();
+
+        let layout = layout(&measured, &Flat, None, 0, None, CHIP).unwrap();
+
+        let arc = ANGLE_RADIUS * narrow;
+        let beyond = ARROW_LENGTH * 1.5 + CHIP.y / 2.0;
+
+        let reached = (arc + beyond) / ANGLE_RADIUS;
+        let from_centre = layout.label - Vector2::new(100.0, 300.0);
+
+        assert_close(layout.arrows[0].direction, Vector2::new(0.0, -1.0));
+
+        assert!((-from_centre.y.atan2(from_centre.x) - reached).abs() < 5e-3);
+        assert!((from_centre.length() - ANGLE_RADIUS).abs() < 1e-9);
     }
 }

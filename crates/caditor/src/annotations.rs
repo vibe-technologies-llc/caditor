@@ -805,8 +805,14 @@ fn clear_leaders(
                 break;
             }
 
-            let Some(layout) = annotation_layout::layout(&measured, screen, None, label.lane, None)
-            else {
+            let Some(layout) = annotation_layout::layout(
+                &measured,
+                screen,
+                None,
+                label.lane,
+                None,
+                to_vector(canvas::chip_size(label.size)),
+            ) else {
                 continue;
             };
             let rect = label_rect(key.rect, &layout, label.size);
@@ -944,6 +950,7 @@ impl Marks {
                 measures.centre,
                 dimension.lane,
                 placed.map(|(_, at)| at),
+                to_vector(canvas::chip_size(size)),
             ) else {
                 continue;
             };
@@ -1557,11 +1564,6 @@ impl Annotations {
         let Some(measured) = annotation::measured(shown, constraint) else {
             return;
         };
-        let Some(layout) =
-            annotation_layout::layout(&measured, surface.screen, centre_of(shown), 0, label_at)
-        else {
-            return;
-        };
         let Some(expression) = constraint.dimension() else {
             return;
         };
@@ -1569,6 +1571,17 @@ impl Annotations {
         let painter = ui.painter_at(surface.rect);
 
         let galley = painter.layout_no_wrap(text, canvas::body(), Color32::PLACEHOLDER);
+        let Some(layout) = annotation_layout::layout(
+            &measured,
+            surface.screen,
+            centre_of(shown),
+            0,
+            label_at,
+            to_vector(canvas::chip_size(galley.size())),
+        ) else {
+            return;
+        };
+
         let rect = label_rect(surface.rect, &layout, galley.size());
         let color = canvas::chrome(ui.ctx()).prompt;
 

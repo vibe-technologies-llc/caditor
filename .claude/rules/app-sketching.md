@@ -1217,6 +1217,19 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   the least covered (`DimensionLayout::drawn_footprints`), each settled leader an obstacle to the
   next. An arc's leader stays at the middle of its sweep, and drawing export keeps the one
   direction.
+- A dimension too short for its arrows or value is laid out by the same rule as drawing sheets and
+  sketch export (`caditor_sketch::annotation::SpanLayout`), in screen points with `ARROW_LENGTH` as
+  its height, so a span under two arrows and their clearance turns the arrows in from outside each
+  with a stub of line beyond, and one under the label chip's width along the line (the chip is
+  never turned: its extent along the line is its width and height weighted by the line's screen
+  direction) and a clearance each side sets the value beyond one arrow with the line run on under
+  it. `annotation_layout::layout` takes the chip's size for it (`canvas::chip_size`). Distances
+  (`Straight`, also point to line and point to circle) and an angle's or arc's arc (`Swept`) follow
+  it; a radius or diameter under `arrow_fits` points its arrows in from outside. An unplaced
+  value goes to the end that reads rightward on screen (upward for an upright line), a placed one
+  that lies within the span to the end the label leans to, and a placed one beyond the span stays
+  where it was dropped. `DimensionLayout::label` is where the value is drawn, so the label's rect
+  (picking, hover, the backdrop, obstacles) and the editing field open there.
 - Dragging a dimension's label places it: the offset is stored with the dimension (`sketch.md`) in its
   `LabelFrame` (relative to the geometry, so it keeps its place as the geometry moves), and the drop is
   one undoable "Move dimension label" transaction. A placed distance runs its dimension line through

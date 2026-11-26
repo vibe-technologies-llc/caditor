@@ -47,6 +47,12 @@ Double-click its label to edit the value; drag the label to move it; right-click
 the value as a [parameter](parameters) that other values can use. The sketch's card in the
 [feature tree](feature-tree) lists every dimension too, with a button to toggle reference mode.
 
+A dimension too short for its arrows has them drawn outside its extension lines, pointing in, each
+with a short stub of line beyond it; one too short for its value has the value beside an arrow, on
+the line run on under it, the right-hand end unless you placed the label nearer the other. An angle
+or arc too short does the same along its arc, and a circle too small for an arrow inside it takes
+its arrows from outside; exported drawings and sketches do the same.
+
 Zoomed far out, a dimension of something only a few pixels across shrinks to a small dot on it;
 hover the dot to read the dimension, click it to select it and show its label, or double-click it
 to edit the value. A dimension that measures nothing (two points in one place), a selected or
