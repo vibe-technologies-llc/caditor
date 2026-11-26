@@ -2,11 +2,12 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    BSpline, Constraint, Entity, EntityId, ExtendError, FitSpacing, Sketch, Solved, SplineKind,
-    TrimError, Trimmed, intersect::closest_spline_parameter,
+    BSpline, Constraint, Entity, EntityId, ExtendError, FitSpacing, Side, Sketch, Solved,
+    SplineKind, TrimError, Trimmed, intersect::closest_spline_parameter, solve::tally,
 };
 
 const EXACT: f64 = 1e-9;
+const COINCIDENT_TRIM_WORK: usize = 12_000_000;
 const SAMPLES: usize = 64;
 const AWAY: f64 = 100.0;
 
@@ -700,4 +701,96 @@ fn a_conic_extends_along_its_own_curve() {
 
     assert_lies_on(&whole, &sketch.spline(conic).unwrap());
     assert_solves_in_place(&sketch);
+}
+
+fn offset_once(sketch: &mut Sketch, curve: EntityId, by: f64) -> EntityId {
+    let made = sketch
+        .offset(
+            &[curve],
+            Side::Left,
+            by,
+            Expression::Measure(by, Unit::Millimetre),
+        )
+        .unwrap();
+    let [offset] = made.as_slice() else {
+        panic!("expected one spline, found {made:?}");
+    };
+    *offset
+}
+
+#[test]
+fn a_closed_spline_lying_all_along_another_is_cut_by_the_axes_alone_in_bounded_work() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let drawn = sketch.add_spline_of(
+        &[
+            Point2::new(-3.999999, 7.0),
+            Point2::new(5.5, 5.5),
+            Point2::new(-6.9999, -11.5),
+        ],
+        SplineKind::Control { closed: true },
+    );
+    let first = offset_once(&mut sketch, drawn, 10.999999);
+    let second = offset_once(&mut sketch, drawn, 10.999999);
+
+    let (pieces, work) = tally::measure(|| sketch.trim_pieces(first).unwrap());
+    let (trimmed, trim_work) = tally::measure(|| sketch.trim(second, Point2::new(12.7, 1.2)));
+
+    assert_eq!(pieces.len(), 4);
+    assert!(
+        pieces
+            .iter()
+            .filter_map(|piece| piece.start)
+            .all(|cut| cut.cutter.is_reference()),
+        "{pieces:?}"
+    );
+    assert!(
+        work < COINCIDENT_TRIM_WORK,
+        "{work} units to find the pieces"
+    );
+
+    assert_eq!(trimmed, Ok(Trimmed::Opened));
+    assert!(
+        trim_work < COINCIDENT_TRIM_WORK,
+        "{trim_work} units to trim"
+    );
+}
+
+#[test]
+fn an_open_spline_lying_along_part_of_another_cuts_it_where_they_part() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let points = wavy();
+    let long = sketch.add_spline_of(&points, SplineKind::Control { closed: false });
+    let short = sketch.add_spline_of(&points, SplineKind::Control { closed: false });
+    let across = sketch.add_line(at(10.0, -30.0), at(10.0, 30.0));
+
+    sketch.trim(short, at(1.0, 1.0)).unwrap();
+
+    let on_the_line: Vec<_> = sketch
+        .constraints()
+        .filter(|(_, constraint)| constraint.entities().contains(&across))
+        .map(|(id, _)| id)
+        .collect();
+
+    for constraint in on_the_line {
+        sketch.remove_constraint(constraint).unwrap();
+    }
+    sketch.remove_unused_entity(across).unwrap();
+
+    let parted = sketch.spline(short).unwrap().point_at(0.0);
+    let pieces = sketch.trim_pieces(long).unwrap();
+
+    let [kept, beyond] = pieces.as_slice() else {
+        panic!("expected two pieces, found {pieces:?}");
+    };
+    let cut = kept.end.unwrap();
+
+    assert_eq!(beyond.start, Some(cut));
+    assert_eq!(cut.cutter, short);
+    assert!(
+        cut.position.distance(parted) < 1e-6,
+        "cut at {} instead of {parted}",
+        cut.position
+    );
 }

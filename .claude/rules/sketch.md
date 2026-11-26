@@ -439,7 +439,18 @@ relative to the extent.
     line or arc is cut where such a spline begins and ends on it, and a spline cut by a line or arc
     along it is cut at those ends and at the cutter's own ends lying on the stretch
     (`SplineMeeting::bounded_by`), as two collinear lines are. A tangent touch stays one crossing.
-    Two splines along each other are not looked for.
+  - A spline lying along another spline (`intersect::spline_overlaps`: two offsets of one curve by
+    the same distance, a trimmed copy on its original) is met only where the two part: the same
+    runs of samples and midpoints within the tolerance of the other spline, measured by Newton
+    from the nearest chord of the other's sampled polyline met in the crossing search
+    (`chord_meetings`), its ends bisected and moved onto the other spline's end within the
+    tolerance, and the polyline crossings inside it dropped before they are refined. A run
+    reaching the spline's own end or seam is no cut, so a closed spline lying all along another
+    is cut by neither (as a circle on a circle) and falls back to the axes. Without this the
+    near-parallel polylines crossed once per sample interval, thousands of cuts each costing a
+    closest-point search: two equal offsets of a closed spline took 30 million `tally` units and
+    1.5 seconds to trim, now about 10.7 million (the chord pairs of the crossing search) and
+    40 ms (`a_closed_spline_lying_all_along_another_is_cut_by_the_axes_alone_in_bounded_work`).
   - Dropped: `Equal` on a shortened line (kept only by the fillet and chamfer, below); `ArcLength`
     and `Sweep` on a shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any
     distance dimension between the two old ends or points joined to them by `Coincident`.
@@ -946,4 +957,5 @@ relative to the extent.
   sampled range within the tolerance of the other curve is a crossing, so a point the solver held
   at a spline's end on a circle is found there again. Two splines cross
   where their sampled polylines do, refined by Newton on both parameters
-  (`intersect::spline_spline`) and kept when both curves meet within the tolerance.
+  (`intersect::spline_spline`) and kept when both curves meet within the tolerance; where one
+  lies along the other they meet at the ends of that stretch instead (trim, above).
