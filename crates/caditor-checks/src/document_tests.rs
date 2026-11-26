@@ -9,8 +9,8 @@ use std::{
 
 use arbitrary::Unstructured;
 use caditor_document::{
-    CancelToken, Document, Edit, Editor, Evaluation, FeatureResult, FeatureState, ModelEvaluator,
-    Recompute, Transaction,
+    CancelToken, DimensionMeasure, Document, Edit, Editor, Evaluation, FeatureResult, FeatureState,
+    ModelEvaluator, Recompute, Transaction,
 };
 use caditor_kernel::MeshQuality;
 
@@ -30,6 +30,7 @@ const REVERSAL_CASES: u64 = 600;
 const SAVING_CASES: u64 = 600;
 const FEWEST_BODIES_SOUND: usize = 150;
 const FEWEST_BODIES_COMPARED: usize = 600;
+const DRAWING_CASES: u64 = 400;
 
 struct Budget {
     token: CancelToken,
@@ -340,4 +341,27 @@ fn a_random_document_saves_and_loads_to_the_same_content() {
 #[test]
 fn a_sketch_plane_whose_x_direction_nearly_follows_its_normal_saves_and_loads_unchanged() {
     replay_case(3076, |_, input| saves_and_loads_to_the_same_content(input));
+}
+
+#[test]
+fn random_documents_draw_diameters_across_cylinders() {
+    let mut cases = 0;
+
+    for_each_case("cylinder diameter", DRAWING_CASES, |_, input| {
+        let mut editor = Editor::default();
+
+        run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
+
+        let drawn = editor
+            .document()
+            .drawings()
+            .drawings
+            .iter()
+            .flat_map(|drawing| &drawing.dimensions)
+            .any(|dimension| matches!(dimension.measure, DimensionMeasure::CylinderDiameter(_)));
+
+        cases += u64::from(drawn);
+    });
+
+    assert!(cases > 0, "no random document drew a cylinder diameter");
 }

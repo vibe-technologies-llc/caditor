@@ -966,9 +966,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
         let target = if input.arbitrary::<bool>()? {
             CentreTarget::Circle(edge_name(input)?)
         } else {
-            CentreTarget::Cylinder(FaceName::from_digest(u128::from(
-                input.int_in_range(0u8..=8)?,
-            )))
+            CentreTarget::Cylinder(face_name(input)?)
         };
 
         drawing.centres.push(CentreMark {
@@ -1032,6 +1030,12 @@ fn edge_name(input: &mut Unstructured) -> Result<EdgeName> {
     )))
 }
 
+fn face_name(input: &mut Unstructured) -> Result<FaceName> {
+    Ok(FaceName::from_digest(u128::from(
+        input.int_in_range(0u8..=8)?,
+    )))
+}
+
 fn dimension_measure(input: &mut Unstructured) -> Result<DimensionMeasure> {
     let point = |input: &mut Unstructured| -> Result<EdgePoint> {
         Ok(EdgePoint {
@@ -1039,7 +1043,7 @@ fn dimension_measure(input: &mut Unstructured) -> Result<DimensionMeasure> {
             spot: *input.choose(&EdgeSpot::ALL)?,
         })
     };
-    Ok(match input.int_in_range(0u8..=4)? {
+    Ok(match input.int_in_range(0u8..=5)? {
         0 => DimensionMeasure::Linear {
             from: point(input)?,
             to: point(input)?,
@@ -1051,10 +1055,11 @@ fn dimension_measure(input: &mut Unstructured) -> Result<DimensionMeasure> {
         },
         2 => DimensionMeasure::Radius(edge_name(input)?),
         3 => DimensionMeasure::Diameter(edge_name(input)?),
-        _ => DimensionMeasure::Angle {
+        4 => DimensionMeasure::Angle {
             first: edge_name(input)?,
             second: edge_name(input)?,
         },
+        _ => DimensionMeasure::CylinderDiameter(face_name(input)?),
     })
 }
 
