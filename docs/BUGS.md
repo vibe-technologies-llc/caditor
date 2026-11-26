@@ -171,16 +171,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching and expressions
 
-- [medium · easy] A rectangle's corner held by a slanted track is still moved onto round sizes, so
-  the size shown is not the size drawn. `Drawing::in_round_steps` leaves a side alone only for
-  `Tracks::level` and `Tracks::upright`; with `Tracks::slanted` (a track parallel or square to an
-  acquired line, a line's perpendicular bisector) both sides are rounded, the corner leaves the
-  track and the track's `OnDirection` is committed all the same. With a line from (4, 3) to
-  (44, 23), its middle hovered in the Rectangle tool, the first corner 17.29 along the bisector
-  plus (17.58, 15.07) and the pointer on the bisector, the readout says 17.50 mm × 15.00 mm, the
-  rectangle is drawn 17.579 by 15.039 and the line itself moves 0.12 mm. Other shapes are spared
-  by the `!tracked` guard of the same function; the rectangle branch needs the same for a slanted
-  track, or to round along it.
 - [low · easy] The ghost of a typed Move, Rotate or Scale draws what will not happen:
   `Moving::preview`, `Transforming::preview` and `sketch_handles::preview_typed` walk the whole
   selection, so selected projected geometry is drawn moving though it is left out, and they draw

@@ -800,3 +800,64 @@ fn dragging_a_point_to_the_centre_of_a_rectangle_highlights_all_of_it_and_the_co
     );
     assert!(!highlighted.contains(&lone));
 }
+
+#[test]
+fn a_rectangle_corner_held_on_a_perpendicular_bisector_keeps_its_place_under_round_sizes() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let base = sketch.add_line(Point2::new(4.0, 3.0), Point2::new(44.0, 23.0));
+    let label = sketch.entity_label(base);
+    let middle = Point2::new(24.0, 13.0);
+    let first = Point2::new(45.0, 20.0);
+    let along = Vector2::new(1.0, -2.0).normalize();
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::R);
+    harness.point_at(first);
+    harness.click_at(first);
+    harness.point_at(middle + Vector2::new(0.05, 0.05));
+
+    assert!(harness.shows(&format!("Midpoint of {label}")));
+
+    let pointer = middle + along * 17.29 + Vector2::new(0.03, 0.01);
+
+    harness.point_at(pointer);
+
+    assert!(harness.shows(&format!("On the perpendicular bisector of {label}")));
+
+    let readouts: Vec<String> = harness
+        .texts
+        .iter()
+        .map(|(text, _)| text.clone())
+        .filter(|text| text.contains(" × "))
+        .collect();
+
+    harness.click_at(pointer);
+    harness.settle();
+
+    let shown = harness.shown(feature);
+    let corners: Vec<Point2> = entities_of_kind(&shown, "Line")
+        .into_iter()
+        .skip(1)
+        .map(|line| shown.line_endpoints(line).unwrap().0)
+        .collect();
+    let opposite = corners
+        .iter()
+        .copied()
+        .max_by(|a, b| a.distance(first).total_cmp(&b.distance(first)))
+        .unwrap();
+    let (start, end) = shown.line_endpoints(base).unwrap();
+    let size = (opposite - first).abs();
+
+    assert_eq!(
+        readouts,
+        vec![format!("{:.2} mm × {:.2} mm", size.x, size.y)]
+    );
+    assert!(
+        (opposite - middle).dot(Vector2::new(2.0, 1.0)).abs() < 1e-6,
+        "{opposite} left the bisector"
+    );
+    assert!(start.distance(Point2::new(4.0, 3.0)) < 1e-6, "{start}");
+    assert!(end.distance(Point2::new(44.0, 23.0)) < 1e-6, "{end}");
+}

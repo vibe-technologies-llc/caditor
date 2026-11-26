@@ -3444,7 +3444,7 @@ impl Drawing {
             (
                 Shape::Rectangle(mode @ (RectangleMode::Corners | RectangleMode::Center)),
                 Snap::Free,
-            ) => {
+            ) if placement.tracks.slanted.is_none() => {
                 let whole = if mode == RectangleMode::Center {
                     2.0
                 } else {

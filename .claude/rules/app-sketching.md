@@ -263,7 +263,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `FINE_POINTS` on screen at the view's zoom, and within `ROUND_PULL_POINTS` of a multiple of the
   next rounder step (`Step::rounder`: 1 to 5, 2 to 10, 5 to 50) that multiple, so a rectangle
   dragged to 24.8 by 25.3 is 25 by 25 without a typed value. It rounds each side of a
-  two-corner or centred rectangle (a centred one's whole side; a side a track holds is left), the
+  two-corner or centred rectangle (a centred one's whole side; a side a level or upright track
+  holds is left, and a corner a slanted track holds, parallel or square to a line or on its
+  perpendicular bisector, keeps its place so the size shown is the size drawn), the
   reach from the first point of what `Shape::sized_from_first` sizes that way (a line's length,
   the whole length of a line from its middle and a centred slot, a circle's radius, an arc's, a
   polygon's, an ellipse's major radius) and the widths `WidthTarget::in_steps` measures (a
