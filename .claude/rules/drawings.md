@@ -107,12 +107,13 @@ lines, never a picture of the 3D view.
 - A dimension is a `view` (`DrawnView`), a `measure` (`DimensionMeasure`: `Linear` between two
   `EdgePoint`s, an edge's `EdgeSpot` `Start`, `End` or `Centre`, `Horizontal`, `Vertical` or
   `Aligned` (`DimensionDirection`); `Parallel` between two straight edges; `Radius` or `Diameter`
-  of a round edge; `Angle` between two straight edges), a `place` in the view's own model
+  of a round edge; `Angle` between two straight edges; `CylinderDiameter` across the outline of a
+  cylinder seen from the side, by its `FaceName`), a `place` in the view's own model
   coordinates (like a detail's circle, so it stays by the part when the view moves, and
   `Document::scaled` moves it with the part by `Rescaler::view_shift` of its view or a detail's
   parent), `decimals` (the most shown, trailing zeros dropped) and `text_offset` (sheet millimetres
-  along its line). Edges are referred to by `EdgeName` alone, never by position, so a dimension
-  follows edits as features do. A dimension whose view is gone is kept, not dropped: it shows as
+  along its line). Edges are referred to by `EdgeName` alone and a cylinder by `FaceName` alone,
+  never by position, so a dimension follows edits as features do. A dimension whose view is gone is kept, not dropped: it shows as
   lost. A note is `text` (lines joined by `\n`), `at` (sheet millimetres from the view area's middle, like a position) and
   an optional `NoteLeader` (a view and an `EdgeName`).
 - A dimension's optional `tolerance` (`DimensionTolerance`): `Symmetric` (±, above zero),
@@ -168,9 +169,21 @@ lines, never a picture of the 3D view.
   one (`Curve2::Circle`, or an ellipse whose radii agree to a millionth; else `NotRound`); a
   `Parallel` pair must agree in direction to a sine of 1e-6 (`NotParallel`), its witness points
   the `place` clamped onto each edge; an `Angle` meets at the lines' crossing (`NoAngle` when
-  parallel) and takes, of the four angles, the one the `place` lies in, under π.
-- `pick_edge` finds the nearest edge piece within reach of a sheet point across the placed views;
-  `dimension_from_picks` makes what two picks mean: one straight edge twice is its length, one
+  parallel) and takes, of the four angles, the one the `place` lies in, under π. A
+  `CylinderDiameter` reads its face with the centreline's `cylinder_axis` (`drawing_centres.rs`:
+  `OutlineGone`, `EdgeAmbiguous`, `NotCylinder`) and is `Linear` square across the two outline
+  lines at the `place` clamped onto the axis's extent; its value is twice the radius the model's
+  surface has, never the drawn lines' distance: `lines_seen` keeps `ViewLines::cylinder_radii`,
+  the radius of every outlined face whose surface is a `Surface::Cylinder`, by `FaceName` (one face
+  per name once `cylinder_axis` has passed), and a face without one is `NotCylinder`. A detail
+  carries its parent's.
+- `pick_edge` finds the nearest edge piece within reach of a sheet point across the placed views,
+  `pick_line` the nearest edge or outline as a `LinePick` (a `SeenLine`: `Edge` or `Outline`), and
+  `seen_line` the pieces it draws; `dimension_from_picks` takes two `LinePick`s: one cylinder's
+  outline twice (either line, since both carry its face's name) is its `CylinderDiameter`, refused
+  as `DimensionRefusal::NotCylinder` when the outline is not a cylinder's (a cone's sloping lines),
+  and an outline with an edge or another face's outline is `OutlineAcross`. Of two edges, one
+  straight edge twice is its length, one
   round edge twice its diameter (whole) or radius (arc), two straight edges `Parallel` or `Angle`,
   anything else `Linear` between each pick's nearest end or centre, its direction from where the
   place lies (`DimensionDirection::from_place`: within the points' span across is horizontal,
@@ -385,7 +398,8 @@ lines, never a picture of the 3D view.
   reader drops them (losing only the annotations; nothing computed depends on them). A dimension
   is `id`, `view` (as positions write it), `measure` (`linear` with `from` and `to`, each `edge` as
   hex and `spot` key, and `direction` key; `parallel` or `angle` with `first` and `second`;
-  `radius` or `diameter` with the edge), `place` (two numbers), `decimals` and `text_offset` (when
+  `radius` or `diameter` with the edge; `cylinder_diameter` with the face as hex, which an older
+  reader leaves out as an unknown measure, reported), `place` (two numbers), `decimals` and `text_offset` (when
   not zero); a note `id`, `text` (a newline stays one in the JSON string, so a one-line note reads as before and an older reader flattens a several-line one to one line), `at` and `leader` (when any: `view` and `edge`). Loading leaves
   out, with one report per drawing and kind, a record unreadable, with a repeated id, an unknown
   view or measure, an unreadable edge or a place out of range, an empty note or one out of range,
@@ -404,7 +418,8 @@ lines, never a picture of the 3D view.
   kind, a centre mark or callout unreadable, with a repeated id (shared with dimensions and notes),
   an unknown view or target, an unreadable name, a feature id past the storable ones or a place
   out of range. The corpus holds `model-1/centre-marks-callouts-and-tolerances.caditor` and
-  `journal-1/centre-marks-callouts-and-tolerances.journal`.
+  `journal-1/centre-marks-callouts-and-tolerances.journal`; a cylinder diameter is in
+  `model-1/cylinder-diameters.caditor` and `journal-1/cylinder-diameters.journal`.
 - Each drawing's `sections` is a field written only when it has any, each section `Lenient`, so
   drawings stored before section views read with none and an older reader drops them (losing only
   the section views; nothing computed depends on them). Loading repairs a section as
@@ -419,7 +434,8 @@ lines, never a picture of the 3D view.
   (`drawn_hatching`, clipped to a detail's circle) on `Layer::Hatching`, cutting chain lines on `Layer::Cutting` with their thick ends on `Visible`,
   frame, marks (arrows included) and title block on `Layer::Frame`, and the plan's annotations on
   `Layer::Annotation` ("Annotations", 0.25 mm): a dimension as one `Shape::Dimension` (a DXF
-  `DIMENSION` with its own block; marks and value in SVG and PDF, a tolerance's further texts in
+  `DIMENSION` with its own block, a `CylinderDiameter` a rotated linear one whose text keeps the
+  `⌀`; marks and value in SVG and PDF, a tolerance's further texts in
   `Dimension::more`, drawn in the block, and the DXF text override all of them joined), a note or
   callout as its lines and texts, and centre marks and centrelines on `Layer::Centre` ("Centre
   lines", 0.25 mm long-dash-dot like cutting lines, `DASHDOT` in DXF). A lost dimension, centre
@@ -486,7 +502,7 @@ lines, never a picture of the 3D view.
   buttons) and the commands Dimension the drawing and Add a note to the drawing
   (`DrawingsTool::start_tool`, refused with no drawing; in the Model menu and the palette) start a
   `SheetTool` on the shared canvas; a row under the toolbar says the next step and holds Stop
-  adding. The dimension tool takes two `pick_edge` clicks (the picks and the edge under the pointer
+  adding. The dimension tool takes two `pick_line` clicks, edges or outlines (the picks and the line under the pointer
   drawn heavier in `accent_text`), checked with `dimension_from_picks` as they come (a refusal is a
   notice, the step kept), then previews the dimension at the pointer and places it on the next
   click or drop: one Add dimension change, the new one picked and the tool kept for the next.
@@ -505,7 +521,7 @@ lines, never a picture of the 3D view.
 - The panel's Annotations rows (after Layout) name each dimension ("Dimension 1: 40
   horizontal distance in the front view", numbered by id plus one, so names never repeat) with
   Re-attach and Delete, an error callout saying what it lost, and Measures (direction, or radius
-  and diameter), Tolerance (a combo of No tolerance, Plus or minus, Deviations, Limits and, but on
+  and diameter; nothing to choose for a cylinder diameter, "⌀8 cylinder diameter"), Tolerance (a combo of No tolerance, Plus or minus, Deviations, Limits and, but on
   an angle, ISO 286 fit; then Deviation, Upper and Lower deviation value fields, or Fit and Grade
   combos and Show the deviations), Decimals and Value along (`text_offset`), with a muted line
   giving a fit's deviations at the size measured or a warning past the table; each note with

@@ -159,11 +159,11 @@ pub use crate::{
     drawing_details::detail_view,
     drawing_dimensions::{
         AngleRay, AnnotationProblem, ArcSpan, DEVIATION_TEXT_HEIGHT, DIMENSION_TEXT_HEIGHT,
-        DimensionGeometry, DimensionRefusal, DrawnLines, EdgePick, MINUS_SIGN, NOTE_TEXT_HEIGHT,
-        PLUS_MINUS_SIGN, SeenEdge, SheetAnnotation, SheetMeasure, ValueLines, deviation_text,
-        dimension_from_picks, dimension_geometry, dimension_problem, is_measured_view,
-        measured_lines_of, note_on_sheet, note_place, pick_edge, seen_edge, text_corners,
-        value_lines, view_place,
+        DimensionGeometry, DimensionRefusal, DrawnLines, EdgePick, LinePick, MINUS_SIGN,
+        NOTE_TEXT_HEIGHT, PLUS_MINUS_SIGN, SeenEdge, SeenLine, SheetAnnotation, SheetMeasure,
+        ValueLines, deviation_text, dimension_from_picks, dimension_geometry, dimension_problem,
+        is_measured_view, measured_lines_of, note_on_sheet, note_place, pick_edge, pick_line,
+        seen_edge, seen_line, text_corners, value_lines, view_place,
     },
     drawing_fits::{FIT_GRADES, FitLetter, IsoFit, MAX_FIT_SIZE},
     drawing_sections::{
@@ -176,8 +176,8 @@ pub use crate::{
         text_width,
     },
     drawing_views::{
-        Disc, DrawingViewError, DrawnBodies, HatchRegion, SectionLines, ViewLines, drawing_view,
-        drawn_bodies,
+        CylinderRadii, Disc, DrawingViewError, DrawnBodies, HatchRegion, SectionLines, ViewLines,
+        drawing_view, drawn_bodies,
     },
     drawings::{
         Annotation, AnnotationId, CentreMark, CentreTarget, DEFAULT_DIMENSION_DECIMALS,

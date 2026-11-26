@@ -37,8 +37,8 @@ use serde_json::Value;
 use super::{
     configurations::configured_model,
     drawings::{
-        parameter_offset_document, with_annotations, with_detail_views, with_drawings, with_marks,
-        with_placed_views, with_section_views,
+        parameter_offset_document, with_annotations, with_cylinder_diameters, with_detail_views,
+        with_drawings, with_marks, with_placed_views, with_section_views,
     },
     seeds::seed_journal_by_reference,
     selection_sets::sets_of,
@@ -63,7 +63,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 96] = [
+const KEPT: [(&str, &str); 98] = [
+    (
+        "journal-1/cylinder-diameters.journal",
+        "549d80b2f01a0fd798fc74dfd1169b358e499f0fa57a118672a537e9b004bacb",
+    ),
+    (
+        "model-1/cylinder-diameters.caditor",
+        "267a3636cbf7ff3129f3574f97a8b54c1f61fd947f9e82299e45c0b836869a85",
+    ),
     (
         "journal-1/centre-marks-callouts-and-tolerances.journal",
         "120dd569083052eca31f7ce1d3c0e376d35244df9d154bb68ec469e449e3060d",
@@ -1247,6 +1255,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             marks_journal(),
         ),
         (
+            model("cylinder-diameters"),
+            saved(&cylinder_diameter_model(), "Cylinder diameters"),
+        ),
+        (journal("cylinder-diameters"), cylinder_diameters_journal()),
+        (
             model("section-parameter-offsets"),
             saved(&parameter_offset_sections(), "Section parameter offsets"),
         ),
@@ -2255,6 +2268,33 @@ fn marks_journal() -> Vec<u8> {
         file: Some(Path::new(
             "/models/centre-marks-callouts-and-tolerances.caditor",
         )),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn cylinder_diameter_model() -> Document {
+    let (mut document, change) = with_cylinder_diameters();
+
+    document.apply(change).unwrap();
+    document
+}
+
+fn cylinder_diameters_journal() -> Vec<u8> {
+    let (base, change) = with_cylinder_diameters();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+
+    session.apply(change);
+
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Cylinder diameters")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/cylinder-diameters.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

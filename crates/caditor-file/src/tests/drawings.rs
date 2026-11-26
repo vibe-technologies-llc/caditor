@@ -240,6 +240,38 @@ pub(super) fn marked_drawings_of(base: FeatureId) -> Drawings {
     drawings
 }
 
+pub(super) fn cylinder_diameter_drawings_of(base: FeatureId) -> Drawings {
+    let mut drawings = marked_drawings_of(base);
+
+    if let Some(workshop) = drawings.drawings.first_mut() {
+        workshop.dimensions.push(DrawingDimension {
+            id: AnnotationId::from_raw(12),
+            view: DrawnView::Standard(StandardView::Front),
+            measure: DimensionMeasure::CylinderDiameter(FaceName::from_digest(0xf4)),
+            place: Point2::new(6.5, -2.0),
+            decimals: 2,
+            text_offset: 0.0,
+            tolerance: Some(DimensionTolerance::Fit {
+                fit: IsoFit::from_code("h7").unwrap(),
+                deviations: false,
+            }),
+        });
+        workshop.next_annotation = 13;
+    }
+    drawings
+}
+
+pub(super) fn with_cylinder_diameters() -> (Document, Transaction) {
+    let (document, base, _) = solid_model();
+    let change = Transaction::single(
+        "Cylinder diameters",
+        Edit::SetDrawings {
+            drawings: Box::new(cylinder_diameter_drawings_of(base)),
+        },
+    );
+    (document, change)
+}
+
 pub(super) fn with_marks() -> (Document, Transaction) {
     let (document, base, _) = solid_model();
     let change = Transaction::single(
@@ -995,5 +1027,76 @@ fn centre_marks_callouts_and_tolerances_that_cannot_be_read_are_left_out_and_rep
     assert!(issues_mention(
         &loaded,
         "2 callouts of the drawing “Shop” could not be read"
+    ));
+}
+
+#[test]
+fn a_diameter_across_a_cylinders_outline_survives_saving_and_the_journal() {
+    let (mut document, change) = with_cylinder_diameters();
+
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let workshop = &loaded.document.drawings().drawings[0];
+
+    assert!(
+        text.contains(r#""measure":{"cylinder_diameter":"000000000000000000000000000000f4"}"#),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        workshop
+            .dimension(AnnotationId::from_raw(12))
+            .map(|dimension| dimension.measure),
+        Some(DimensionMeasure::CylinderDiameter(FaceName::from_digest(
+            0xf4
+        )))
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn drawings_saved_before_cylinder_diameters_keep_their_dimensions_as_they_were() {
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+    let bytes =
+        fs::read(corpus.join("model-1/centre-marks-callouts-and-tolerances.caditor")).unwrap();
+    let loaded = decode(&bytes).unwrap();
+    let (_, base, _) = solid_model();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded.document.drawings().drawings[0].dimensions,
+        marked_drawings_of(base).drawings[0].dimensions
+    );
+}
+
+#[test]
+fn a_cylinder_diameter_whose_face_cannot_be_read_is_left_out_and_reported() {
+    let (document, _, _) = solid_model();
+    let drawings = r#"{"drawings":{"drawings":[{"id":1,"name":"Shop","views":["front"],"dimensions":[{"id":1,"view":{"standard":"front"},"measure":{"cylinder_diameter":"f4"},"place":[1.0,2.0]},{"id":2,"view":{"standard":"front"},"measure":{"cylinder_diameter":"not hex"},"place":[1.0,2.0]},{"id":3,"view":{"standard":"front"},"measure":{"cylinder_diameter":{"face":"f4"}},"place":[1.0,2.0]}]}],"next_id":2}}"#;
+    let text = format!("{}\n{drawings}", encode(&document).unwrap());
+
+    let loaded = decode_text(&text);
+    let shop = &loaded.document.drawings().drawings[0];
+
+    assert_eq!(
+        shop.dimensions
+            .iter()
+            .map(|dimension| dimension.measure)
+            .collect::<Vec<_>>(),
+        [DimensionMeasure::CylinderDiameter(FaceName::from_digest(
+            0xf4
+        ))]
+    );
+    assert!(issues_mention(
+        &loaded,
+        "2 dimensions of the drawing “Shop” could not be read"
     ));
 }

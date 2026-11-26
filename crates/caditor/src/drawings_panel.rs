@@ -1506,7 +1506,9 @@ fn measure_choice(
                 }
             });
         }
-        DimensionMeasure::Parallel { .. } | DimensionMeasure::Angle { .. } => {}
+        DimensionMeasure::Parallel { .. }
+        | DimensionMeasure::Angle { .. }
+        | DimensionMeasure::CylinderDiameter(_) => {}
     }
 }
 
@@ -1875,7 +1877,7 @@ fn dimension_rows(
             let response = widgets::callout(ui, Tone::Error, |ui| {
                 ui.label(format!(
                     "Dimension {number} lost what it measures: {problem}. Re-attach it to edges \
-                     of a view, or delete it."
+                     or outlines of a view, or delete it."
                 ))
             });
 

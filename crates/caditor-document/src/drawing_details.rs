@@ -145,6 +145,7 @@ fn enlarged(detail: &DetailView, parent: &ViewLines) -> Result<ViewLines, Drawin
         undecided: parent.undecided,
         section: parent.section.clone(),
         clip: Some(disc),
+        cylinder_radii: parent.cylinder_radii.clone(),
     })
 }
 

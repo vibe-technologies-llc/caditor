@@ -1,9 +1,9 @@
 use std::{borrow::Cow, f64::consts::TAU};
 
 use caditor_document::{
-    Annotation, Drawing, DrawnView, EdgePick, EditError, MAX_DETAIL_EXTENT, MIN_DETAIL_RADIUS,
+    Annotation, Drawing, DrawnView, EditError, LinePick, MAX_DETAIL_EXTENT, MIN_DETAIL_RADIUS,
     PlacedView, SheetAnnotation, SheetMark, SheetPlan, SheetText, TextAnchor, Transaction,
-    ViewLines, ViewMovement, drawn_hatching, seen_edge,
+    ViewLines, ViewMovement, drawn_hatching, seen_line,
 };
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::{Curve2, Interval, ViewPiece, Visibility};
@@ -876,26 +876,25 @@ impl Paint<'_> {
         );
     }
 
-    fn picked_edge(&self, pick: &EdgePick, plan: &SheetPlan, views: &SheetViews) {
+    fn picked_edge(&self, pick: &LinePick, plan: &SheetPlan, views: &SheetViews) {
         let Some(placed) = plan.placed(pick.view) else {
             return;
         };
         let Some((_, lines)) = views.finished().find(|(view, _)| *view == pick.view) else {
             return;
         };
-        let Ok(seen) = seen_edge(lines, pick.edge) else {
-            return;
-        };
 
-        let points: Vec<Pos2> = sampled_range(&seen.curve, seen.range)
-            .into_iter()
-            .map(|point| self.mapping.screen(placed.on_sheet(point)))
-            .collect();
+        for seen in seen_line(lines, pick.line) {
+            let points: Vec<Pos2> = sampled_range(&seen.curve, seen.range)
+                .into_iter()
+                .map(|point| self.mapping.screen(placed.on_sheet(point)))
+                .collect();
 
-        self.painter.add(Shape::line(
-            points,
-            Stroke::new(PICKED_EDGE_WIDTH, self.tokens.accent_text),
-        ));
+            self.painter.add(Shape::line(
+                points,
+                Stroke::new(PICKED_EDGE_WIDTH, self.tokens.accent_text),
+            ));
+        }
     }
 
     fn outline(&self, placed: &PlacedView, picked: bool) {
@@ -1318,13 +1317,15 @@ pub fn canvas(
 
     if let Some(tool) = canvas.tool.as_ref() {
         let hovered = pointer.and_then(|pointer| {
-            caditor_document::pick_edge(
-                plan,
-                &context.views.finished().collect(),
-                context.drawing.hidden_lines,
-                pointer,
-                mapping.reach(),
-            )
+            let lines = context.views.finished().collect();
+            let hidden = context.drawing.hidden_lines;
+
+            if tool.picks_outlines() {
+                caditor_document::pick_line(plan, &lines, hidden, pointer, mapping.reach())
+            } else {
+                caditor_document::pick_edge(plan, &lines, hidden, pointer, mapping.reach())
+                    .map(LinePick::from)
+            }
         });
 
         for pick in tool.picks().iter().chain(hovered.iter()) {

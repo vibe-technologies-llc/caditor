@@ -124,6 +124,11 @@ nothing is measured in it. Click an edge, then a second one, then where the dime
   between them; two other straight edges the angle between them, on the side you place it.
 - The same circle twice measures its diameter, the same arc its radius. A circle seen at a slant,
   as an ellipse, is not measured; dimension it in a view that sees it round.
+- The two outline lines of a cylinder seen from the side (a shaft, a pin or a hole drawn hidden),
+  or one of them twice, measure its diameter `⌀d` across them, square to the lines at the height
+  you place it, with extension lines where you place it past their ends. The value is the
+  cylinder's own diameter from the model. Only a cylinder is measured this way: a cone's sloping
+  outline, or an outline with an edge, is refused with the reason.
 - Two other edges measure between their nearest ends, or the centres of circles and arcs:
   horizontally, vertically or straight between them, as where you place it suggests.
 
@@ -147,9 +152,10 @@ ISO 129-1 does:
   deviations** writes them from ISO 286's table after the fit, and the panel says what they are
   for the size measured. The table covers sizes up to 500 mm; past it the fit is written alone.
 
-When an edge a dimension measures disappears after an edit, the dimension is kept and drawn
-dashed in the error colour with a question mark for its value, and the panel says what it lost.
-**Re-attach** picks its edges again, keeping where it stands and its decimals; or delete it.
+When an edge or a cylinder a dimension measures disappears after an edit, the dimension is kept
+and drawn dashed in the error colour with a question mark for its value, and the panel says what
+it lost. **Re-attach** picks its edges again, keeping where it stands and its decimals; or delete
+it.
 
 {command:model.drawing_note} (or **Add a note** above the sheet) writes a note: click where it
 stands, type it, click an edge if a leader should point at it, then **Place the note** (or Enter).
@@ -223,7 +229,7 @@ size in millimetres, with every view where the sheet shows it, as:
 - **DXF**, for other CAD programs, with the outlines on layer `Visible`, hidden lines on a dashed
   layer `Hidden`, section hatching on `Hatching`, cutting lines on a dash-dot layer `Cutting`,
   centre marks and centrelines on a dash-dot layer `Centre lines`, dimensions (as DXF dimensions,
-  their tolerance part of the text), notes and callouts on `Annotations` and the frame and title
+  their tolerance part of the text, a diameter across a cylinder's outline as a linear one), notes and callouts on `Annotations` and the frame and title
   block on `Frame`.
 
 The file dialog proposes the format the last sheet was written in, PDF at first; type another of

@@ -1,7 +1,7 @@
 use caditor_document::{
-    Annotation, CentreTarget, DimensionTolerance, DrawnView, Edit, FeatureId, FeatureKind, Hole,
-    HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStyle, StandardView, TappedThread,
-    Transaction,
+    Annotation, CentreTarget, DimensionMeasure, DimensionTolerance, DrawnView, Edit, FeatureId,
+    FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStyle, StandardView,
+    TappedThread, Transaction,
 };
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::Sketch;
@@ -312,4 +312,60 @@ fn a_dimension_takes_an_iso_fit_from_its_panel_row_and_shows_its_deviations() {
             ..
         })
     ));
+}
+
+fn dimension_text(harness: &Harness) -> Option<String> {
+    let dimension = drawn(harness).dimensions.first().copied()?;
+    let plan = plan(harness);
+
+    let laid = plan.annotation(Annotation::Dimension(dimension.id))?;
+
+    assert_eq!(laid.problem, None);
+    Some(laid.content())
+}
+
+#[test]
+fn a_hole_seen_from_the_side_is_dimensioned_across_its_outline_and_follows_a_hole_edit() {
+    let (mut harness, hole) = drilled_plate_in_view();
+
+    run_from_palette(&mut harness, Command::DrawingDimension.title().as_str());
+    harness.frame();
+
+    let front = plan(&harness)
+        .placed(DrawnView::Standard(StandardView::Front))
+        .unwrap()
+        .extent;
+    let outline = |harness: &Harness, x: f64| {
+        let on_sheet = on_view(harness, StandardView::Front, Point2::new(x, 0.0));
+        Point2::new(on_sheet.x, front.center().y)
+    };
+    let (left, right) = (outline(&harness, 16.7), outline(&harness, 23.3));
+
+    click_sheet(&mut harness, left);
+
+    assert!(harness.shows(SECOND_EDGE));
+
+    click_sheet(&mut harness, right);
+
+    assert!(harness.shows(PLACE_DIMENSION));
+
+    click_sheet(
+        &mut harness,
+        Point2::new(front.center().x, front.max().y + 12.0),
+    );
+    harness.frame();
+    harness.frame();
+
+    let dimensions = drawn(&harness).dimensions;
+
+    assert_eq!(dimensions.len(), 1);
+    assert!(matches!(
+        dimensions[0].measure,
+        DimensionMeasure::CylinderDiameter(_)
+    ));
+    assert_eq!(dimension_text(&harness).as_deref(), Some("\u{2300}6.6"));
+
+    widened(&mut harness, hole, "8 mm");
+
+    assert_eq!(dimension_text(&harness).as_deref(), Some("\u{2300}8"));
 }

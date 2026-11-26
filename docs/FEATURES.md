@@ -192,9 +192,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Annotations beyond dimensions, notes, centre marks, callouts and tolerances:
   ordinate and baseline dimensions, geometric tolerances with datum features (ISO 1101), surface
   texture symbols (ISO 21920) and weld symbols (ISO 2553).
-- [low · medium] Drawing dimensions refer to edges only (`drawings.md`): the outline a curved face
-  shows in a view (a cylinder seen from the side) is named by its face and drawn twice, so a
-  diameter across it cannot be taken there.
 - [low · medium] A sheet dimension's value keeps clear of other values, notes and callouts only
   (`drawings.md`): it can still land on the view's own lines or on other dimensions' lines and
   arrows, and one dragged near another can jump between positions as the keep-clear search is

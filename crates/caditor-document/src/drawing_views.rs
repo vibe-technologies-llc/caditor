@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     panic::{self, AssertUnwindSafe},
     sync::Arc,
 };
@@ -6,8 +7,8 @@ use std::{
 use caditor_expression::EvalError;
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2, Vector3};
 use caditor_kernel::{
-    BooleanError, HiddenLineError, HiddenLineView, MeshQuality, Solid, ViewEdgeKind, ViewPiece,
-    ViewSource, Visibility, hidden_lines,
+    BooleanError, FaceName, HiddenLineError, HiddenLineView, MeshQuality, Solid, Surface,
+    ViewEdgeKind, ViewPiece, ViewSource, Visibility, hidden_lines,
 };
 use thiserror::Error;
 
@@ -138,7 +139,10 @@ pub struct ViewLines {
     pub undecided: usize,
     pub section: Option<SectionLines>,
     pub clip: Option<Disc>,
+    pub cylinder_radii: CylinderRadii,
 }
+
+pub type CylinderRadii = BTreeMap<FaceName, f64>;
 
 impl ViewLines {
     pub fn drawn_pieces(&self, hidden: bool) -> impl Iterator<Item = &ViewPiece> {
@@ -172,6 +176,24 @@ pub(crate) fn scene_extent(solids: &[&Solid]) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn cylinder_radii(pieces: &[ViewPiece], solids: &[&Solid]) -> CylinderRadii {
+    pieces
+        .iter()
+        .filter_map(|piece| match piece.source {
+            ViewSource::Silhouette { solid, face, name } => Some((solid, face, name)),
+            ViewSource::Edge { .. } | ViewSource::Crossing { .. } => None,
+        })
+        .filter_map(|(solid, face, name)| {
+            let seen = solids.get(solid)?.face(face)?;
+
+            match seen.surface() {
+                Surface::Cylinder(cylinder) => Some((name, cylinder.radius())),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn lines_seen(
     view: DrawnView,
     looking: &HiddenLineView,
@@ -187,6 +209,7 @@ pub(crate) fn lines_seen(
         .iter()
         .map(|piece| piece.curve.bounding_box(piece.range))
         .reduce(Aabb2::union);
+    let cylinder_radii = cylinder_radii(&pieces, solids);
     Ok(ViewLines {
         view,
         pieces,
@@ -194,6 +217,7 @@ pub(crate) fn lines_seen(
         undecided: lines.undecided,
         section: None,
         clip: None,
+        cylinder_radii,
     })
 }
 

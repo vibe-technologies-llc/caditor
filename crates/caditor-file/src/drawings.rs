@@ -159,6 +159,7 @@ pub(crate) enum MeasureRecord {
         first: String,
         second: String,
     },
+    CylinderDiameter(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -205,6 +206,9 @@ fn measure_record(measure: &DimensionMeasure) -> MeasureRecord {
             first: name(first),
             second: name(second),
         },
+        DimensionMeasure::CylinderDiameter(face) => {
+            MeasureRecord::CylinderDiameter(hex(face.digest()))
+        }
     }
 }
 
@@ -984,6 +988,9 @@ fn restored_measure(
             first: restored_edge(first)?,
             second: restored_edge(second)?,
         },
+        MeasureRecord::CylinderDiameter(face) => {
+            DimensionMeasure::CylinderDiameter(FaceName::from_digest(restore_digest(face)?))
+        }
     })
 }
 

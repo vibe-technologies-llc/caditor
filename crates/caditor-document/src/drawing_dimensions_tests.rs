@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2};
-use caditor_kernel::{Circle2, Curve2, EdgeName, Interval, ViewSource};
+use caditor_kernel::{Circle2, Curve2, EdgeName, FaceName, Interval, ViewSource};
 use caditor_sketch::{
     Sketch,
     annotation::{ARROW_CLEARANCE, ARROW_LENGTH, ARROW_STUB, VALUE_CLEARANCE},
@@ -10,6 +10,7 @@ use caditor_sketch::{
 
 use crate::{
     combine_tests::{Pair, block, evaluate, pair},
+    drawing_callouts_tests::{Drilled, drilled},
     drawing_dimensions::LABEL_CLEARANCE,
     *,
 };
@@ -306,7 +307,9 @@ fn picked_edges_make_the_dimension_the_user_means() {
         edge,
         at,
     };
-    let made = |first, second, place| dimension_from_picks(&drawing, &drawn, first, second, place);
+    let made = |first: EdgePick, second: EdgePick, place| {
+        dimension_from_picks(&drawing, &drawn, first.into(), second.into(), place)
+    };
 
     let along = made(
         pick(top, Point2::new(5.0, 4.0)),
@@ -723,7 +726,13 @@ fn a_circle_seen_round_takes_a_diameter_and_one_seen_edge_on_refuses() {
         at: Point2::new(16.0, 10.0),
     };
 
-    let made = dimension_from_picks(&drawing, &drawn, pick, pick, Point2::new(20.0, 20.0));
+    let made = dimension_from_picks(
+        &drawing,
+        &drawn,
+        pick.into(),
+        pick.into(),
+        Point2::new(20.0, 20.0),
+    );
     let diameter = dimension_geometry(&DimensionMeasure::Diameter(circle), Point2::ZERO, &top)
         .unwrap()
         .value();
@@ -1379,4 +1388,240 @@ fn a_seen_arc_holds_the_directions_it_sweeps_through_either_way_round_and_a_circ
     assert!(across.holds(0.0) && across.holds(-quarter / 2.0) && across.holds(quarter / 2.0));
     assert!(!across.holds(2.0 * quarter));
     assert_eq!(whole, None);
+}
+
+fn outline_face(lines: &ViewLines) -> FaceName {
+    lines
+        .pieces
+        .iter()
+        .find_map(|piece| match piece.source {
+            ViewSource::Silhouette { name, .. } => Some(name),
+            ViewSource::Edge { .. } | ViewSource::Crossing { .. } => None,
+        })
+        .expect("an outline in the view")
+}
+
+fn outline_pick(face: FaceName, at: Point2) -> LinePick {
+    LinePick {
+        view: front(StandardView::Front),
+        line: SeenLine::Outline(face),
+        at,
+    }
+}
+
+fn hole_diameter(drilled: &mut Drilled, diameter: &str) {
+    let document = &mut drilled.pair.document;
+    let mut hole = document
+        .feature(drilled.hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .clone();
+
+    hole.diameter = document.parse(diameter).unwrap();
+    document
+        .apply(Transaction::single(
+            "Widen",
+            Edit::SetFeatureKind {
+                id: drilled.hole,
+                kind: FeatureKind::Hole(hole),
+            },
+        ))
+        .unwrap();
+}
+
+fn cylinder_dimension(face: FaceName) -> DrawingDimension {
+    dimension(
+        0,
+        DimensionMeasure::CylinderDiameter(face),
+        Point2::new(5.0, 7.0),
+    )
+}
+
+#[test]
+fn a_cylinder_seen_from_the_side_takes_a_diameter_across_its_two_outline_lines() {
+    let drilled = drilled();
+    let mut drawing = front_only(plate_drawing(&drilled.pair));
+
+    let lines = lines_of(&drilled.pair.document, &drawing, StandardView::Front);
+    let drawn = DrawnLines::from([(front(StandardView::Front), &lines)]);
+    let face = outline_face(&lines);
+
+    let across = dimension_from_picks(
+        &drawing,
+        &drawn,
+        outline_pick(face, Point2::new(3.0, 2.0)),
+        outline_pick(face, Point2::new(7.0, 3.0)),
+        Point2::new(5.0, 7.0),
+    );
+    let one_line_twice = dimension_from_picks(
+        &drawing,
+        &drawn,
+        outline_pick(face, Point2::new(3.0, 2.0)),
+        outline_pick(face, Point2::new(3.0, 3.0)),
+        Point2::new(5.0, 7.0),
+    );
+
+    assert_eq!(across, Ok(DimensionMeasure::CylinderDiameter(face)));
+    assert_eq!(one_line_twice, across);
+
+    drawing.dimensions = vec![cylinder_dimension(face)];
+
+    let plan = annotated(&drawing, &lines);
+    let placed = plan.placed(front(StandardView::Front)).unwrap();
+    let laid = plan
+        .annotation(Annotation::Dimension(AnnotationId::from_raw(0)))
+        .unwrap();
+    let Some(SheetMeasure::Linear {
+        first,
+        second,
+        line,
+        ..
+    }) = laid.measure
+    else {
+        panic!("a linear measure, found {:?}", laid.measure);
+    };
+
+    let witnesses = [first, second].map(|point| view_place(placed, point));
+    let (low, high) = if witnesses[0].x < witnesses[1].x {
+        (witnesses[0], witnesses[1])
+    } else {
+        (witnesses[1], witnesses[0])
+    };
+
+    assert_eq!(laid.problem, None);
+    assert_eq!(laid.content(), "⌀4");
+    assert!(near(low.x, 3.0) && near(low.y, 4.0), "{low:?}");
+    assert!(near(high.x, 7.0) && near(high.y, 4.0), "{high:?}");
+    assert!(near(view_place(placed, line).y, 7.0), "{line:?}");
+    assert_eq!(
+        laid.marks
+            .iter()
+            .filter(|mark| matches!(mark, SheetMark::Line(from, to) if near(from.x, to.x)))
+            .count(),
+        2,
+        "two upright extension lines: {:?}",
+        laid.marks
+    );
+}
+
+#[test]
+fn a_cylinder_diameter_follows_the_radius_and_is_lost_in_words_when_its_feature_goes() {
+    let mut drilled = drilled();
+
+    let mut drawing = front_only(plate_drawing(&drilled.pair));
+
+    let before = lines_of(&drilled.pair.document, &drawing, StandardView::Front);
+    let face = outline_face(&before);
+    let measure = DimensionMeasure::CylinderDiameter(face);
+
+    hole_diameter(&mut drilled, "6 mm");
+
+    let wider = lines_of(&drilled.pair.document, &drawing, StandardView::Front);
+    let value = dimension_geometry(&measure, Point2::new(5.0, 7.0), &wider)
+        .unwrap()
+        .value();
+
+    assert!(near(value, 6.0), "{value}");
+
+    drilled
+        .pair
+        .document
+        .apply(Transaction::single(
+            "Fill the hole",
+            Edit::RemoveFeature { id: drilled.hole },
+        ))
+        .unwrap();
+
+    let filled = lines_of(&drilled.pair.document, &drawing, StandardView::Front);
+
+    drawing.dimensions = vec![cylinder_dimension(face)];
+
+    let plan = annotated(&drawing, &filled);
+    let lost = plan
+        .annotation(Annotation::Dimension(AnnotationId::from_raw(0)))
+        .unwrap();
+
+    assert_eq!(lost.problem, Some(AnnotationProblem::OutlineGone));
+    assert_eq!(lost.content(), "⌀?");
+    assert_eq!(lost.measure, None);
+    assert_eq!(
+        AnnotationProblem::OutlineGone.to_string(),
+        "the outline it refers to is no longer in this view"
+    );
+}
+
+fn cone_document() -> (Document, FeatureId) {
+    let mut document = Document::default();
+    let mm = |value| Expression::measure(value, caditor_expression::Unit::Millimetre);
+
+    let mut transaction = document.transaction("Build");
+
+    let cone = transaction.add_feature(
+        "Cone 1",
+        FeatureKind::Primitive(Primitive {
+            shape: PrimitiveShape::Cone {
+                bottom: mm(10.0),
+                top: mm(4.0),
+                height: mm(8.0),
+            },
+            plane: PlaneReference::Principal(PrincipalPlane::Xy),
+            at: [mm(0.0), mm(0.0)],
+            anchor: PrimitiveAnchor::BaseCentre,
+            reversed: false,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+
+    document.apply(transaction.finish()).unwrap();
+    (document, cone)
+}
+
+#[test]
+fn a_cones_two_outlines_or_an_outline_with_an_edge_are_refused_in_words() {
+    let (document, cone) = cone_document();
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
+    drawing.bodies = vec![cone];
+
+    let lines = lines_of(&document, &drawing, StandardView::Front);
+    let drawn = DrawnLines::from([(front(StandardView::Front), &lines)]);
+    let face = outline_face(&lines);
+    let base = bottom_edge(&lines);
+
+    let outlines = dimension_from_picks(
+        &drawing,
+        &drawn,
+        outline_pick(face, Point2::new(-4.0, 2.0)),
+        outline_pick(face, Point2::new(4.0, 2.0)),
+        Point2::new(0.0, 10.0),
+    );
+    let with_edge = dimension_from_picks(
+        &drawing,
+        &drawn,
+        outline_pick(face, Point2::new(-4.0, 2.0)),
+        LinePick {
+            view: front(StandardView::Front),
+            line: SeenLine::Edge(base),
+            at: Point2::ZERO,
+        },
+        Point2::new(0.0, 10.0),
+    );
+
+    assert_eq!(outlines, Err(DimensionRefusal::NotCylinder));
+    assert_eq!(with_edge, Err(DimensionRefusal::OutlineAcross));
+    assert!(
+        DimensionRefusal::NotCylinder
+            .to_string()
+            .contains("cylinder seen from the side")
+    );
+    assert_eq!(
+        dimension_geometry(
+            &DimensionMeasure::CylinderDiameter(face),
+            Point2::ZERO,
+            &lines
+        ),
+        Err(AnnotationProblem::NotCylinder)
+    );
 }

@@ -3719,6 +3719,97 @@ fn a_diameter_dimension_keeps_its_sign_in_the_pdf_sheet() {
 }
 
 #[test]
+fn a_diameter_across_a_cylinders_outline_is_written_as_a_linear_dimension_with_its_sign() {
+    use caditor_document::{
+        AnnotationId, DimensionMeasure, DrawingDimension, DrawnLines, DrawnView, StandardView,
+    };
+    use caditor_kernel::ViewSource;
+
+    let pin = pin();
+    let mut drawing =
+        caditor_document::Drawing::new(caditor_document::DrawingId::from_raw(0), "Pin".to_owned());
+
+    drawing.views = [StandardView::Front].into_iter().collect();
+
+    let lines = sheet_lines(&drawing, &[&pin]);
+    let front_lines = &lines[0];
+    let outline = front_lines
+        .pieces
+        .iter()
+        .find_map(|piece| match piece.source {
+            ViewSource::Silhouette { name, .. } => Some(name),
+            ViewSource::Edge { .. } | ViewSource::Crossing { .. } => None,
+        })
+        .unwrap();
+    let front = DrawnView::Standard(StandardView::Front);
+
+    drawing.dimensions = vec![DrawingDimension {
+        id: AnnotationId::from_raw(0),
+        view: front,
+        measure: DimensionMeasure::CylinderDiameter(outline),
+        place: Point2::new(100.0, 30.0),
+        decimals: 2,
+        text_offset: 0.0,
+        tolerance: None,
+    }];
+
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let mut plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+
+    plan.annotate(
+        &drawing,
+        &DrawnLines::from([(front, front_lines)]),
+        &caditor_document::CalloutTexts::new(),
+    );
+
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .map(|placed| SheetView {
+            placed: *placed,
+            lines: front_lines,
+        })
+        .collect();
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("sheet.{}", format.extension()));
+
+    let written: Vec<SheetExported> = [SheetFormat::Dxf, SheetFormat::Svg]
+        .into_iter()
+        .map(|format| {
+            export_sheet(
+                &path(format),
+                &plan,
+                &views,
+                false,
+                format,
+                &CancelToken::never(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let dxf = std::fs::read_to_string(path(SheetFormat::Dxf)).unwrap();
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+
+    assert!(
+        written
+            .iter()
+            .all(|exported| exported.dimensions == 1 && exported.left_out == 0)
+    );
+    assert!(dxf.contains("\n  1\n%%c10\n"), "{dxf}");
+    assert!(dxf.contains("AcDbRotatedDimension"), "{dxf}");
+    assert!(!dxf.contains("AcDbDiametricDimension"), "{dxf}");
+    assert!(svg.contains(">\u{2300}10</text>"), "{svg}");
+}
+
+#[test]
 fn centre_marks_callouts_and_toleranced_values_are_written_in_every_sheet_format() {
     use caditor_document::{
         AnnotationId, CalloutLine, CalloutPiece, CalloutSymbol, CalloutTexts, CentreMark,

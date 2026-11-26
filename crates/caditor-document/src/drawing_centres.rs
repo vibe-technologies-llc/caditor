@@ -21,10 +21,10 @@ pub enum CentreGeometry {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Axis {
-    from: Point2,
-    to: Point2,
-    along: Vector2,
+pub(crate) struct Axis {
+    pub(crate) from: Point2,
+    pub(crate) to: Point2,
+    pub(crate) along: Vector2,
     offset: f64,
 }
 
@@ -81,7 +81,7 @@ fn outline_pieces(
     Ok(segments)
 }
 
-fn cylinder_axis(lines: &ViewLines, face: FaceName) -> Result<Axis, AnnotationProblem> {
+pub(crate) fn cylinder_axis(lines: &ViewLines, face: FaceName) -> Result<Axis, AnnotationProblem> {
     let segments = outline_pieces(lines, face)?;
 
     let along = segments

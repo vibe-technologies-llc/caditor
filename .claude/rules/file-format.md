@@ -31,9 +31,9 @@ paths:
   and constraint kind and entity flag, `pieces.caditor` holding trimmed and broken pieces with their
   `split_from`, a version history with a kept version and block-alignment padding, sliced
   content, a thread and a tapped hole carrying `modelled`, `reference-images.caditor` with a
-  picture shared by two images, `preview.caditor` with a model's preview picture, `drawings.caditor` with two drawings, `section-views.caditor` with section views, `detail-views.caditor` with detail views, `placed-views.caditor` with views placed by hand, `dimensions-and-notes.caditor` with drawing dimensions and notes, `centre-marks-callouts-and-tolerances.caditor` with centre marks, callouts and toleranced dimensions, `section-parameter-offsets.caditor` with a section offset naming a parameter), `journal-1/` (every journaled edit, apply, undo and redo whole and
+  picture shared by two images, `preview.caditor` with a model's preview picture, `drawings.caditor` with two drawings, `section-views.caditor` with section views, `detail-views.caditor` with detail views, `placed-views.caditor` with views placed by hand, `dimensions-and-notes.caditor` with drawing dimensions and notes, `centre-marks-callouts-and-tolerances.caditor` with centre marks, callouts and toleranced dimensions, `cylinder-diameters.caditor` with a diameter across a cylinder's outline, `section-parameter-offsets.caditor` with a section offset naming a parameter), `journal-1/` (every journaled edit, apply, undo and redo whole and
   by reference, a rebased snapshot, sliced content, `reference-images.journal` writing each
-  picture once, `drawings.journal`, `section-views.journal`, `detail-views.journal`, `placed-views.journal`, `dimensions-and-notes.journal`, `centre-marks-callouts-and-tolerances.journal`) and
+  picture once, `drawings.journal`, `section-views.journal`, `detail-views.journal`, `placed-views.journal`, `dimensions-and-notes.journal`, `centre-marks-callouts-and-tolerances.journal`, `cylinder-diameters.journal`) and
   `parameters-1/` (an exported parameter file). Committed as binary (`.gitattributes` `-text`), a few KiB each.
 - Write-once: a corpus file is never rewritten, regenerated or deleted. `KEPT` lists every file with
   the blake3 digest of a description of what it reads as (issues, records re-encoded by today's

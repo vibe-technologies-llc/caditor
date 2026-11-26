@@ -573,6 +573,7 @@ pub enum DimensionMeasure {
         first: EdgeName,
         second: EdgeName,
     },
+    CylinderDiameter(FaceName),
 }
 
 impl DimensionMeasure {
@@ -587,6 +588,7 @@ impl DimensionMeasure {
             Self::Radius(_) => "Radius",
             Self::Diameter(_) => "Diameter",
             Self::Angle { .. } => "Angle",
+            Self::CylinderDiameter(_) => "Cylinder diameter",
         }
     }
 
@@ -597,6 +599,7 @@ impl DimensionMeasure {
                 vec![first, second]
             }
             Self::Radius(edge) | Self::Diameter(edge) => vec![edge],
+            Self::CylinderDiameter(_) => Vec::new(),
         }
     }
 }

@@ -5,7 +5,7 @@ use std::{
 
 use caditor_expression::format_decimals;
 use caditor_geometry::{Aabb2, Point2, Vector2};
-use caditor_kernel::{Curve2, EdgeId, EdgeName, Interval, ViewSource};
+use caditor_kernel::{Curve2, EdgeId, EdgeName, FaceName, Interval, ViewSource};
 use caditor_sketch::annotation::{
     ARROW_LENGTH, ARROW_STUB, CIRCLE_LEADER_DIRECTION, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP,
     EXTENSION_OVERSHOOT, Footprint, LEADER_OVERSHOOT, LEADER_TEXT_GAP, Obstacles, RADIUS_PREFIX,
@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::{
     drawing_callouts::{CalloutTexts, sheet_callout},
-    drawing_centres::sheet_centre,
+    drawing_centres::{cylinder_axis, sheet_centre},
     drawing_sheet::{
         PlacedView, SheetMark, SheetPlan, SheetText, TextAnchor, line_pitch, text_width,
     },
@@ -68,9 +68,9 @@ pub enum AnnotationProblem {
     NoAngle,
     #[error("what it measures has shrunk to nothing")]
     Degenerate,
-    #[error("the outline it marks is no longer in this view")]
+    #[error("the outline it refers to is no longer in this view")]
     OutlineGone,
-    #[error("the face it marks no longer shows as a cylinder seen from the side in this view")]
+    #[error("the face it refers to no longer shows as a cylinder seen from the side in this view")]
     NotCylinder,
     #[error("the hole or thread it reads is no longer in the model")]
     FeatureGone,
@@ -87,8 +87,21 @@ pub enum DimensionRefusal {
          another view"
     )]
     Isometric,
-    #[error("only straight edges, arcs and circles seen round are measured")]
+    #[error(
+        "only straight edges, arcs, circles seen round and the outlines of cylinders seen from \
+         the side are measured"
+    )]
     Unmeasurable,
+    #[error(
+        "only a cylinder seen from the side, between two parallel outline lines, is measured \
+         across its outline"
+    )]
+    NotCylinder,
+    #[error(
+        "a cylinder's outline is measured only across to its own other outline line, for its \
+         diameter"
+    )]
+    OutlineAcross,
     #[error("{0}")]
     Problem(#[from] AnnotationProblem),
 }
@@ -457,7 +470,30 @@ pub fn dimension_geometry(
             straight_of(&seen_edge(lines, second)?)?,
             place,
         ),
+        DimensionMeasure::CylinderDiameter(face) => outline_diameter(lines, face, place),
     }
+}
+
+fn outline_diameter(
+    lines: &ViewLines,
+    face: FaceName,
+    place: Point2,
+) -> Result<DimensionGeometry, AnnotationProblem> {
+    let axis = cylinder_axis(lines, face)?;
+    let radius = lines
+        .cylinder_radii
+        .get(&face)
+        .copied()
+        .ok_or(AnnotationProblem::NotCylinder)?;
+
+    let at = clamped_on((axis.from, axis.to), place);
+    let across = axis.along.perp();
+    Ok(DimensionGeometry::Linear {
+        first: at - across * radius,
+        second: at + across * radius,
+        along: across,
+        value: 2.0 * radius,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -465,6 +501,54 @@ pub struct EdgePick {
     pub view: DrawnView,
     pub edge: EdgeName,
     pub at: Point2,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SeenLine {
+    Edge(EdgeName),
+    Outline(FaceName),
+}
+
+impl SeenLine {
+    fn of(source: ViewSource) -> Option<Self> {
+        match source {
+            ViewSource::Edge { name, .. } => Some(Self::Edge(name)),
+            ViewSource::Silhouette { name, .. } => Some(Self::Outline(name)),
+            ViewSource::Crossing { .. } => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LinePick {
+    pub view: DrawnView,
+    pub line: SeenLine,
+    pub at: Point2,
+}
+
+impl From<EdgePick> for LinePick {
+    fn from(pick: EdgePick) -> Self {
+        Self {
+            view: pick.view,
+            line: SeenLine::Edge(pick.edge),
+            at: pick.at,
+        }
+    }
+}
+
+pub fn seen_line(lines: &ViewLines, line: SeenLine) -> Vec<SeenEdge> {
+    match line {
+        SeenLine::Edge(name) => seen_edge(lines, name).into_iter().collect(),
+        SeenLine::Outline(_) => lines
+            .pieces
+            .iter()
+            .filter(|piece| SeenLine::of(piece.source) == Some(line))
+            .map(|piece| SeenEdge {
+                curve: piece.curve.clone(),
+                range: piece.range,
+            })
+            .collect(),
+    }
 }
 
 pub type DrawnLines<'a> = BTreeMap<DrawnView, &'a ViewLines>;
@@ -527,11 +611,44 @@ pub fn pick_edge(
     })
 }
 
+pub fn pick_line(
+    plan: &SheetPlan,
+    lines: &DrawnLines<'_>,
+    hidden: bool,
+    point: Point2,
+    reach: f64,
+) -> Option<LinePick> {
+    let (view, source, at) = nearest_piece(plan, lines, hidden, (point, reach), |source| {
+        SeenLine::of(*source).is_some()
+    })?;
+    Some(LinePick {
+        view,
+        line: SeenLine::of(source)?,
+        at,
+    })
+}
+
+fn across_outline(
+    measured: &ViewLines,
+    first: SeenLine,
+    second: SeenLine,
+) -> Result<DimensionMeasure, DimensionRefusal> {
+    let (SeenLine::Outline(face), true) = (first, first == second) else {
+        return Err(DimensionRefusal::OutlineAcross);
+    };
+
+    match outline_diameter(measured, face, Point2::ZERO) {
+        Ok(_) => Ok(DimensionMeasure::CylinderDiameter(face)),
+        Err(AnnotationProblem::NotCylinder) => Err(DimensionRefusal::NotCylinder),
+        Err(problem) => Err(problem.into()),
+    }
+}
+
 pub fn dimension_from_picks(
     drawing: &Drawing,
     lines: &DrawnLines<'_>,
-    first: EdgePick,
-    second: EdgePick,
+    first: LinePick,
+    second: LinePick,
     place: Point2,
 ) -> Result<DimensionMeasure, DimensionRefusal> {
     if first.view != second.view {
@@ -544,6 +661,21 @@ pub fn dimension_from_picks(
     let measured = lines
         .get(&measured_lines_of(drawing, first.view))
         .ok_or(AnnotationProblem::EdgeGone)?;
+
+    let (SeenLine::Edge(first_edge), SeenLine::Edge(second_edge)) = (first.line, second.line)
+    else {
+        return across_outline(measured, first.line, second.line);
+    };
+    let first = EdgePick {
+        view: first.view,
+        edge: first_edge,
+        at: first.at,
+    };
+    let second = EdgePick {
+        view: second.view,
+        edge: second_edge,
+        at: second.at,
+    };
     let one = seen_edge(measured, first.edge)?;
     let other = seen_edge(measured, second.edge)?;
 
@@ -799,7 +931,9 @@ fn affixes(measure: &DimensionMeasure) -> (String, String) {
             (String::new(), String::new())
         }
         DimensionMeasure::Radius(_) => (RADIUS_PREFIX.to_string(), String::new()),
-        DimensionMeasure::Diameter(_) => (DIAMETER_SIGN.to_string(), String::new()),
+        DimensionMeasure::Diameter(_) | DimensionMeasure::CylinderDiameter(_) => {
+            (DIAMETER_SIGN.to_string(), String::new())
+        }
         DimensionMeasure::Angle { .. } => (String::new(), DEGREE_SIGN.to_string()),
     }
 }

@@ -1,9 +1,9 @@
 use caditor_document::{
     Annotation, AnnotationId, CentreMark, DEFAULT_DIMENSION_DECIMALS, DimensionMeasure,
     DimensionRefusal, Drawing, DrawingCallout, DrawingDimension, DrawingNote, DrawnLines,
-    DrawnView, EdgePick, FeatureId, MAX_NOTE_CHARS, NoteLeader, SheetPlan, callout_feature,
-    dimension_from_picks, is_measured_view, measured_lines_of, new_centres, note_place,
-    pick_centre, pick_edge, view_place,
+    DrawnView, EdgePick, FeatureId, LinePick, MAX_NOTE_CHARS, NoteLeader, SheetPlan,
+    callout_feature, dimension_from_picks, is_measured_view, measured_lines_of, new_centres,
+    note_place, pick_centre, pick_edge, pick_line, view_place,
 };
 use caditor_geometry::Point2;
 use egui::{Id, Key, KeyboardShortcut, Modifiers, Response, TextEdit, Ui};
@@ -43,22 +43,24 @@ pub const MOVE_DIMENSION: &str = "Move dimension";
 pub const MOVE_NOTE: &str = "Move note";
 pub const DELETE_DIMENSION: &str = "Delete dimension";
 pub const DELETE_NOTE: &str = "Delete note";
-pub const FIRST_EDGE: &str = "Click an edge of a view to dimension it: a straight edge, an arc or \
-                              a circle.";
+pub const FIRST_EDGE: &str = "Click an edge of a view to dimension it: a straight edge, an arc, a \
+                              circle or the outline of a cylinder seen from the side.";
 pub const SECOND_EDGE: &str = "Click a second edge of the same view, or the same edge again for \
-                               its length, radius or diameter.";
+                               its length, radius or diameter; across a cylinder's outline, click \
+                               its other outline line for its diameter.";
 pub const PLACE_DIMENSION: &str = "Click where the dimension line stands.";
 pub const NOTE_PLACE: &str = "Click where the note stands on the sheet.";
 pub const NOTE_TEXT: &str = "Type the note (Shift+Enter starts a new line), click an edge to point \
                              a leader at it if you like, then Place the note or press Enter.";
 const NOTE_ROWS: usize = 2;
 const NO_EDGE: &str = "There is no edge of a view there. Click on an edge's line.";
+const NO_LINE: &str = "There is no edge or outline of a view there. Click on one of its lines.";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SheetTool {
     Dimension {
-        first: Option<EdgePick>,
-        second: Option<EdgePick>,
+        first: Option<LinePick>,
+        second: Option<LinePick>,
         replacing: Option<AnnotationId>,
     },
     Note {
@@ -137,13 +139,17 @@ impl SheetTool {
         true
     }
 
-    pub fn picks(&self) -> Vec<EdgePick> {
+    pub fn picks(&self) -> Vec<LinePick> {
         match self {
             Self::Dimension { first, second, .. } => first.iter().chain(second).copied().collect(),
-            Self::Note { leader, .. } => leader.iter().copied().collect(),
-            Self::Callout { pick } => pick.iter().map(|(pick, _)| *pick).collect(),
+            Self::Note { leader, .. } => leader.iter().copied().map(LinePick::from).collect(),
+            Self::Callout { pick } => pick.iter().map(|(pick, _)| (*pick).into()).collect(),
             Self::Centre => Vec::new(),
         }
+    }
+
+    pub fn picks_outlines(&self) -> bool {
+        matches!(self, Self::Dimension { .. })
     }
 
     pub fn places(&self) -> bool {
@@ -180,10 +186,20 @@ impl ToolContext<'_> {
         )
     }
 
+    fn pick_line(&self, point: Point2, reach: f64) -> Option<LinePick> {
+        pick_line(
+            self.plan,
+            &self.lines(),
+            self.drawing.hidden_lines,
+            point,
+            reach,
+        )
+    }
+
     fn measure(
         &self,
-        first: EdgePick,
-        second: EdgePick,
+        first: LinePick,
+        second: LinePick,
         point: Point2,
     ) -> Result<(DimensionMeasure, Point2), DimensionRefusal> {
         let place = self
@@ -326,8 +342,8 @@ pub fn clicked(
         SheetTool::Dimension {
             first: first @ None,
             ..
-        } => match context.pick(point, reach) {
-            None => say(actions, NO_EDGE.to_owned()),
+        } => match context.pick_line(point, reach) {
+            None => say(actions, NO_LINE.to_owned()),
             Some(pick) if !is_measured_view(context.drawing, pick.view) => say(
                 actions,
                 "The isometric view is not drawn true to size, so nothing is measured in it. \
@@ -340,8 +356,8 @@ pub fn clicked(
             first: Some(first),
             second,
             ..
-        } => match context.pick(point, reach) {
-            None => say(actions, NO_EDGE.to_owned()),
+        } => match context.pick_line(point, reach) {
+            None => say(actions, NO_LINE.to_owned()),
             Some(pick) => match context.measure(*first, pick, point) {
                 Ok(_) => *second = Some(pick),
                 Err(refusal) => say(actions, format!("That cannot be dimensioned: {refusal}.")),
