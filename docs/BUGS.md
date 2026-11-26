@@ -180,10 +180,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   and a gear's centre (`Drag` carries a point or a radius): a text keeps its angle and height and a
   gear its rotation and module, so a selection turned a quarter turn leaves its text reading the
   old way at a new place. Found by reading, not run.
-- [low · medium] Two splines lying along each other are cut at many close crossings by trim and
-  break: overlap runs (`intersect.rs`) are found only against a line, arc or circle, and an overlap
-  shorter than two sample steps (about 1/128 of the spline) is still searched as crossings, so it
-  can give a few close cuts.
+- [low · medium] Two splines sharing a stretch shorter than two sample steps of both (about 1/128
+  of each) are still searched as crossings by trim and break (`intersect::spline_spline`), so they
+  are cut where their polylines cross: two cubics with equal knots sharing the four control points
+  of one short span, and parting from it without crossing, are not cut there at all. A stretch
+  long on either spline, such as a short copy of a piece of a long one, is met at its ends.
 - [low · medium] A sketch's entity adders (`add_point` and the other infallible ones) still count
   into the unstorable range once the id counter reaches `FIRST_UNSTORABLE_ID`: only
   `add_constraint`, `add_text` and `add_parametric_gear` refuse as `SketchError::IdsExhausted`, and

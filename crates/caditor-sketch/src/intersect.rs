@@ -723,7 +723,22 @@ struct Foot {
 
 struct ChordMeetings {
     starts: Vec<(f64, f64)>,
-    seeds: Vec<Option<f64>>,
+    seeds_on_second: Vec<Option<f64>>,
+    seeds_on_first: Vec<Option<f64>>,
+}
+
+fn nearest_feet(feet: Vec<Option<Foot>>) -> Vec<Option<f64>> {
+    feet.into_iter()
+        .map(|foot| foot.map(|foot| foot.parameter))
+        .collect()
+}
+
+fn keep_nearer(feet: &mut [Option<Foot>], sample: usize, foot: Foot) {
+    if let Some(nearest) = feet.get_mut(sample)
+        && nearest.is_none_or(|known| foot.squared < known.squared)
+    {
+        *nearest = Some(foot);
+    }
 }
 
 fn foot_on_chord(
@@ -748,7 +763,8 @@ fn chord_meetings(
     tolerance: f64,
 ) -> ChordMeetings {
     let mut starts = Vec::new();
-    let mut feet: Vec<Option<Foot>> = vec![None; along_first.len()];
+    let mut feet_on_second: Vec<Option<Foot>> = vec![None; along_first.len()];
+    let mut feet_on_first: Vec<Option<Foot>> = vec![None; along_second.len()];
 
     tally::add(along_first.len() * along_second.len());
 
@@ -758,7 +774,7 @@ fn chord_meetings(
         };
 
         let (low, high) = (a0.min(a1), a0.max(a1));
-        for second_pair in along_second.windows(2) {
+        for (other, second_pair) in along_second.windows(2).enumerate() {
             let &[(t0, b0), (t1, b1)] = second_pair else {
                 continue;
             };
@@ -771,12 +787,18 @@ fn chord_meetings(
             }
 
             for (sample, point) in [(index, a0), (index + 1, a1)] {
-                let foot = foot_on_chord(((t0, b0), (t1, b1)), point);
-                if let Some(nearest) = feet.get_mut(sample)
-                    && nearest.is_none_or(|known| foot.squared < known.squared)
-                {
-                    *nearest = Some(foot);
-                }
+                keep_nearer(
+                    &mut feet_on_second,
+                    sample,
+                    foot_on_chord(((t0, b0), (t1, b1)), point),
+                );
+            }
+            for (sample, point) in [(other, b0), (other + 1, b1)] {
+                keep_nearer(
+                    &mut feet_on_first,
+                    sample,
+                    foot_on_chord(((s0, a0), (s1, a1)), point),
+                );
             }
 
             let Some((along, across)) = segment_fractions(a0, a1, b0, b1) else {
@@ -796,10 +818,8 @@ fn chord_meetings(
     }
     ChordMeetings {
         starts,
-        seeds: feet
-            .into_iter()
-            .map(|foot| foot.map(|foot| foot.parameter))
-            .collect(),
+        seeds_on_second: nearest_feet(feet_on_second),
+        seeds_on_first: nearest_feet(feet_on_first),
     }
 }
 
@@ -819,14 +839,7 @@ fn spline_overlaps(
                 .distance(point)
         })
     };
-    let seed_of = |sample: usize| seeds.get(sample).copied().flatten();
-
-    let value = |parameter: f64| {
-        let below = along_first
-            .partition_point(|(sampled, _)| *sampled <= parameter)
-            .saturating_sub(1);
-        gap(parameter, seed_of(below).or_else(|| seed_of(below + 1)))
-    };
+    let value = |parameter: f64| gap(parameter, seed_near(along_first, seeds, parameter));
     let sampled: Vec<(f64, f64)> = along_first
         .iter()
         .zip(seeds)
@@ -836,11 +849,30 @@ fn spline_overlaps(
     overlaps_in(&sampled, &value, tolerance)
 }
 
+fn seed_near(along: &[(f64, Point2)], seeds: &[Option<f64>], parameter: f64) -> Option<f64> {
+    let seed_of = |sample: usize| seeds.get(sample).copied().flatten();
+    let below = along
+        .partition_point(|(sampled, _)| *sampled <= parameter)
+        .saturating_sub(1);
+    seed_of(below).or_else(|| seed_of(below + 1))
+}
+
 pub(crate) fn spline_spline(first: &BSpline, second: &BSpline, tolerance: f64) -> Vec<Point2> {
     let (along_first, along_second) = (sampled_spline(first), sampled_spline(second));
 
     let meetings = chord_meetings(&along_first, &along_second, tolerance);
-    let overlaps = spline_overlaps((first, &along_first), second, &meetings.seeds, tolerance);
+    let overlaps = spline_overlaps(
+        (first, &along_first),
+        second,
+        &meetings.seeds_on_second,
+        tolerance,
+    );
+    let cutter_overlaps = spline_overlaps(
+        (second, &along_second),
+        first,
+        &meetings.seeds_on_first,
+        tolerance,
+    );
 
     let cutter_ends = [second.point_at(0.0), second.point_at(1.0)];
     let at_a_cutter_end = |point: Point2| {
@@ -855,8 +887,40 @@ pub(crate) fn spline_spline(first: &BSpline, second: &BSpline, tolerance: f64) -
         .map(|parameter| at_a_cutter_end(first.point_at(parameter)))
         .collect();
 
+    let [cutter_start, cutter_end] = cutter_ends;
+
+    let cutter_is_open = cutter_start.distance(cutter_end) > tolerance;
+    let cutter_run_ends = cutter_overlaps.iter().flat_map(|overlap| {
+        if cutter_is_open {
+            vec![overlap.from, overlap.to]
+        } else {
+            overlap.parted_ends().collect()
+        }
+    });
+
+    for parameter in cutter_run_ends {
+        let point = second.point_at(parameter);
+        let Some(seed) = seed_near(&along_second, &meetings.seeds_on_first, parameter) else {
+            continue;
+        };
+
+        tally::add(CLOSEST_REFINEMENTS + found.len());
+
+        let on_first = settled_closest(first, point, seed);
+        let new = !overlaps.iter().any(|overlap| overlap.swallows(on_first))
+            && found.iter().all(|known| known.distance(point) > tolerance);
+        if new {
+            found.push(point);
+        }
+    }
+
     for start in meetings.starts {
-        if overlaps.iter().any(|overlap| overlap.swallows(start.0)) {
+        let swallowed = overlaps.iter().any(|overlap| overlap.swallows(start.0))
+            || cutter_overlaps
+                .iter()
+                .any(|overlap| overlap.swallows(start.1));
+
+        if swallowed {
             continue;
         }
 

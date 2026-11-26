@@ -446,7 +446,12 @@ relative to the extent.
     (`chord_meetings`), its ends bisected and moved onto the other spline's end within the
     tolerance, and the polyline crossings inside it dropped before they are refined. A run
     reaching the spline's own end or seam is no cut, so a closed spline lying all along another
-    is cut by neither (as a circle on a circle) and falls back to the axes. Without this the
+    is cut by neither (as a circle on a circle) and falls back to the axes. The runs are looked
+    for along both splines, the same chord pass seeding the other's samples, since a stretch
+    shorter than two sample steps of one can be long on the other (a short copy of a piece is all
+    run on itself): a run along the other spline cuts this one at its parted ends and, the other
+    being open, at its own ends, unless a run along this spline already holds that place, and
+    the crossings it holds (by their parameter on the other) are dropped. Without this the
     near-parallel polylines crossed once per sample interval, thousands of cuts each costing a
     closest-point search: two equal offsets of a closed spline took 30 million `tally` units and
     1.5 seconds to trim, now about 10.7 million (the chord pairs of the crossing search) and

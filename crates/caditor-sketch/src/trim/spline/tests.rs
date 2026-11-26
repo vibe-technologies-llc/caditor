@@ -2,8 +2,10 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    BSpline, Constraint, Entity, EntityId, ExtendError, FitSpacing, Side, Sketch, Solved,
-    SplineKind, TrimError, Trimmed, intersect::closest_spline_parameter, solve::tally,
+    BSpline, BreakError, Constraint, Entity, EntityId, ExtendError, FitSpacing, Side, Sketch,
+    Solved, SplineKind, TrimError, Trimmed,
+    intersect::{closest_spline_parameter, spline_spline},
+    solve::tally,
 };
 
 const EXACT: f64 = 1e-9;
@@ -793,4 +795,124 @@ fn an_open_spline_lying_along_part_of_another_cuts_it_where_they_part() {
         "cut at {} instead of {parted}",
         cut.position
     );
+}
+
+fn bump() -> [Point2; 4] {
+    [
+        at(0.0, 0.0),
+        at(30.0, 60.0),
+        at(170.0, 20.0),
+        at(200.0, 0.0),
+    ]
+}
+
+const SHORT_PIECE: (f64, f64) = (0.4, 0.4 + 1.0 / 300.0);
+
+fn bezier_piece(points: [Point2; 4], (from, to): (f64, f64)) -> Vec<Point2> {
+    let blossom = |arguments: [f64; 3]| {
+        let mut level = points.to_vec();
+
+        for argument in arguments {
+            level = level
+                .windows(2)
+                .map(|pair| pair[0] + (pair[1] - pair[0]) * argument)
+                .collect();
+        }
+        level[0]
+    };
+    vec![
+        blossom([from, from, from]),
+        blossom([from, from, to]),
+        blossom([from, to, to]),
+        blossom([to, to, to]),
+    ]
+}
+
+#[test]
+fn a_copy_of_a_piece_of_a_spline_meets_it_only_at_the_ends_of_the_copy() {
+    let long = BSpline::clamped(bump().to_vec()).unwrap();
+    let tolerance = 1e-7 * 300.0;
+
+    for piece in [SHORT_PIECE, (0.2, 0.7)] {
+        let copy = BSpline::clamped(bezier_piece(bump(), piece)).unwrap();
+
+        let on_long = spline_spline(&long, &copy, tolerance);
+        let on_copy = spline_spline(&copy, &long, tolerance);
+
+        assert_eq!(on_long.len(), 2, "{piece:?}: {on_long:?}");
+
+        for end in [copy.point_at(0.0), copy.point_at(1.0)] {
+            assert!(
+                on_long.iter().any(|point| point.distance(end) < EXACT),
+                "{piece:?}: {end} not in {on_long:?}"
+            );
+        }
+
+        assert!(on_copy.is_empty(), "{piece:?}: {on_copy:?}");
+    }
+}
+
+#[test]
+fn a_short_copy_lying_on_a_spline_costs_about_what_a_crossing_spline_does() {
+    let long = BSpline::clamped(bump().to_vec()).unwrap();
+    let copy = BSpline::clamped(bezier_piece(bump(), SHORT_PIECE)).unwrap();
+    let across = BSpline::clamped(vec![at(100.0, -10.0), at(90.0, 30.0), at(110.0, 60.0)]).unwrap();
+    let tolerance = 1e-7 * 300.0;
+
+    let (_, along_work) = tally::measure(|| spline_spline(&long, &copy, tolerance));
+    let (crossed, across_work) = tally::measure(|| spline_spline(&long, &across, tolerance));
+
+    assert_eq!(crossed.len(), 1);
+    assert!(
+        along_work < across_work * 3 / 2,
+        "{along_work} units along against {across_work} across"
+    );
+}
+
+#[test]
+fn a_short_copy_of_a_piece_of_a_spline_trims_and_breaks_it_only_at_the_ends_of_the_copy() {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let long = sketch.add_spline_of(&bump(), SplineKind::Control { closed: false });
+    let copy = sketch.add_spline_of(
+        &bezier_piece(bump(), SHORT_PIECE),
+        SplineKind::Control { closed: false },
+    );
+    let copied = sketch.spline(copy).unwrap();
+    let (start, end) = (copied.point_at(0.0), copied.point_at(1.0));
+
+    let pieces = sketch.trim_pieces(long).unwrap();
+    let copy_pieces = sketch.trim_pieces(copy).unwrap();
+
+    assert_eq!(pieces.len(), 3, "{pieces:?}");
+    assert_eq!(pieces[1].cutters(), vec![copy]);
+    assert!(pieces[1].start.unwrap().position.distance(start) < 1e-6);
+    assert!(pieces[1].end.unwrap().position.distance(end) < 1e-6);
+
+    assert_eq!(copy_pieces.len(), 1);
+    assert!(copy_pieces[0].is_whole());
+
+    assert!(matches!(
+        sketch.break_curve(copy),
+        Err(BreakError::NoCrossing { .. })
+    ));
+
+    let broken = sketch.break_curve(long).unwrap();
+
+    assert_eq!(broken.len(), 2, "{broken:?}");
+
+    let ends_of = |spline: EntityId| {
+        let curve = sketch.spline(spline).unwrap();
+        (curve.point_at(0.0), curve.point_at(1.0))
+    };
+    let (first_start, first_end) = ends_of(long);
+    let (middle_start, middle_end) = ends_of(broken[0]);
+    let (last_start, last_end) = ends_of(broken[1]);
+
+    assert!(first_start.distance(bump()[0]) < EXACT);
+    assert!(first_end.distance(start) < 1e-6);
+    assert!(middle_start.distance(start) < 1e-6);
+    assert!(middle_end.distance(end) < 1e-6);
+    assert!(last_start.distance(end) < 1e-6);
+    assert!(last_end.distance(bump()[3]) < EXACT);
 }
