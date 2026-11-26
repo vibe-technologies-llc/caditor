@@ -16,7 +16,9 @@ use thiserror::Error;
 use crate::{
     drawing_callouts::{CalloutTexts, sheet_callout},
     drawing_centres::sheet_centre,
-    drawing_sheet::{PlacedView, SheetMark, SheetPlan, SheetText, TextAnchor, text_width},
+    drawing_sheet::{
+        PlacedView, SheetMark, SheetPlan, SheetText, TextAnchor, line_pitch, text_width,
+    },
     drawing_views::ViewLines,
     drawings::{
         Annotation, DetailParent, DimensionDirection, DimensionMeasure, DimensionTolerance,
@@ -1265,17 +1267,28 @@ fn leader_target(
     Some(seen_edge(view_lines, leader.edge).map(|traced| placed.on_sheet(traced.middle())))
 }
 
+fn note_lines(note: &DrawingNote, at: Point2, height: f64) -> Vec<SheetText> {
+    let pitch = line_pitch(height);
+
+    note.text
+        .split('\n')
+        .enumerate()
+        .filter(|(_, line)| !line.is_empty())
+        .map(|(index, line)| SheetText {
+            at: at - Vector2::new(0.0, pitch * index as f64),
+            height,
+            content: line.to_owned(),
+            anchor: TextAnchor::Middle,
+            angle: 0.0,
+        })
+        .collect()
+}
+
 fn sheet_note(note: &DrawingNote, plan: &SheetPlan, lines: &DrawnLines<'_>) -> SheetAnnotation {
     let height = NOTE_TEXT_HEIGHT;
     let at = note_on_sheet(plan, note.at);
 
-    let text = SheetText {
-        at,
-        height,
-        content: note.text.clone(),
-        anchor: TextAnchor::Middle,
-        angle: 0.0,
-    };
+    let texts = note_lines(note, at, height);
     let mut marks = Vec::new();
     let mut problem = None;
 
@@ -1299,7 +1312,7 @@ fn sheet_note(note: &DrawingNote, plan: &SheetPlan, lines: &DrawnLines<'_>) -> S
     SheetAnnotation {
         annotation: Annotation::Note(note.id),
         marks,
-        texts: vec![text],
+        texts,
         measure: None,
         problem,
     }

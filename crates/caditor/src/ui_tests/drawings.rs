@@ -1008,6 +1008,54 @@ fn a_note_is_placed_typed_and_pointed_at_an_edge() {
 }
 
 #[test]
+fn a_note_takes_a_new_line_on_shift_enter_and_is_placed_by_enter() {
+    let mut harness = drawn_plate_in_view();
+
+    run_from_palette(&mut harness, Command::DrawingNote.title().as_str());
+    harness.frame();
+
+    let corner = plan(&harness).view_area.min() + Vector2::new(30.0, 30.0);
+
+    click_sheet(&mut harness, corner);
+    harness.frame();
+
+    harness.read_screen();
+
+    harness.type_text("Break all edges");
+    harness.hold(Modifiers::SHIFT);
+    harness.key(Key::Enter, Modifiers::SHIFT);
+    harness.frame();
+    harness.hold(Modifiers::NONE);
+    harness.frame();
+    harness.type_text("Paint grey");
+
+    assert!(harness.has_button(PLACE_NOTE));
+    assert!(drawn(&harness).notes.is_empty());
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    harness.read_screen();
+
+    let notes = drawn(&harness).notes;
+
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].text, "Break all edges\nPaint grey");
+    assert!(!harness.has_button(PLACE_NOTE));
+
+    let laid = plan(&harness)
+        .annotation(Annotation::Note(notes[0].id))
+        .cloned()
+        .unwrap();
+
+    assert_eq!(laid.texts.len(), 2);
+    assert_eq!(laid.texts[0].content, "Break all edges");
+    assert_eq!(laid.texts[1].content, "Paint grey");
+    assert!(laid.texts[1].at.y < laid.texts[0].at.y);
+}
+
+#[test]
 fn a_dimension_whose_edge_is_gone_says_why_in_the_panel_and_is_deleted_there() {
     let mut harness = drawn_plate_in_view();
 

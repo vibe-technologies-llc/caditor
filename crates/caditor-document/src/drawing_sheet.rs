@@ -29,6 +29,7 @@ const CELL_INSET: f64 = 1.5;
 const CAPTION_INSET: f64 = 1.0;
 const CAPTION_GAP: f64 = 1.0;
 const ESTIMATED_WIDTH_PER_HEIGHT: f64 = 0.75;
+const ESTIMATED_LINE_PITCH_PER_HEIGHT: f64 = 1.6;
 const SYMBOL_DIAMETER: f64 = 5.0;
 const SYMBOL_LENGTH: f64 = 5.0;
 const SYMBOL_GAP: f64 = 2.5;
@@ -291,6 +292,12 @@ pub fn text_width(content: &str, height: f64) -> f64 {
         |_| ESTIMATED_WIDTH_PER_HEIGHT * content.chars().count() as f64,
         |laid| laid.width,
     );
+    height * per_height
+}
+
+pub fn line_pitch(height: f64) -> f64 {
+    let per_height = lettered("\n", Style::default(), Alignment::Left)
+        .map_or(ESTIMATED_LINE_PITCH_PER_HEIGHT, |laid| laid.line_pitch);
     height * per_height
 }
 

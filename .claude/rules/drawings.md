@@ -102,8 +102,8 @@ lines, never a picture of the 3D view.
   counter at least the one it had, and `Drawing::same_content` (so `Drawings::same_content`)
   ignores it. At most `MAX_ANNOTATIONS` together; an id repeated, a dimension's `place` past
   `MAX_DETAIL_EXTENT` or not finite, its `text_offset` past `MAX_TEXT_OFFSET`, `decimals` past
-  `MAX_DIMENSION_DECIMALS`, a note's text empty or past `MAX_NOTE_CHARS` (`note_text` makes it one
-  trimmed line in `normalized`) or its `at` past `MAX_VIEW_PLACE` are refused in words.
+  `MAX_DIMENSION_DECIMALS`, a note's text empty or past `MAX_NOTE_CHARS` (`note_text` trims each line,
+  collapses its spaces and drops blank lines at either end and doubled ones inside, in `normalized`) or its `at` past `MAX_VIEW_PLACE` are refused in words.
 - A dimension is a `view` (`DrawnView`), a `measure` (`DimensionMeasure`: `Linear` between two
   `EdgePoint`s, an edge's `EdgeSpot` `Start`, `End` or `Centre`, `Horizontal`, `Vertical` or
   `Aligned` (`DimensionDirection`); `Parallel` between two straight edges; `Radius` or `Diameter`
@@ -113,7 +113,7 @@ lines, never a picture of the 3D view.
   parent), `decimals` (the most shown, trailing zeros dropped) and `text_offset` (sheet millimetres
   along its line). Edges are referred to by `EdgeName` alone, never by position, so a dimension
   follows edits as features do. A dimension whose view is gone is kept, not dropped: it shows as
-  lost. A note is `text`, `at` (sheet millimetres from the view area's middle, like a position) and
+  lost. A note is `text` (lines joined by `\n`), `at` (sheet millimetres from the view area's middle, like a position) and
   an optional `NoteLeader` (a view and an `EdgeName`).
 - A dimension's optional `tolerance` (`DimensionTolerance`): `Symmetric` (±, above zero),
   `Deviations` or `Limits` (an upper and a lower deviation, upper above lower), or `Fit` (an
@@ -195,8 +195,10 @@ lines, never a picture of the 3D view.
   bounds, `distance_to`, picking and export follow, and the DXF dimension's text point is the
   moved value's. A lost dimension is laid out at its place as a short line and its
   value as `?` (`R?`, `⌀?`, `?°`), with the problem; one whose view lines are still being worked
-  out is left off until they are. A note stands at its place; a leader runs from a shoulder beside
-  the text to the middle of its edge with an arrowhead, or is left out with the problem when the
+  out is left off until they are. A note stands at its place: each non-blank line is its own `SheetText`, centred on
+  the place's x, the first at the place and each next one `line_pitch(NOTE_TEXT_HEIGHT)` (the
+  lettering's pitch) lower, a blank line only leaving a gap; a leader runs from a shoulder beside
+  the first line, past the block's widest line, to the middle of its edge with an arrowhead, or is left out with the problem when the
   edge is gone.
 - A tolerance is laid out with the value (`value_lines`, `ValueLines`): plus or minus and a fit
   without deviations on the value's line (`20 ±0.1`, `⌀10 H7`); deviations stacked beside it at
@@ -366,11 +368,11 @@ lines, never a picture of the 3D view.
   is `id`, `view` (as positions write it), `measure` (`linear` with `from` and `to`, each `edge` as
   hex and `spot` key, and `direction` key; `parallel` or `angle` with `first` and `second`;
   `radius` or `diameter` with the edge), `place` (two numbers), `decimals` and `text_offset` (when
-  not zero); a note `id`, `text`, `at` and `leader` (when any: `view` and `edge`). Loading leaves
+  not zero); a note `id`, `text` (a newline stays one in the JSON string, so a one-line note reads as before and an older reader flattens a several-line one to one line), `at` and `leader` (when any: `view` and `edge`). Loading leaves
   out, with one report per drawing and kind, a record unreadable, with a repeated id, an unknown
   view or measure, an unreadable edge or a place out of range, an empty note or one out of range,
   and those past `MAX_ANNOTATIONS`; more decimals than the most are cut to it, an unknown direction
-  is aligned, an overlong note is cut, an unreadable leader dropped (each reported); a dimension in
+  is aligned, an overlong note is cut (each line tidied by `note_text`), an unreadable leader dropped (each reported); a dimension in
   a view the drawing lacks is kept, shown lost. `next_annotation` becomes at least the first free
   id. The corpus holds `model-1/dimensions-and-notes.caditor` and
   `journal-1/dimensions-and-notes.journal`.
@@ -473,7 +475,8 @@ lines, never a picture of the 3D view.
   Re-attach (the panel) runs it with `replacing`, keeping the dimension's id, decimals and offset,
   and ends after one. The note tool takes a click for its place, focuses the Note text field under
   the toolbar, takes a click on an edge as its leader (elsewhere moves the note) and is placed by
-  Place the note or Enter as one Add note change. Escape steps the tool back, then ends it
+  Place the note or Enter as one Add note change; its field is multi-line, Shift+Enter starting a
+  new line (`note_text_edit`, shared with the panel's note editor). Escape steps the tool back, then ends it
   (`SheetCanvas::let_go`, also from the sheet view's Escape).
 - A click without a tool picks the annotation under it before a view (`annotation_at`), shown with
   a solid outline round its bounds; a drag on one moves it (Move dimension, Move note); with it

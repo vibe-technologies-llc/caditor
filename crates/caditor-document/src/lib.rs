@@ -172,7 +172,8 @@ pub use crate::{
     },
     drawing_sheet::{
         PlacedView, SheetMark, SheetPlan, SheetText, TITLE_BLOCK_HEIGHT, TITLE_BLOCK_WIDTH,
-        TextAnchor, TitleFields, VIEW_GAP, ViewMovement, lay_out_sheet, sheet_size, text_width,
+        TextAnchor, TitleFields, VIEW_GAP, ViewMovement, lay_out_sheet, line_pitch, sheet_size,
+        text_width,
     },
     drawing_views::{
         Disc, DrawingViewError, DrawnBodies, HatchRegion, SectionLines, ViewLines, drawing_view,

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use caditor_expression::Expression;
-use caditor_geometry::{Plane, Point2, Point3, Vector2};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2};
 use caditor_kernel::{Curve2, EdgeName, ViewSource};
 use caditor_sketch::{
     Sketch,
@@ -783,6 +783,84 @@ fn a_note_points_its_leader_at_its_edge_and_says_when_the_edge_is_gone() {
     );
     assert_eq!(lost.problem, Some(AnnotationProblem::EdgeGone));
     assert!(lost.marks.is_empty());
+}
+
+#[test]
+fn a_note_of_several_lines_is_laid_out_line_under_line_beside_its_leader() {
+    let pair = pair();
+    let mut drawing = front_only(plate_drawing(&pair));
+
+    let lines = lines_of(&pair.document, &drawing, StandardView::Front);
+    let at = Point2::new(-60.0, 40.0);
+
+    drawing.notes = vec![
+        DrawingNote {
+            id: AnnotationId::from_raw(0),
+            text: "Break all edges\nand\n\nPaint grey".into(),
+            at,
+            leader: Some(NoteLeader {
+                view: front(StandardView::Front),
+                edge: top_edge(&lines),
+            }),
+        },
+        DrawingNote {
+            id: AnnotationId::from_raw(1),
+            text: "Break all edges".into(),
+            at,
+            leader: Some(NoteLeader {
+                view: front(StandardView::Front),
+                edge: top_edge(&lines),
+            }),
+        },
+    ];
+
+    let plan = annotated(&drawing, &lines);
+    let several = &plan.annotations[0];
+    let single = &plan.annotations[1];
+    let first = note_on_sheet(&plan, at);
+    let pitch = line_pitch(NOTE_TEXT_HEIGHT);
+
+    assert_eq!(several.problem, None);
+    assert_eq!(several.texts.len(), 3);
+    assert_eq!(several.texts[0].content, "Break all edges");
+    assert_eq!(several.texts[1].content, "and");
+    assert_eq!(several.texts[2].content, "Paint grey");
+    assert_eq!(several.texts[0].at, first);
+    assert!(near(several.texts[1].at.y, first.y - pitch));
+    assert!(near(several.texts[2].at.y, first.y - 3.0 * pitch));
+    assert!(
+        several
+            .texts
+            .iter()
+            .all(|text| near(text.at.x, first.x) && text.height == NOTE_TEXT_HEIGHT)
+    );
+    assert!(pitch > NOTE_TEXT_HEIGHT);
+
+    let bounds = several.bounds().unwrap();
+    let last_corners = text_corners(&several.texts[2]);
+
+    assert!(
+        text_corners(&several.texts[0])
+            .iter()
+            .chain(&last_corners)
+            .all(|corner| bounds.contains(*corner))
+    );
+
+    let block = Aabb2::from_points(several.texts.iter().flat_map(text_corners)).unwrap();
+
+    assert!(near(block.size().y, 3.0 * pitch + NOTE_TEXT_HEIGHT));
+    assert!(bounds.contains(block.min()) && bounds.contains(block.max()));
+    assert!(several.distance_to(last_corners[0]) < 1e-9);
+    assert_eq!(several.content(), "Break all edges and Paint grey");
+    assert_eq!(several.marks, single.marks);
+}
+
+#[test]
+fn note_text_keeps_its_lines_and_tidies_each() {
+    assert_eq!(note_text("  A   b \r\n  C  "), "A b\nC");
+    assert_eq!(note_text("\n\nA\n \n\n\nB\n\n"), "A\n\nB");
+    assert_eq!(note_text(" \n \t "), "");
+    assert_eq!(note_text("Break all edges"), "Break all edges");
 }
 
 #[test]

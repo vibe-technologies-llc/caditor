@@ -4,10 +4,10 @@ use caditor_document::{
     Annotation, AnnotationId, CalloutLine, CentreTarget, DetailParent, DetailScale, DetailView,
     DimensionDirection, DimensionMeasure, DimensionTolerance, Document, Drawing, DrawingDimension,
     DrawingId, DrawingScale, DrawingViewError, DrawnView, FIT_GRADES, FeatureId, FitLetter, IsoFit,
-    MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_FIT_SIZE, MAX_NOTE_CHARS,
-    MAX_TEXT_OFFSET, MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane,
-    SectionView, SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction,
-    callout_lines, callout_texts, deviation_text, dimension_problem, lay_out_sheet,
+    MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_FIT_SIZE, MAX_TEXT_OFFSET,
+    MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
+    SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction, callout_lines,
+    callout_texts, deviation_text, dimension_problem, lay_out_sheet,
 };
 use caditor_expression::{Dimension, Expression, format_decimals};
 use caditor_geometry::Point2;
@@ -2017,16 +2017,12 @@ fn note_editing_row(
         ui.memory_mut(|memory| memory.request_focus(field_id));
     }
     ui.horizontal(|ui| {
-        let field = widgets::text_field(ui, |ui| {
-            ui.add(
-                TextEdit::singleline(text)
-                    .id(field_id)
-                    .char_limit(MAX_NOTE_CHARS)
-                    .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
-            )
-        });
-        let field = widgets::named(field, &format!("Text of note {}", number(id)));
-        let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+        let (field, enter) = sheet_tools::note_text_edit(
+            ui,
+            field_id,
+            text,
+            &format!("Text of note {}", number(id)),
+        );
 
         cancelled = widgets::escape_cancels(ui, &field);
         done = widgets::icon_button(ui, icons::DONE, "Keep the note's new text").clicked() || enter;
@@ -2078,7 +2074,10 @@ fn note_rows(
         ui.horizontal(|ui| {
             widgets::label_before_icon_buttons(
                 ui,
-                &format!("Note {number}: \u{201c}{}\u{201d}", note.text),
+                &format!(
+                    "Note {number}: \u{201c}{}\u{201d}",
+                    note.text.replace('\n', " / ")
+                ),
                 buttons,
             );
             if widgets::icon_button(

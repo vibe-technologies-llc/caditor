@@ -3299,7 +3299,7 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
     ];
     drawing.notes = vec![DrawingNote {
         id: AnnotationId::from_raw(2),
-        text: "Deburr".to_owned(),
+        text: "Deburr\nPaint grey".to_owned(),
         at: Point2::new(100.0, 60.0),
         leader: Some(NoteLeader {
             view: front,
@@ -3311,18 +3311,22 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
         .iter()
         .filter_map(|lines| Some((lines.view, lines.bounds?)))
         .collect();
-    let mut plan = caditor_document::lay_out_sheet(
-        &drawing,
-        &caditor_document::TitleFields::default(),
-        &extents,
-        &BTreeMap::new(),
-    );
+    let laid_out = |drawing: &caditor_document::Drawing| {
+        let mut plan = caditor_document::lay_out_sheet(
+            drawing,
+            &caditor_document::TitleFields::default(),
+            &extents,
+            &BTreeMap::new(),
+        );
 
-    plan.annotate(
-        &drawing,
-        &DrawnLines::from([(front, front_lines)]),
-        &caditor_document::CalloutTexts::new(),
-    );
+        plan.annotate(
+            drawing,
+            &DrawnLines::from([(front, front_lines)]),
+            &caditor_document::CalloutTexts::new(),
+        );
+        plan
+    };
+    let plan = laid_out(&drawing);
 
     let views: Vec<SheetView<'_>> = plan
         .views
@@ -3364,14 +3368,49 @@ fn dimensions_and_notes_are_written_in_every_sheet_format_and_a_lost_one_is_left
     );
     assert!(svg.contains(">40</text>"), "{svg}");
     assert!(svg.contains(">Deburr</text>"), "{svg}");
+    assert!(svg.contains(">Paint grey</text>"), "{svg}");
     assert!(!svg.contains(">R?</text>"), "{svg}");
     assert!(
         dxf.contains("DIMENSION\n100\nAcDbEntity\n  8\nAnnotations"),
         "{dxf}"
     );
     assert!(dxf.contains("\n  1\n40\n"), "{dxf}");
+    assert!(dxf.contains("\n  1\nDeburr\n"), "{dxf}");
+    assert!(dxf.contains("\n  1\nPaint grey\n"), "{dxf}");
     assert!(dxf.contains("\n  2\nAnnotations\n"), "{dxf}");
     assert!(pdf_text.contains("0.25 w [] 0 d"));
+
+    let mut one_line = drawing.clone();
+
+    if let Some(note) = one_line.notes.first_mut() {
+        note.text = "Deburr".to_owned();
+    }
+
+    let one_plan = laid_out(&one_line);
+    let one_views: Vec<SheetView<'_>> = one_plan
+        .views
+        .iter()
+        .map(|placed| SheetView {
+            placed: *placed,
+            lines: front_lines,
+        })
+        .collect();
+    let one_path = folder.path().join("one-line.pdf");
+
+    export_sheet(
+        &one_path,
+        &one_plan,
+        &one_views,
+        false,
+        SheetFormat::Pdf,
+        &CancelToken::never(),
+    )
+    .unwrap();
+
+    let one_pdf = std::fs::read(&one_path).unwrap();
+    let fills = |bytes: &[u8]| String::from_utf8_lossy(bytes).matches("\nf\n").count();
+
+    assert_eq!(fills(&pdf), fills(&one_pdf) + 1);
 }
 
 #[test]

@@ -675,7 +675,20 @@ pub struct DrawingNote {
 }
 
 pub fn note_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut lines: Vec<String> = Vec::new();
+
+    for line in text.lines() {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        let repeats_gap = line.is_empty() && lines.last().is_none_or(String::is_empty);
+
+        if !repeats_gap {
+            lines.push(line);
+        }
+    }
+    if lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines.join("\n")
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]

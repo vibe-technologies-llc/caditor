@@ -144,8 +144,11 @@ dashed in the error colour with a question mark for its value, and the panel say
 
 {command:model.drawing_note} (or **Add a note** above the sheet) writes a note: click where it
 stands, type it, click an edge if a leader should point at it, then **Place the note** (or Enter).
-A note is one line of up to 200 characters. In the panel its text can be changed, its leader
-removed and the note deleted; a note whose edge is gone keeps its text and the panel says so.
+A note holds up to 200 characters over as many lines as you like: Shift+Enter starts a new line and
+Enter places the note (or keeps the new text in the panel). Its lines stand one under the other,
+centred on the note's place with the leader beside the first line, and are exported the same way
+to PDF, SVG and DXF. In the panel its text can be changed, its leader removed and the note
+deleted; a note whose edge is gone keeps its text and the panel says so.
 
 ## Centre marks and centrelines
 

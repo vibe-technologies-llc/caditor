@@ -757,6 +757,41 @@ fn dimensions_and_notes_survive_saving_and_the_journal() {
 }
 
 #[test]
+fn a_note_of_several_lines_keeps_its_newlines_through_saving_and_the_journal() {
+    let (mut document, base, _) = solid_model();
+    let mut drawings = annotated_drawings_of(base);
+
+    if let Some(note) = drawings
+        .drawings
+        .first_mut()
+        .and_then(|drawing| drawing.notes.first_mut())
+    {
+        note.text = "Break all\nsharp edges\n\nPaint grey".to_owned();
+    }
+
+    let change = Transaction::single(
+        "Several lines",
+        Edit::SetDrawings {
+            drawings: Box::new(drawings),
+        },
+    );
+
+    document.apply(change.clone()).unwrap();
+
+    let loaded = decode_text(&encode(&document).unwrap());
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        loaded.document.drawings().drawings[0].notes[0].text,
+        "Break all\nsharp edges\n\nPaint grey"
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+}
+
+#[test]
 fn drawings_saved_before_dimensions_load_with_none() {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/model-1");
 
@@ -832,7 +867,7 @@ fn dimensions_and_notes_that_cannot_be_read_are_left_out_and_reported() {
         }
     );
     assert_eq!(shop.notes.len(), 1);
-    assert_eq!(shop.notes[0].text, "Keep dry");
+    assert_eq!(shop.notes[0].text, "Keep\ndry");
     assert_eq!(shop.notes[0].leader, None);
     assert_eq!(shop.next_annotation, 11);
     assert!(issues_mention(

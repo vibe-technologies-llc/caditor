@@ -198,8 +198,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   texture symbols (ISO 21920) and weld symbols (ISO 2553).
 - [low · medium] Drawing dimensions refer to edges only (`drawings.md`): the outline a curved face
   shows in a view (a cylinder seen from the side) is named by its face and drawn twice, so a
-  diameter across it cannot be taken there; notes are one line, and dimensions do not dodge each
-  other as sketch export's lanes do.
+  diameter across it cannot be taken there, and dimensions do not dodge each other as sketch
+  export's lanes do.
 
 ## Application
 

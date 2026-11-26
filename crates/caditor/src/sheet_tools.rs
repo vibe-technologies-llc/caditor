@@ -6,7 +6,7 @@ use caditor_document::{
     pick_centre, pick_edge, view_place,
 };
 use caditor_geometry::Point2;
-use egui::{Id, Key, TextEdit, Ui};
+use egui::{Id, Key, KeyboardShortcut, Modifiers, Response, TextEdit, Ui};
 
 use crate::{
     icons,
@@ -49,8 +49,9 @@ pub const SECOND_EDGE: &str = "Click a second edge of the same view, or the same
                                its length, radius or diameter.";
 pub const PLACE_DIMENSION: &str = "Click where the dimension line stands.";
 pub const NOTE_PLACE: &str = "Click where the note stands on the sheet.";
-pub const NOTE_TEXT: &str = "Type the note, click an edge to point a leader at it if you like, \
-                             then Place the note.";
+pub const NOTE_TEXT: &str = "Type the note (Shift+Enter starts a new line), click an edge to point \
+                             a leader at it if you like, then Place the note or press Enter.";
+const NOTE_ROWS: usize = 2;
 const NO_EDGE: &str = "There is no edge of a view there. Click on an edge's line.";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -551,6 +552,27 @@ pub fn note_field_id() -> Id {
     Id::unique("drawing note text")
 }
 
+pub fn note_text_edit(ui: &mut Ui, id: Id, text: &mut String, name: &str) -> (Response, bool) {
+    let newline = KeyboardShortcut::new(Modifiers::SHIFT, Key::Enter);
+
+    let field = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::multiline(text)
+                .id(id)
+                .return_key(newline)
+                .desired_rows(NOTE_ROWS)
+                .char_limit(MAX_NOTE_CHARS)
+                .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
+        )
+    });
+    let field = widgets::named(field, name);
+
+    let entered = (field.has_focus() || field.lost_focus())
+        && ui.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
+
+    (field, entered)
+}
+
 pub enum ToolRow {
     Kept,
     Stopped,
@@ -581,17 +603,9 @@ pub fn tool_row(
             ui.memory_mut(|memory| memory.request_focus(field_id));
         }
         ui.horizontal(|ui| {
-            let field = widgets::text_field(ui, |ui| {
-                ui.add(
-                    TextEdit::singleline(text)
-                        .id(field_id)
-                        .char_limit(MAX_NOTE_CHARS)
-                        .desired_width(ui.available_width() - 2.0 * ui.spacing().interact_size.y),
-                )
-            });
-            let field = widgets::named(field, NOTE_FIELD);
+            let (field, entered) = note_text_edit(ui, field_id, text, NOTE_FIELD);
 
-            placed = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+            placed = entered;
             if widgets::escape_cancels(ui, &field) {
                 outcome = ToolRow::Stopped;
             }
