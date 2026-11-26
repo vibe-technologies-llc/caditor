@@ -158,7 +158,7 @@ pub use crate::{
     },
     drawing_details::detail_view,
     drawing_dimensions::{
-        AngleRay, AnnotationProblem, DEVIATION_TEXT_HEIGHT, DIMENSION_TEXT_HEIGHT,
+        AngleRay, AnnotationProblem, ArcSpan, DEVIATION_TEXT_HEIGHT, DIMENSION_TEXT_HEIGHT,
         DimensionGeometry, DimensionRefusal, DrawnLines, EdgePick, MINUS_SIGN, NOTE_TEXT_HEIGHT,
         PLUS_MINUS_SIGN, SeenEdge, SheetAnnotation, SheetMeasure, ValueLines, deviation_text,
         dimension_from_picks, dimension_geometry, dimension_problem, is_measured_view,

@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    f64::consts::{FRAC_PI_2, PI},
+    f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
 use caditor_expression::format_decimals;
@@ -8,8 +8,8 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_kernel::{Curve2, EdgeId, EdgeName, Interval, ViewSource};
 use caditor_sketch::annotation::{
     ARROW_LENGTH, ARROW_STUB, CIRCLE_LEADER_DIRECTION, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP,
-    EXTENSION_OVERSHOOT, LEADER_OVERSHOOT, LEADER_TEXT_GAP, RADIUS_PREFIX, SpanEnd, SpanLayout,
-    TEXT_LIFT, arrow_fits, arrowhead, extension_line, readable_angle,
+    EXTENSION_OVERSHOOT, Footprint, LEADER_OVERSHOOT, LEADER_TEXT_GAP, Obstacles, RADIUS_PREFIX,
+    SpanEnd, SpanLayout, TEXT_LIFT, arrow_fits, arrowhead, extension_line, readable_angle,
 };
 use thiserror::Error;
 
@@ -39,6 +39,11 @@ const ROUND_SHARE: f64 = 1e-6;
 const FULL_TURN_SLACK: f64 = 1e-6;
 const BROKEN_REACH: f64 = 2.0;
 const LEADER_SHOULDER: f64 = 1.0;
+pub(crate) const LABEL_CLEARANCE: f64 = 0.5;
+const LABEL_CELL: f64 = 4.0;
+const SLIDES: [f64; 4] = [0.5, -0.5, 1.0, -1.0];
+const LEADER_TURN: f64 = PI / 12.0;
+const LEADER_TURNS: usize = 12;
 const UNKNOWN_VALUE: &str = "?";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -129,6 +134,30 @@ impl SeenEdge {
 
     pub fn is_whole_circle(&self) -> bool {
         self.round().is_some() && self.is_full_turn()
+    }
+
+    pub(crate) fn seen_arc(&self, centre: Point2) -> Option<ArcSpan> {
+        if self.is_full_turn() {
+            return None;
+        }
+
+        let angle_at = |parameter: f64| {
+            let toward = self.curve.point(parameter) - centre;
+            toward.y.atan2(toward.x)
+        };
+        let start = angle_at(self.range.start());
+        let middle = angle_at(self.range.middle());
+        let end = angle_at(self.range.end());
+
+        let sweep = (end - start).rem_euclid(TAU);
+        Some(if (middle - start).rem_euclid(TAU) <= sweep {
+            ArcSpan { start, sweep }
+        } else {
+            ArcSpan {
+                start: end,
+                sweep: TAU - sweep,
+            }
+        })
     }
 
     fn spot(&self, spot: EdgeSpot) -> Result<Point2, AnnotationProblem> {
@@ -224,6 +253,18 @@ pub struct AngleRay {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArcSpan {
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl ArcSpan {
+    pub fn holds(&self, angle: f64) -> bool {
+        (angle - self.start).rem_euclid(TAU) <= self.sweep
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DimensionGeometry {
     Linear {
         first: Point2,
@@ -235,6 +276,7 @@ pub enum DimensionGeometry {
         centre: Point2,
         radius: f64,
         diameter: bool,
+        arc: Option<ArcSpan>,
     },
     Angle {
         vertex: Point2,
@@ -401,13 +443,13 @@ pub fn dimension_geometry(
             place,
         ),
         DimensionMeasure::Radius(edge) | DimensionMeasure::Diameter(edge) => {
-            let (centre, radius) = seen_edge(lines, edge)?
-                .round()
-                .ok_or(AnnotationProblem::NotRound)?;
+            let seen = seen_edge(lines, edge)?;
+            let (centre, radius) = seen.round().ok_or(AnnotationProblem::NotRound)?;
             Ok(DimensionGeometry::Radial {
                 centre,
                 radius,
                 diameter: matches!(measure, DimensionMeasure::Diameter(_)),
+                arc: seen.seen_arc(centre),
             })
         }
         DimensionMeasure::Angle { first, second } => angle(
@@ -899,12 +941,68 @@ struct Laid {
     measure: SheetMeasure,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Dodge {
+    Kept,
+    Slid(f64),
+    OtherEnd,
+    Turned(f64),
+}
+
+impl Dodge {
+    fn tried(geometry: &DimensionGeometry) -> Vec<Self> {
+        match geometry {
+            DimensionGeometry::Linear { .. } | DimensionGeometry::Angle { .. } => SLIDES
+                .into_iter()
+                .map(Self::Slid)
+                .chain([Self::OtherEnd])
+                .collect(),
+            DimensionGeometry::Radial { .. } => (1..=LEADER_TURNS)
+                .flat_map(|step| {
+                    let turn = step as f64 * LEADER_TURN;
+                    [Self::Turned(turn), Self::Turned(-turn)]
+                })
+                .collect(),
+        }
+    }
+
+    fn slide(self) -> f64 {
+        match self {
+            Self::Slid(slide) => slide,
+            Self::Kept | Self::OtherEnd | Self::Turned(_) => 0.0,
+        }
+    }
+
+    fn turn(self) -> f64 {
+        match self {
+            Self::Turned(turn) => turn,
+            Self::Kept | Self::Slid(_) | Self::OtherEnd => 0.0,
+        }
+    }
+
+    fn value_end(self, toward: SpanEnd) -> SpanEnd {
+        match (self, toward) {
+            (Self::OtherEnd, SpanEnd::Start) => SpanEnd::End,
+            (Self::OtherEnd, SpanEnd::End) => SpanEnd::Start,
+            (Self::Kept | Self::Slid(_) | Self::Turned(_), _) => toward,
+        }
+    }
+
+    fn along_span(self, layout: &SpanLayout, value_width: f64, height: f64) -> f64 {
+        let room = match layout.value_outside {
+            Some(_) => 0.0,
+            None => ((layout.length - value_width) / 2.0 - LABEL_CLEARANCE * height).max(0.0),
+        };
+        layout.value + room * self.slide()
+    }
+}
+
 fn linear_on_sheet(
     (first, second): (Point2, Point2),
     along: Vector2,
     place: Point2,
     value: &ValueLines,
-    text_offset: f64,
+    (text_offset, dodge): (f64, Dodge),
 ) -> Option<Laid> {
     let height = DIMENSION_TEXT_HEIGHT;
     let normal = along.perp();
@@ -931,17 +1029,19 @@ fn linear_on_sheet(
     let text_along = Vector2::from_angle(angle);
 
     let rightward = (place - (start + end) / 2.0).dot(text_along) > -DEGENERATE;
+    let width = value.width();
+
     let layout = SpanLayout::new(
         start.distance(end),
-        value.width(),
+        width,
         height,
-        SpanEnd::reading(span, rightward),
+        dodge.value_end(SpanEnd::reading(span, rightward)),
     );
 
     marks.extend(lines_of(layout.straight(start, span, height)));
 
     let at = start
-        + span * layout.value
+        + span * dodge.along_span(&layout, width, height)
         + text_along * text_offset
         + text_along.perp() * TEXT_LIFT * height;
     Some(Laid {
@@ -957,16 +1057,24 @@ fn linear_on_sheet(
 }
 
 fn radial_on_sheet(
-    (centre, radius): (Point2, f64),
+    (centre, radius, arc): (Point2, f64, Option<ArcSpan>),
     diameter: bool,
     place: Point2,
     value: &ValueLines,
-    text_offset: f64,
-) -> Laid {
+    (text_offset, dodge): (f64, Dodge),
+) -> Option<Laid> {
     let height = DIMENSION_TEXT_HEIGHT;
-    let toward = (place - centre)
+    let placed_toward = (place - centre)
         .try_normalize()
         .unwrap_or(CIRCLE_LEADER_DIRECTION);
+    let toward = Vector2::from_angle(dodge.turn()).rotate(placed_toward);
+
+    let off_the_arc = arc.is_some_and(|arc| !arc.holds(toward.y.atan2(toward.x)));
+
+    if dodge != Dodge::Kept && off_the_arc {
+        return None;
+    }
+
     let on_curve = centre + toward * radius;
     let out = (place - centre)
         .length()
@@ -1002,11 +1110,11 @@ fn radial_on_sheet(
     };
 
     marks.extend(lines_of(arrowhead(on_curve, outward, height)));
-    Laid {
+    Some(Laid {
         marks,
         texts: value.texts(at, 0.0),
         measure,
-    }
+    })
 }
 
 fn angle_on_sheet(
@@ -1015,7 +1123,7 @@ fn angle_on_sheet(
     sweep: f64,
     place: Point2,
     value: &ValueLines,
-    text_offset: f64,
+    (text_offset, dodge): (f64, Dodge),
 ) -> Laid {
     let height = DIMENSION_TEXT_HEIGHT;
     let radius = vertex.distance(place).max(2.0 * height);
@@ -1023,18 +1131,20 @@ fn angle_on_sheet(
     let end = start + sweep;
 
     let towards_end = (place - vertex).dot(Vector2::from_angle(start + sweep / 2.0).perp());
+    let width = value.width();
+
     let layout = SpanLayout::new(
         radius * sweep,
-        value.width(),
+        width,
         height,
-        if towards_end > -DEGENERATE {
+        dodge.value_end(if towards_end > -DEGENERATE {
             SpanEnd::End
         } else {
             SpanEnd::Start
-        },
+        }),
     );
 
-    let middle = layout.value_angle(radius, start) + text_offset / radius;
+    let middle = start + (dodge.along_span(&layout, width, height) + text_offset) / radius;
     let (from_angle, to_angle) = layout.swept(radius, start);
 
     let mut marks = vec![SheetMark::Arc {
@@ -1098,10 +1208,12 @@ fn on_sheet_of(placed: &PlacedView, geometry: DimensionGeometry) -> DimensionGeo
             centre,
             radius,
             diameter,
+            arc,
         } => DimensionGeometry::Radial {
             centre: placed.on_sheet(centre),
             radius: radius * scale,
             diameter,
+            arc,
         },
         DimensionGeometry::Angle {
             vertex,
@@ -1127,6 +1239,7 @@ fn laid_dimension(
     dimension: &DrawingDimension,
     geometry: DimensionGeometry,
     placed: &PlacedView,
+    dodge: Dodge,
 ) -> Option<Laid> {
     let value = value_lines(
         &dimension.measure,
@@ -1135,7 +1248,7 @@ fn laid_dimension(
         dimension.tolerance,
     );
     let place = placed.on_sheet(dimension.place);
-    let offset = dimension.text_offset;
+    let offset = (dimension.text_offset, dodge);
 
     match on_sheet_of(placed, geometry) {
         DimensionGeometry::Linear {
@@ -1148,13 +1261,8 @@ fn laid_dimension(
             centre,
             radius,
             diameter,
-        } => Some(radial_on_sheet(
-            (centre, radius),
-            diameter,
-            place,
-            &value,
-            offset,
-        )),
+            arc,
+        } => radial_on_sheet((centre, radius, arc), diameter, place, &value, offset),
         DimensionGeometry::Angle {
             vertex,
             first,
@@ -1169,6 +1277,55 @@ fn laid_dimension(
             offset,
         )),
     }
+}
+
+fn label_footprint(text: &SheetText) -> Footprint {
+    let [first, others @ ..] = text_corners(text);
+
+    let (low, high) = others
+        .into_iter()
+        .fold((first, first), |(low, high), corner| {
+            (low.min(corner), high.max(corner))
+        });
+    Footprint {
+        center: (low + high) / 2.0,
+        half: (high - low) / 2.0 + Vector2::splat(LABEL_CLEARANCE * DIMENSION_TEXT_HEIGHT / 2.0),
+    }
+}
+
+fn clear_of(labels: &Obstacles, texts: &[SheetText]) -> bool {
+    texts
+        .iter()
+        .all(|text| labels.overlap(&label_footprint(text)) <= 0.0)
+}
+
+fn add_labels(labels: &mut Obstacles, laid: &SheetAnnotation) {
+    for text in &laid.texts {
+        labels.add(label_footprint(text));
+    }
+}
+
+fn value_placed_by_hand(dimension: &DrawingDimension) -> bool {
+    dimension.text_offset != 0.0
+}
+
+fn dodged(
+    dimension: &DrawingDimension,
+    geometry: DimensionGeometry,
+    placed: &PlacedView,
+    labels: &Obstacles,
+) -> Option<Laid> {
+    let kept = laid_dimension(dimension, geometry, placed, Dodge::Kept)?;
+
+    if value_placed_by_hand(dimension) || clear_of(labels, &kept.texts) {
+        return Some(kept);
+    }
+
+    let clear = Dodge::tried(&geometry)
+        .into_iter()
+        .filter_map(|dodge| laid_dimension(dimension, geometry, placed, dodge))
+        .find(|laid| clear_of(labels, &laid.texts));
+    Some(clear.unwrap_or(kept))
 }
 
 fn broken_dimension(
@@ -1222,14 +1379,14 @@ pub fn dimension_problem(
 fn sheet_dimension(
     drawing: &Drawing,
     dimension: &DrawingDimension,
-    plan: &SheetPlan,
-    lines: &DrawnLines<'_>,
+    (plan, lines): (&SheetPlan, &DrawnLines<'_>),
+    labels: &Obstacles,
 ) -> Option<SheetAnnotation> {
     let placed = plan.placed(dimension.view)?;
     let outcome = dimension_problem(drawing, dimension, lines)?;
 
     let laid = outcome.and_then(|geometry| {
-        laid_dimension(dimension, geometry, placed).ok_or(AnnotationProblem::Degenerate)
+        dodged(dimension, geometry, placed, labels).ok_or(AnnotationProblem::Degenerate)
     });
 
     Some(match laid {
@@ -1325,11 +1482,6 @@ impl SheetPlan {
             .iter()
             .filter_map(|centre| sheet_centre(drawing, centre, self, lines))
             .collect();
-        let dimensions: Vec<SheetAnnotation> = drawing
-            .dimensions
-            .iter()
-            .filter_map(|dimension| sheet_dimension(drawing, dimension, self, lines))
-            .collect();
         let notes: Vec<SheetAnnotation> = drawing
             .notes
             .iter()
@@ -1339,6 +1491,31 @@ impl SheetPlan {
             .callouts
             .iter()
             .map(|callout| sheet_callout(drawing, callout, self, lines, callouts))
+            .collect();
+
+        let mut labels = Obstacles::new(LABEL_CELL * DIMENSION_TEXT_HEIGHT);
+
+        for laid in notes.iter().chain(&laid_callouts) {
+            add_labels(&mut labels, laid);
+        }
+
+        let mut by_id: Vec<&DrawingDimension> = drawing.dimensions.iter().collect();
+
+        by_id.sort_by_key(|dimension| dimension.id);
+
+        let mut laid_dimensions = BTreeMap::new();
+
+        for dimension in by_id {
+            if let Some(laid) = sheet_dimension(drawing, dimension, (&*self, lines), &labels) {
+                add_labels(&mut labels, &laid);
+                laid_dimensions.insert(dimension.id, laid);
+            }
+        }
+
+        let dimensions: Vec<SheetAnnotation> = drawing
+            .dimensions
+            .iter()
+            .filter_map(|dimension| laid_dimensions.remove(&dimension.id))
             .collect();
 
         self.annotations = centres

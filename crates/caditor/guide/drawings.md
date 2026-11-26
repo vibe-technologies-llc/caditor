@@ -108,6 +108,12 @@ beside the arrow on the side where you placed the dimension, above the line draw
 angle's arc too short does the same along the arc, and a circle too small for an arrow inside it
 takes its arrows from outside.
 
+Values keep clear of each other. Where a dimension's value would fall on a note, a callout or the
+value of a dimension added before it, the value slides along its line, moves to the other end of a
+short one, or a radius or diameter swings its leader round the circle (staying on an arc), until it
+stands clear; the dimension line stays where you placed it. When nothing clears, the value stays
+as placed, and a value you moved with **Value along** always stays where you put it.
+
 {command:model.drawing_dimension} (or **Add a dimension** above the sheet) dimensions edges of a
 front, top, right, left, section or detail view; the isometric view is not drawn true to size, so
 nothing is measured in it. Click an edge, then a second one, then where the dimension line stands:
@@ -123,7 +129,8 @@ The value shows trailing zeros left off, in millimetres. A placed dimension stay
 or use the arrow keys (Shift for larger steps) to move it, Delete to remove it, and Escape to let
 it go. **Annotations** in the panel lists them, each with **Measures** (horizontal, vertical or
 straight; radius or diameter), **Tolerance**, **Decimals** (the most it shows), **Value along**
-(how far the value stands from the middle of its line, in sheet millimetres), **Re-attach** and
+(how far the value stands from the middle of its line, in sheet millimetres; at 0 the value keeps
+clear of others by itself), **Re-attach** and
 **Delete**. A dimension stands in its view's own model lengths, so it moves with its view.
 
 **Tolerance** says how far the made size may stray from a length, radius or diameter, written as

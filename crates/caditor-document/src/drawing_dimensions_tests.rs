@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector2};
-use caditor_kernel::{Curve2, EdgeName, ViewSource};
+use caditor_kernel::{Circle2, Curve2, EdgeName, Interval, ViewSource};
 use caditor_sketch::{
     Sketch,
     annotation::{ARROW_CLEARANCE, ARROW_LENGTH, ARROW_STUB, VALUE_CLEARANCE},
@@ -10,6 +10,7 @@ use caditor_sketch::{
 
 use crate::{
     combine_tests::{Pair, block, evaluate, pair},
+    drawing_dimensions::LABEL_CLEARANCE,
     *,
 };
 
@@ -88,9 +89,13 @@ fn front(view: StandardView) -> DrawnView {
 }
 
 fn annotated(drawing: &Drawing, lines: &ViewLines) -> SheetPlan {
-    let extents = BTreeMap::from([(front(StandardView::Front), lines.bounds.unwrap())]);
+    annotated_in(drawing, StandardView::Front, lines)
+}
+
+fn annotated_in(drawing: &Drawing, view: StandardView, lines: &ViewLines) -> SheetPlan {
+    let extents = BTreeMap::from([(front(view), lines.bounds.unwrap())]);
     let mut plan = lay_out_sheet(drawing, &TitleFields::default(), &extents, &BTreeMap::new());
-    let drawn = DrawnLines::from([(front(StandardView::Front), lines)]);
+    let drawn = DrawnLines::from([(front(view), lines)]);
 
     plan.annotate(drawing, &drawn, &CalloutTexts::new());
     plan
@@ -1127,4 +1132,251 @@ fn tolerances_out_of_range_reversed_or_a_fit_on_an_angle_are_refused() {
         )
         .is_ok()
     );
+}
+
+fn bars_drawing(spans: &[(f64, f64)]) -> (Drawing, ViewLines) {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+
+    let bars = spans
+        .iter()
+        .enumerate()
+        .map(|(index, &(from, to))| {
+            block(
+                &mut transaction,
+                &format!("Bar {index}"),
+                (from, 0.0),
+                (to, 10.0),
+                "4 mm",
+            )
+        })
+        .collect();
+
+    document.apply(transaction.finish()).unwrap();
+
+    let mut drawing = front_only(Drawing::new(DrawingId::from_raw(0), "Drawing 1".into()));
+
+    drawing.bodies = bars;
+    drawing.scale = DrawingScale::Ratio(ScaleRatio::new(1, 1));
+
+    let lines = lines_of(&document, &drawing, StandardView::Front);
+    (drawing, lines)
+}
+
+fn edge_along(lines: &ViewLines, level: f64, (from, to): (f64, f64)) -> EdgeName {
+    edge_where(lines, |start, end| {
+        near(start.y, level)
+            && near(end.y, level)
+            && near(start.x.min(end.x), from)
+            && near(start.x.max(end.x), to)
+    })
+}
+
+fn laid_of(plan: &SheetPlan, id: u64) -> &SheetAnnotation {
+    plan.annotation(Annotation::Dimension(AnnotationId::from_raw(id)))
+        .unwrap()
+}
+
+fn value_of(plan: &SheetPlan, id: u64) -> &SheetText {
+    &laid_of(plan, id).texts[0]
+}
+
+fn gap_between(first: &SheetText, second: &SheetText) -> f64 {
+    let bounds = |text: &SheetText| Aabb2::from_points(text_corners(text)).unwrap();
+    let (first, second) = (bounds(first), bounds(second));
+
+    (first.min() - second.max())
+        .max(second.min() - first.max())
+        .max_element()
+}
+
+fn clearance() -> f64 {
+    LABEL_CLEARANCE * DIMENSION_TEXT_HEIGHT
+}
+
+fn stacked_lengths() -> (Drawing, ViewLines) {
+    let (mut drawing, lines) = bars_drawing(&[(0.0, 40.0)]);
+
+    let top = edge_along(&lines, 4.0, (0.0, 40.0));
+    let bottom = edge_along(&lines, 0.0, (0.0, 40.0));
+
+    drawing.dimensions = vec![
+        dimension(0, length_of(top), Point2::new(20.0, 9.0)),
+        dimension(1, length_of(bottom), Point2::new(20.0, 10.0)),
+    ];
+    (drawing, lines)
+}
+
+fn without_first(drawing: &Drawing) -> Drawing {
+    let mut alone = drawing.clone();
+
+    alone.dimensions.remove(0);
+    alone
+}
+
+#[test]
+fn parallel_dimensions_whose_values_would_overlap_slide_the_later_value_clear_along_its_line() {
+    let (drawing, lines) = stacked_lengths();
+
+    let plan = annotated(&drawing, &lines);
+    let unmoved = annotated(&without_first(&drawing), &lines);
+
+    let first = value_of(&plan, 0);
+    let second = value_of(&plan, 1);
+    let would = value_of(&unmoved, 1);
+
+    assert!(gap_between(first, would) < clearance());
+    assert!(gap_between(first, second) >= clearance() - 1e-9);
+    assert_eq!(second.at.y, would.at.y);
+    assert!(second.at.x > would.at.x);
+    assert_eq!(laid_of(&plan, 1).marks, laid_of(&unmoved, 1).marks);
+    assert_eq!(laid_of(&plan, 1).measure, laid_of(&unmoved, 1).measure);
+    assert_eq!(
+        plan.annotation_at(second.at, 0.1),
+        Some(Annotation::Dimension(AnnotationId::from_raw(1)))
+    );
+}
+
+#[test]
+fn a_short_dimension_whose_outside_value_would_fall_on_a_neighbours_takes_the_other_end() {
+    let (mut drawing, lines) = bars_drawing(&[(0.0, 2.0), (12.0, 14.0)]);
+
+    let near_bar = edge_along(&lines, 4.0, (0.0, 2.0));
+    let far_bar = edge_along(&lines, 4.0, (12.0, 14.0));
+
+    drawing.dimensions = vec![
+        dimension(0, length_of(far_bar), Point2::new(10.0, 9.0)),
+        dimension(1, length_of(near_bar), Point2::new(4.0, 9.0)),
+    ];
+
+    let plan = annotated(&drawing, &lines);
+    let unmoved = annotated(&without_first(&drawing), &lines);
+    let placed = *plan.placed(front(StandardView::Front)).unwrap();
+
+    let neighbour = value_of(&plan, 0);
+    let value = value_of(&plan, 1);
+    let would = value_of(&unmoved, 1);
+
+    assert!(would.at.x > placed.on_sheet(Point2::new(2.0, 0.0)).x);
+    assert!(gap_between(neighbour, would) < clearance());
+    assert!(value.at.x < placed.on_sheet(Point2::ZERO).x);
+    assert!(gap_between(neighbour, value) >= clearance() - 1e-9);
+    assert_eq!(value.at.y, would.at.y);
+    assert_eq!(laid_of(&plan, 1).measure, laid_of(&unmoved, 1).measure);
+}
+
+#[test]
+fn a_value_moved_along_by_hand_stays_where_it_was_put_even_on_another() {
+    let (mut drawing, lines) = stacked_lengths();
+
+    drawing.dimensions[1].text_offset = 1.0;
+
+    let plan = annotated(&drawing, &lines);
+    let unmoved = annotated(&without_first(&drawing), &lines);
+
+    assert_eq!(laid_of(&plan, 1), laid_of(&unmoved, 1));
+    assert!(gap_between(value_of(&plan, 0), value_of(&plan, 1)) < clearance());
+}
+
+#[test]
+fn dimensions_dodge_in_the_order_of_their_ids_whatever_the_list_order() {
+    let (drawing, lines) = stacked_lengths();
+    let mut reversed = drawing.clone();
+
+    reversed.dimensions.reverse();
+
+    let plan = annotated(&drawing, &lines);
+    let again = annotated(&drawing, &lines);
+    let turned_round = annotated(&reversed, &lines);
+
+    assert_eq!(plan.annotations, again.annotations);
+    for id in [0, 1] {
+        assert_eq!(laid_of(&plan, id), laid_of(&turned_round, id));
+    }
+}
+
+#[test]
+fn a_diameter_whose_value_would_fall_on_a_note_turns_its_leader_round_the_circle() {
+    let (document, disc) = disc_document();
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+
+    drawing.bodies = vec![disc];
+    drawing.views = [StandardView::Top].into_iter().collect();
+
+    let top = lines_of(&document, &drawing, StandardView::Top);
+    let circle = top
+        .pieces
+        .iter()
+        .find_map(|piece| match (piece.source, &piece.curve) {
+            (ViewSource::Edge { name, .. }, Curve2::Circle(_)) => Some(name),
+            _ => None,
+        })
+        .unwrap();
+
+    drawing.dimensions = vec![DrawingDimension {
+        view: front(StandardView::Top),
+        ..dimension(
+            1,
+            DimensionMeasure::Diameter(circle),
+            Point2::new(20.0, 20.0),
+        )
+    }];
+
+    let before = annotated_in(&drawing, StandardView::Top, &top);
+
+    drawing.notes = vec![DrawingNote {
+        id: AnnotationId::from_raw(0),
+        text: "Keep dry".into(),
+        at: note_place(&before, value_of(&before, 1).at),
+        leader: None,
+    }];
+
+    let after = annotated_in(&drawing, StandardView::Top, &top);
+    let note = &after
+        .annotation(Annotation::Note(AnnotationId::from_raw(0)))
+        .unwrap()
+        .texts[0];
+    let diameter = |plan: &SheetPlan| match laid_of(plan, 1).measure {
+        Some(SheetMeasure::Diameter { near, far }) => (near, far),
+        other => panic!("a diameter is measured as one: {other:?}"),
+    };
+
+    let (near_before, far_before) = diameter(&before);
+    let (near_after, far_after) = diameter(&after);
+
+    assert!(gap_between(note, value_of(&before, 1)) < clearance());
+    assert!(gap_between(note, value_of(&after, 1)) >= clearance() - 1e-9);
+    assert!(near_after.distance(near_before) > 1e-3);
+    assert!(near(
+        (near_after - far_after).length(),
+        (near_before - far_before).length()
+    ));
+    assert!(((near_after + far_after) / 2.0).distance((near_before + far_before) / 2.0) < 1e-9);
+}
+
+#[test]
+fn a_seen_arc_holds_the_directions_it_sweeps_through_either_way_round_and_a_circle_none() {
+    let seen = |counter_clockwise: bool, range: (f64, f64)| SeenEdge {
+        curve: Curve2::Circle(
+            Circle2::with_axes(Point2::new(5.0, 5.0), 2.0, Vector2::X, counter_clockwise).unwrap(),
+        ),
+        range: Interval::new(range.0, range.1).unwrap(),
+    };
+    let quarter = std::f64::consts::FRAC_PI_2;
+
+    let below = seen(false, (0.0, quarter))
+        .seen_arc(Point2::new(5.0, 5.0))
+        .unwrap();
+    let across = seen(true, (3.0 * quarter, 5.0 * quarter))
+        .seen_arc(Point2::new(5.0, 5.0))
+        .unwrap();
+    let whole = seen(true, (0.0, 4.0 * quarter)).seen_arc(Point2::new(5.0, 5.0));
+
+    assert!(below.holds(-quarter / 2.0));
+    assert!(!below.holds(quarter / 2.0));
+    assert!(near(below.sweep, quarter));
+    assert!(across.holds(0.0) && across.holds(-quarter / 2.0) && across.holds(quarter / 2.0));
+    assert!(!across.holds(2.0 * quarter));
+    assert_eq!(whole, None);
 }

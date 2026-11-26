@@ -200,6 +200,21 @@ lines, never a picture of the 3D view.
   lettering's pitch) lower, a blank line only leaving a gap; a leader runs from a shoulder beside
   the first line, past the block's widest line, to the middle of its edge with an arrowhead, or is left out with the problem when the
   edge is gone.
+- Values keep clear of each other, by sketch export's rule (`file-import-export.md`) without its
+  lanes, since a sheet dimension's place is the user's: `annotate` lays notes and callouts out
+  first and puts their texts, then each dimension's as it is laid out in `AnnotationId` order (the
+  list's order does not matter), into an `annotation::Obstacles`, every text's box grown by
+  `LABEL_CLEARANCE` (half a `DIMENSION_TEXT_HEIGHT`) shared between its sides. A dimension whose
+  value as placed overlaps one is tried again with only its value moved (`Dodge`), never its line
+  or place: a linear or angular one slides by `SLIDES` (a half and the whole of its room inside the
+  span, keeping `LABEL_CLEARANCE` from the ends, each way) and a value set outside takes the other
+  end; a radius or diameter turns its leader by `LEADER_TURN` (15°) steps each way up to half a
+  turn, on an arc only within the arc it sees (`SeenEdge::seen_arc`, the `ArcSpan` in
+  `DimensionGeometry::Radial`). The first clear try is kept, else the placed layout; nothing is
+  left out. A dimension with a `text_offset` (not zero) is placed by hand and never moved, though
+  later ones dodge it; a lost dimension's `?` stands at its place and is dodged. The view's own
+  lines are not avoided. The marks and texts hold the chosen layout, so bounds, picking and export
+  follow.
 - A tolerance is laid out with the value (`value_lines`, `ValueLines`): plus or minus and a fit
   without deviations on the value's line (`20 ±0.1`, `⌀10 H7`); deviations stacked beside it at
   `DEVIATION_TEXT_HEIGHT` (2.5 mm), the lower one's foot on the value's, the upper above, the group
