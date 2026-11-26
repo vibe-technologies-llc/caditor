@@ -9,10 +9,10 @@ use caditor_sketch::{
 use thiserror::Error;
 
 use crate::{
-    body_snap::BodySnaps,
+    body_snap::{BodySnaps, BodyTarget},
     commands::Reason,
     configuration_export::listed,
-    drag_solver::{BodyJoin, DragCommand, Join},
+    drag_solver::{BodyJoin, BodyTrack, DragCommand, Join},
     drawing::Preview,
     feature_tree::count,
     inference::Inferences,
@@ -269,11 +269,7 @@ impl Grab {
     }
 
     pub fn landing_label(&self, sketch: &Sketch) -> Option<String> {
-        let landing = self.landing?;
-        match landing.target {
-            Some(Target::Body(target)) => self.bodies.0.label(target),
-            _ => landing.label(sketch),
-        }
+        self.landing?.label(sketch, Some(&self.bodies.0))
     }
 
     pub fn guides(&self) -> &[[Point2; 2]] {
@@ -304,10 +300,14 @@ impl Grab {
             ))
         });
 
-        if let Some((sketch, (_, _, landing))) = landed
-            && let Some(target) = landing.target
+        match landed.and_then(|(sketch, (_, _, landing))| Some((sketch, landing.target?, landing)))
         {
-            self.acquired.note(sketch, target, landing.position);
+            Some((_, Target::Body(body), landing)) => {
+                self.acquired
+                    .note_body(&self.bodies.0, body, landing.position);
+            }
+            Some((sketch, target, landing)) => self.acquired.note(sketch, target, landing.position),
+            None => {}
         }
         self.guides = landed
             .map(|(sketch, (_, _, landing))| landing.guides(sketch))
@@ -473,6 +473,7 @@ impl Grab {
                         at: landing.position,
                         constraints: vec![Constraint::Coincident(point, *circle)],
                         body: None,
+                        tracks: Vec::new(),
                         rim_of: Some(*circle),
                     }),
                     _ => None,
@@ -486,19 +487,35 @@ impl Grab {
                     at: landing.position,
                     constraints: self.joins.clone(),
                     body: match landing.target {
-                        Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
-                            Box::new(BodyJoin {
-                                projection: source.projection.clone(),
-                                outline: source.outline.clone(),
-                                part: target.part,
-                            })
-                        }),
+                        Some(Target::Body(target)) => self.body_join(target).map(Box::new),
                         _ => None,
                     },
+                    tracks: landing
+                        .tracks
+                        .iter()
+                        .filter_map(|track| match track.anchor {
+                            Target::Body(target) if target.part.is_point_like() => {
+                                Some(BodyTrack {
+                                    track,
+                                    body: self.body_join(target)?,
+                                })
+                            }
+                            _ => None,
+                        })
+                        .collect(),
                     rim_of: None,
                 }),
         };
         DragCommand::Finish { join }
+    }
+
+    fn body_join(&self, target: BodyTarget) -> Option<BodyJoin> {
+        let source = self.bodies.0.source(target)?;
+        Some(BodyJoin {
+            projection: source.projection.clone(),
+            outline: source.outline.clone(),
+            part: target.part,
+        })
     }
 
     pub fn feature(&self) -> FeatureId {
@@ -1690,6 +1707,7 @@ mod tests {
                     at: Point2::new(30.0, 40.0),
                     constraints: vec![Constraint::Coincident(corner, circle)],
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: Some(circle),
                 }),
             }
@@ -2544,6 +2562,7 @@ mod tests {
                     at: Point2::new(10.0, 10.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: None,
                 }),
             }
@@ -2589,6 +2608,7 @@ mod tests {
                     at: Point2::new(30.0, 20.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: None,
                 }),
             }
@@ -2634,6 +2654,7 @@ mod tests {
                     at: Point2::new(30.0, 20.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: None,
                 }),
             }
@@ -2728,7 +2749,7 @@ mod tests {
         assert_eq!(landing.position, Point2::new(20.0, 10.0));
         assert_eq!(landing.target, None);
         assert_eq!(
-            landing.label(&sketch),
+            landing.label(&sketch, None),
             Some(format!("Horizontal from {}", sketch.entity_label(start)))
         );
         assert_eq!(grab.guides(), &[[Point2::new(0.0, 10.0), landing.position]]);
@@ -2740,6 +2761,7 @@ mod tests {
                     at: Point2::new(20.0, 10.0),
                     constraints: vec![Constraint::HorizontalPoints(end, start.into())],
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: None,
                 }),
             }
@@ -2778,7 +2800,7 @@ mod tests {
 
         assert_eq!(landing.position, Point2::new(10.0, 10.0));
         assert_eq!(landing.target, None);
-        assert_eq!(landing.label(&sketch).as_deref(), Some("On the grid"));
+        assert_eq!(landing.label(&sketch, None).as_deref(), Some("On the grid"));
         assert_eq!(
             grab.finish(),
             DragCommand::Finish {
@@ -2787,6 +2809,7 @@ mod tests {
                     at: Point2::new(10.0, 10.0),
                     constraints: Vec::new(),
                     body: None,
+                    tracks: Vec::new(),
                     rim_of: None,
                 }),
             }

@@ -1,7 +1,7 @@
 use caditor_document::{
     FeatureId, FeatureKind, Outline, ProjectionSource, SketchFeature, TransactionBuilder,
 };
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, PointTarget, Sketch};
 
 use crate::{
     body_snap::{BodyItem, BodyPart, BodySnaps},
@@ -10,6 +10,7 @@ use crate::{
     projecting,
     selection::{self, Pickable, Selection},
     sketch_tools,
+    tracking::Track,
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -197,40 +198,83 @@ pub struct Joined {
     pub projects: bool,
 }
 
-pub fn body_join(
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Holding {
+    On,
+    Along(Track),
+}
+
+pub fn body_joins(
     transaction: &mut TransactionBuilder<'_>,
     (definition, feature): (&SketchFeature, FeatureId),
     shadow: &mut Sketch,
     point: EntityId,
-    body: &BodyJoin,
-) -> Option<Joined> {
-    let existing = projecting::existing_projection(definition, &body.projection);
-    let curve = match existing {
-        Some(id) => id,
-        None => {
-            let added = transaction.add_projected(feature, body.projection.clone(), &body.outline);
+    holds: &[(Holding, &BodyJoin)],
+) -> Vec<Option<Joined>> {
+    let mut made: Vec<(&ProjectionSource, EntityId)> = Vec::new();
 
-            for (id, entity) in added.entities {
-                let inserted = shadow
-                    .insert_entity(id, entity)
-                    .and_then(|()| shadow.set_projected(id, true));
-                if let Err(error) = inserted {
-                    log::debug!("the drag check does not see projected entity {id}: {error}");
-                }
+    holds
+        .iter()
+        .map(|(holding, body)| {
+            if *holding != Holding::On && !body.part.is_point_like() {
+                return None;
             }
-            added.id
+
+            let (curve, projects) =
+                projected(transaction, (definition, feature), shadow, &mut made, body);
+            let constraint = match holding {
+                Holding::On => match body.part {
+                    BodyPart::Corner | BodyPart::Edge => Constraint::Coincident(point, curve),
+                    BodyPart::Centre => Constraint::Coincident(point, centre_of(shadow, curve)?),
+                    BodyPart::Middle => Constraint::Midpoint { point, curve },
+                },
+                Holding::Along(track) => track.holding(
+                    point,
+                    match body.part {
+                        BodyPart::Corner => PointTarget::Point(curve),
+                        BodyPart::Centre => PointTarget::Point(centre_of(shadow, curve)?),
+                        BodyPart::Middle => PointTarget::Middle(curve),
+                        BodyPart::Edge => return None,
+                    },
+                ),
+            };
+            Some(Joined {
+                constraint,
+                projects,
+            })
+        })
+        .collect()
+}
+
+fn projected<'a>(
+    transaction: &mut TransactionBuilder<'_>,
+    (definition, feature): (&SketchFeature, FeatureId),
+    shadow: &mut Sketch,
+    made: &mut Vec<(&'a ProjectionSource, EntityId)>,
+    body: &'a BodyJoin,
+) -> (EntityId, bool) {
+    if let Some((_, id)) = made
+        .iter()
+        .find(|(source, _)| source.is_same_source(&body.projection))
+    {
+        return (*id, false);
+    }
+    if let Some(id) = projecting::existing_projection(definition, &body.projection) {
+        return (id, false);
+    }
+
+    let added = transaction.add_projected(feature, body.projection.clone(), &body.outline);
+
+    for (id, entity) in added.entities {
+        let inserted = shadow
+            .insert_entity(id, entity)
+            .and_then(|()| shadow.set_projected(id, true));
+        if let Err(error) = inserted {
+            log::debug!("the drag check does not see projected entity {id}: {error}");
         }
-    };
-    let constraint = match body.part {
-        BodyPart::Corner => Constraint::Coincident(point, curve),
-        BodyPart::Centre => Constraint::Coincident(point, centre_of(shadow, curve)?),
-        BodyPart::Middle => Constraint::Midpoint { point, curve },
-        BodyPart::Edge => Constraint::Coincident(point, curve),
-    };
-    Some(Joined {
-        constraint,
-        projects: existing.is_none(),
-    })
+    }
+    made.push((&body.projection, added.id));
+    (added.id, true)
 }
 
 fn centre_of(sketch: &Sketch, curve: EntityId) -> Option<EntityId> {
@@ -240,5 +284,137 @@ fn centre_of(sketch: &Sketch, curve: EntityId) -> Option<EntityId> {
         | Entity::Ellipse { center, .. }
         | Entity::EllipticalArc { center, .. } => Some(*center),
         Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::{
+        Document, FeatureId, FeatureKind, Outline, ProjectionSource, SketchFeature,
+    };
+    use caditor_geometry::{Plane, Point2};
+    use caditor_sketch::{Constraint, Entity, PointTarget, Sketch};
+
+    use super::{Holding, body_joins};
+    use crate::{
+        body_snap::{BodyPart, BodyTarget},
+        drag_solver::BodyJoin,
+        snap::Target,
+        tracking::{Axis, Track},
+    };
+
+    fn added(document: &mut Document, name: &str, sketch: Sketch) -> FeatureId {
+        let mut adding = document.transaction("Add sketch");
+
+        let feature = adding.add_feature(name, FeatureKind::from(sketch));
+
+        document.apply(adding.finish()).unwrap();
+        feature
+    }
+
+    fn definition(document: &Document, feature: FeatureId) -> &SketchFeature {
+        match document.feature(feature).map(|owner| &owner.kind) {
+            Some(FeatureKind::Sketch(definition)) => definition,
+            _ => panic!("the sketch is a sketch feature"),
+        }
+    }
+
+    fn track(from: Point2, axis: Axis) -> Track {
+        Track {
+            anchor: Target::Body(BodyTarget {
+                source: 0,
+                part: BodyPart::Centre,
+                generation: 0,
+            }),
+            from,
+            axis,
+        }
+    }
+
+    #[test]
+    fn a_point_on_a_body_edge_and_tracked_from_body_items_projects_each_item_once() {
+        let mut document = Document::default();
+        let mut other = Sketch::new(Plane::XY);
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let side = other.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 40.0));
+        let rim = other.add_circle(Point2::new(60.0, 20.0), 5.0);
+        let point = sketch.add_point(Point2::new(40.0, 20.0));
+        let source = added(&mut document, "Bodies", other);
+        let feature = added(&mut document, "Dragged", sketch.clone());
+
+        let edge = |part: BodyPart| BodyJoin {
+            projection: ProjectionSource::SketchEntity {
+                sketch: source,
+                entity: side,
+            },
+            outline: Outline::Line {
+                start: Point2::new(40.0, 0.0),
+                end: Point2::new(40.0, 40.0),
+            },
+            part,
+        };
+        let on_edge = edge(BodyPart::Edge);
+        let middle = edge(BodyPart::Middle);
+        let round = BodyJoin {
+            projection: ProjectionSource::SketchEntity {
+                sketch: source,
+                entity: rim,
+            },
+            outline: Outline::Circle {
+                center: Point2::new(60.0, 20.0),
+                radius: 5.0,
+            },
+            part: BodyPart::Centre,
+        };
+        let level = track(Point2::new(60.0, 20.0), Axis::Level);
+        let upright = track(Point2::new(40.0, 20.0), Axis::Upright);
+        let mut transaction = document.transaction("Drag");
+        let mut shadow = sketch;
+
+        let joined = body_joins(
+            &mut transaction,
+            (definition(&document, feature), feature),
+            &mut shadow,
+            point,
+            &[
+                (Holding::On, &on_edge),
+                (Holding::Along(level), &round),
+                (Holding::Along(upright), &middle),
+                (Holding::Along(level), &on_edge),
+            ],
+        );
+        let line = shadow
+            .projected()
+            .find(|id| matches!(shadow.entity(*id), Some(Entity::Line { .. })))
+            .unwrap();
+        let centre = shadow
+            .projected()
+            .find_map(|id| match shadow.entity(id) {
+                Some(Entity::Circle { center, .. }) => Some(*center),
+                _ => None,
+            })
+            .unwrap();
+        let held: Vec<Option<(Constraint, bool)>> = joined
+            .into_iter()
+            .map(|joined| joined.map(|joined| (joined.constraint, joined.projects)))
+            .collect();
+
+        assert_eq!(
+            held,
+            vec![
+                Some((Constraint::Coincident(point, line), true)),
+                Some((
+                    Constraint::HorizontalPoints(point, PointTarget::Point(centre)),
+                    true
+                )),
+                Some((
+                    Constraint::VerticalPoints(point, PointTarget::Middle(line)),
+                    false
+                )),
+                None,
+            ]
+        );
+        assert_eq!(shadow.projected().count(), 5);
     }
 }

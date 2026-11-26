@@ -1,12 +1,12 @@
 use caditor_document::{Document, FeatureId};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Constraint, Entity, EntityId, PointTarget, Sketch};
-use egui::{Key, Modifiers};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 
 use super::{
     CAMERA_SETTLE, Harness, aligned_point_pairs, constraints_of_kind, drag_in_sketch,
     edit_free_sketch, entities_of_kind, extruded_plate, line_ends, pickable_described, rectangle,
-    run_from_palette, sketch_entity,
+    release_drag, run_from_palette, sketch_entity,
 };
 
 fn drawn_points(sketch: &Sketch) -> Vec<EntityId> {
@@ -700,5 +700,128 @@ fn a_body_corner_hovered_with_ctrl_held_or_snapping_off_is_not_acquired() {
     placed_point(&mut harness, feature, Point2::new(70.0, 20.3));
 
     assert!(aligned_point_pairs(harness.sketch(feature)).is_empty());
+    assert_eq!(harness.sketch(feature).projected().count(), 0);
+}
+
+fn grab_through(harness: &mut Harness, from: Pos2, stops: &[Point2]) {
+    harness.events.push(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for stop in stops {
+        let position = harness.on_screen(*stop);
+
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+}
+
+fn released_at(harness: &mut Harness, feature: FeatureId, point: EntityId, at: Point2) -> Point2 {
+    let before = harness.sketch(feature).point(point);
+    let on_screen = harness.on_screen(at);
+
+    release_drag(harness, on_screen);
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(point) != before
+    });
+    harness.settle();
+    harness.shown(feature).point(point).unwrap()
+}
+
+fn grabbable_point(harness: &mut Harness, at: Point2) -> (FeatureId, EntityId, Pos2) {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let point = sketch.add_point(at);
+    let feature = edit_free_sketch(harness, sketch);
+
+    harness.settle();
+
+    let grabbed = harness.hover_pickable(Plane::XY, at, sketch_entity(feature, point));
+    (feature, point, grabbed)
+}
+
+#[test]
+fn a_point_grabbed_level_with_a_hovered_body_corner_is_held_level_with_its_projection_in_one_undo()
+{
+    let mut harness = Harness::new();
+    let start = Point2::new(70.0, 60.0);
+
+    extruded_plate(&mut harness);
+
+    let (feature, point, grabbed) = grabbable_point(&mut harness, start);
+
+    grab_through(
+        &mut harness,
+        grabbed,
+        &[Point2::new(40.2, 40.2), Point2::new(60.0, 40.3)],
+    );
+
+    assert!(harness.shows("Horizontal from a corner of Extrude 1"));
+
+    let placed = released_at(&mut harness, feature, point, Point2::new(60.0, 40.3));
+    let sketch = harness.sketch(feature);
+
+    let corner = projected_point_at(sketch, Point2::new(40.0, 40.0));
+
+    assert_eq!(
+        aligned_point_pairs(sketch),
+        vec![Constraint::HorizontalPoints(point, corner.into())]
+    );
+    assert_eq!(sketch.projected().count(), 1);
+    assert!((placed.y - 40.0).abs() < 1e-6, "{placed}");
+    assert!((placed.x - 60.0).abs() < 0.5, "{placed}");
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+
+    assert_eq!(sketch.projected().count(), 0);
+    assert!(aligned_point_pairs(sketch).is_empty());
+    assert_eq!(sketch.point(point), Some(start));
+}
+
+#[test]
+fn a_grabbed_point_where_a_track_from_a_body_item_crosses_a_body_edge_keeps_both() {
+    let mut harness = Harness::new();
+
+    plate_beside_a_cylinder(&mut harness);
+
+    let (feature, point, grabbed) = grabbable_point(&mut harness, Point2::new(75.0, 45.0));
+
+    grab_through(
+        &mut harness,
+        grabbed,
+        &[Point2::new(60.2, 30.2), Point2::new(40.2, 30.3)],
+    );
+
+    assert!(harness.shows_containing(
+        "On an edge of Extrude 1, horizontal from the centre of a round edge of Extrude"
+    ));
+
+    let placed = released_at(&mut harness, feature, point, Point2::new(40.2, 30.3));
+    let sketch = harness.sketch(feature);
+
+    let edge = projected_line(sketch);
+    let centre = projected_centre(sketch);
+
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(point, edge)]
+    );
+    assert_eq!(
+        aligned_point_pairs(sketch),
+        vec![Constraint::HorizontalPoints(point, centre.into())]
+    );
+    assert!(placed.distance(Point2::new(40.0, 30.0)) < 1e-6, "{placed}");
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+
     assert_eq!(harness.sketch(feature).projected().count(), 0);
 }

@@ -11,8 +11,8 @@ use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, FeatureStatus, Healing, ModelEvaluator, Move, Outcome,
     ParameterValues, Pieces, Pivot, Prepared, Progress, ProjectedPieces, Recomputer, Rgb,
-    SketchResult, Stale, Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis,
-    displayed_frame,
+    SketchFeature, SketchResult, Stale, Transaction, TransactionBuilder, TurnCentre, UndoMark,
+    displayed_axis, displayed_frame,
 };
 pub use caditor_file::crash::PanicFlush;
 use caditor_file::{
@@ -28,13 +28,13 @@ use caditor_sketch::{Constraint, ConstraintId, Drag, Entity, EntityId, Sketch, S
 use crate::{
     assistant::AssistantCommand,
     bodies::{self, MovedBodies, ShownCut},
-    body_picks,
+    body_picks::{self, Holding, Joined},
     cloud::CloudCommand,
     commands::Reason,
     constraint_remedies::ConstraintRemedies,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
-    drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled, SketchDragging},
+    drag_solver::{self, Blocking, BodyJoin, DragCommand, Finished, Join, Polled, SketchDragging},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
     image_export::ReadPixels,
@@ -2684,36 +2684,70 @@ fn reached_with_body(
     mut join: Join,
     transaction: &mut TransactionBuilder<'_>,
 ) -> Vec<Constraint> {
-    let Some(body) = join.body.take() else {
-        return reached(sketch, join);
-    };
+    let landed = join.body.take().map(|body| (Holding::On, *body));
+    let tracked = std::mem::take(&mut join.tracks)
+        .into_iter()
+        .map(|tracked| (Holding::Along(tracked.track), tracked.body));
+
+    let mut holds: Vec<(Holding, BodyJoin)> = landed.into_iter().chain(tracked).collect();
+
     let Some(FeatureKind::Sketch(definition)) = document.feature(feature).map(|owner| &owner.kind)
     else {
         return reached(sketch, join);
     };
-    let mut shadow = sketch.clone();
-    let mut trial = document.transaction(String::new());
 
-    trial.settle_sketch(feature, sketch);
-
-    let Some(joined) = body_picks::body_join(
-        &mut trial,
-        (definition, feature),
-        &mut shadow,
-        join.point,
-        &body,
-    ) else {
+    if holds.is_empty() {
         return reached(sketch, join);
-    };
-
-    join.constraints.push(joined.constraint.clone());
-
-    let constraints = reached(&shadow, join);
-
-    if joined.projects && constraints.contains(&joined.constraint) {
-        transaction.add_projected(feature, body.projection, &body.outline);
     }
+
+    loop {
+        let mut trial = document.transaction(String::new());
+
+        trial.settle_sketch(feature, sketch);
+
+        let (constraints, joined) =
+            joined_to_bodies(&mut trial, (definition, feature), sketch, &join, &holds);
+        let mut needed = joined.iter().map(|joined| {
+            joined
+                .as_ref()
+                .is_some_and(|joined| !joined.projects || constraints.contains(&joined.constraint))
+        });
+        let before = holds.len();
+
+        holds.retain(|_| needed.next().unwrap_or(false));
+        if holds.len() == before {
+            break;
+        }
+    }
+
+    let (constraints, _) =
+        joined_to_bodies(transaction, (definition, feature), sketch, &join, &holds);
     constraints
+}
+
+fn joined_to_bodies(
+    transaction: &mut TransactionBuilder<'_>,
+    owner: (&SketchFeature, FeatureId),
+    sketch: &Sketch,
+    join: &Join,
+    holds: &[(Holding, BodyJoin)],
+) -> (Vec<Constraint>, Vec<Option<Joined>>) {
+    let mut shadow = sketch.clone();
+    let mut tried = join.clone();
+    let holding: Vec<(Holding, &BodyJoin)> = holds
+        .iter()
+        .map(|(holding, body)| (*holding, body))
+        .collect();
+
+    let joined = body_picks::body_joins(transaction, owner, &mut shadow, join.point, &holding);
+
+    tried.constraints.extend(
+        joined
+            .iter()
+            .flatten()
+            .map(|joined| joined.constraint.clone()),
+    );
+    (reached(&shadow, tried), joined)
 }
 
 fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {

@@ -14,7 +14,7 @@ use caditor_geometry::Point2;
 use caditor_sketch::{Constraint, ConstraintId, Drag, EntityId, Sketch, SketchError, SolveMemo};
 use parking_lot::{Condvar, Mutex};
 
-use crate::{body_snap::BodyPart, model::Waker};
+use crate::{body_snap::BodyPart, model::Waker, tracking::Track};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DragCommand {
@@ -35,6 +35,7 @@ pub struct Join {
     pub at: Point2,
     pub constraints: Vec<Constraint>,
     pub body: Option<Box<BodyJoin>>,
+    pub tracks: Vec<BodyTrack>,
     pub rim_of: Option<EntityId>,
 }
 
@@ -43,6 +44,12 @@ pub struct BodyJoin {
     pub projection: ProjectionSource,
     pub outline: Outline,
     pub part: BodyPart,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyTrack {
+    pub track: Track,
+    pub body: BodyJoin,
 }
 
 #[derive(Clone, Debug)]

@@ -109,10 +109,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   level with a face, or other bodies' faces in the plane, do not cut it (it would make every such
   sketch depend on every body before it). A spline or other curved edge cuts as a spline through
   sampled points, so the sides of a piece swept from it are near, not on, the body's face.
-- [medium · medium] A grab (`sketch_drag.rs`) acquires no body items for tracks and crosses no body
-  edge with a track: drawing does both (`app-sketching.md`, Snapping), projecting the body item in
-  the shape's transaction, while a grab's release carries one `BodyJoin` projection, which would
-  need to carry one more per track anchor.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and sketch text
   set along a curve (`sketch.md`, Text): text runs straight from its point at an angle, while

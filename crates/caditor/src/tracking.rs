@@ -623,9 +623,14 @@ impl Landing {
             .collect()
     }
 
-    pub fn label(self, sketch: &Sketch) -> Option<String> {
-        let target = self.target.map(|target| target.label(sketch));
-        match (target, self.tracks.label(sketch, None)) {
+    pub fn label(self, sketch: &Sketch, bodies: Option<&BodySnaps>) -> Option<String> {
+        let target = self.target.map(|target| match (target, bodies) {
+            (Target::Body(body), Some(bodies)) => {
+                bodies.label(body).unwrap_or_else(|| target.label(sketch))
+            }
+            (target, _) => target.label(sketch),
+        });
+        match (target, self.tracks.label(sketch, bodies)) {
             (None, None) if self.on_grid => Some(ON_THE_GRID.to_owned()),
             (target, None) => target,
             (Some(target), Some(tracked)) => Some(format!("{target}, {tracked}")),
@@ -664,15 +669,22 @@ pub fn land(
         return land_held(sketch, screen, pointer, lookup, hold);
     }
 
-    let landing = land_freely(sketch, screen, pointer, acquired, ignored, inferred);
+    let landing = land_freely(
+        (sketch, bodies),
+        screen,
+        pointer,
+        acquired,
+        ignored,
+        inferred,
+    );
     match bodies {
-        Some(bodies) => onto_body(bodies, landing, screen, pointer, inferred),
+        Some(bodies) => onto_body((sketch, bodies), landing, screen, pointer, inferred),
         None => landing,
     }
 }
 
 fn onto_body(
-    bodies: &BodySnaps,
+    (sketch, bodies): (&Sketch, &BodySnaps),
     landing: Option<Landing>,
     screen: &impl Screen,
     pointer: Pointer,
@@ -684,21 +696,39 @@ fn onto_body(
         tracks: Tracks::default(),
         on_grid: false,
     };
+    let on_edge = |tracks: Tracks| {
+        let snapped = bodies.edge(screen, pointer, Accept::Anything, inferred)?;
+        let tracked = on_curve(
+            (sketch, Some(bodies)),
+            snapped.target,
+            tracks,
+            screen,
+            pointer,
+            ALIGNED_CROSSING_TOLERANCE,
+        );
+        Some(tracked.map_or(on_body(snapped), |tracked| Landing {
+            position: tracked.position,
+            target: Some(snapped.target),
+            tracks: tracked.tracks,
+            on_grid: false,
+        }))
+    };
     match landing {
         Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
         Some(landing) => bodies
             .point(screen, pointer, Accept::Anything, inferred)
             .map(on_body)
+            .or_else(|| landing.target.is_none().then(|| on_edge(landing.tracks))?)
             .or(Some(landing)),
         None => bodies
             .point(screen, pointer, Accept::Anything, inferred)
-            .or_else(|| bodies.edge(screen, pointer, Accept::Anything, inferred))
-            .map(on_body),
+            .map(on_body)
+            .or_else(|| on_edge(Tracks::default())),
     }
 }
 
 fn land_freely(
-    sketch: &Sketch,
+    (sketch, bodies): (&Sketch, Option<&BodySnaps>),
     screen: &impl Screen,
     pointer: Pointer,
     acquired: &Acquired,
@@ -715,14 +745,14 @@ fn land_freely(
     };
     let snapped = snap::resolve_inferring(sketch, screen, pointer, lookup);
     let tracks = if inferred.allows(Inference::Tracks) {
-        nearby((sketch, None), screen, pointer, acquired, ignored, &[])
+        nearby((sketch, bodies), screen, pointer, acquired, ignored, &[])
     } else {
         Tracks::default()
     };
     match snapped {
         Some(snapped) => Some(
             on_curve(
-                (sketch, None),
+                (sketch, bodies),
                 snapped.target,
                 tracks,
                 screen,

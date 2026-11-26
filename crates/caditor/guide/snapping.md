@@ -34,8 +34,8 @@ to" and names the line, which lights up. Where several nearby lines are about as
 nearest the pointer wins. A point snapped to geometry or a guide, or a length you type, is never
 changed for it. What you hover is remembered for a while: points, the middle of a line or arc,
 where two curves cross, the centre of an outline, the right, top, left and bottom of a circle and
-the ends of an ellipse's axes, and while drawing the corners, edge middles and round edge centres of
-bodies. Moving level with one, or straight above or below it, shows a dashed guide and lines the new
+the ends of an ellipse's axes, and the corners, edge middles and round edge centres of bodies.
+Moving level with one, or straight above or below it, shows a dashed guide and lines the new
 point up with it; from the middle of a line a guide also runs square to the line, along its
 perpendicular bisector. Where two guides cross, the point lands on the crossing, and where a guide
 or a line's direction crosses a body's edge, the point lands there and stays on the edge.
@@ -74,6 +74,9 @@ line, and a triangle round a dot for the centre of an outline.
   constraint while drawing or dragging, and the pointer snaps to whatever else is near.
 
 Dragging geometry with Select snaps the same way, bodies included, with Alt too: a point dragged
-onto a body's corner or edge projects it and stays on it, in the same undoable change. Dragging a
+onto a body's corner or edge projects it and stays on it, in the same undoable change. A body item
+the drag passes over is remembered as while drawing: let go level with it, or where its guide
+crosses a body's edge, and the point is held to the item's projection, made in the same change, so
+one undo takes the move and the projections away together. Dragging a
 curve or a selection, whichever of its points comes nearest a sketch point, middle, centre,
 quadrant or axis end lands there and is joined to it, not only the point nearest where you pressed.

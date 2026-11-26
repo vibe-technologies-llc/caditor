@@ -131,14 +131,22 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   rim (`Grab::follow_rim`, respecting the offset from the press and the radius floor); release adds
   `Coincident` of that point with the circle (`Join::rim_of`, which
   `reached` also checks against the solved radius). Tracks and extensions work as while drawing, from the grab's own `Acquired`. It snaps to body
-  items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose `onto_body` takes them):
-  where no point-like target was found, a body corner, middle or centre, else an edge; with Alt they
-  pull as in the held snap (Snapping). Release sends the
-  target's and tracks' constraints (`Landing::joins`, worked out on the displayed sketch each time
-  the landing is found and kept in `Grab::joins`; `Join::body` as `BodyJoin`) with
-  `DragCommand::Finish`; `Model::commit_drag` adds them (projecting body items, or reusing the
-  projection) to the settle transaction when the solved point reached the landing, leaving out any
-  the sketch refuses, already has or contradicts.
+  items too (`Grab::snapping_to_bodies`, handed to `tracking::land`, whose tracks take body anchors
+  and whose `onto_body` takes body targets): where no point-like target was found, a body corner,
+  middle or centre, else, with no sketch curve taken, an edge, crossed by a track as a sketch curve
+  is (`on_curve`), the label naming body items and anchors as drawing's does (`Landing::label`
+  with the grab's `BodySnaps`); with Alt they pull as in the held snap (Snapping). Release sends the
+  target's and sketch tracks' constraints (`Landing::joins`, worked out on the displayed sketch each
+  time the landing is found and kept in `Grab::joins`), the body target as `Join::body` and each
+  track from a body anchor as `Join::tracks` (`BodyTrack`: the track and its item's `BodyJoin`) with
+  `DragCommand::Finish`; `Model::commit_drag` adds them to the settle transaction when the solved
+  point reached the landing, leaving out any the sketch refuses, already has or contradicts.
+  `body_picks::body_joins` projects each body item once (reusing the sketch's projection or one an
+  earlier item of the same release made) and joins the point to it (`Holding::On`) or holds it on
+  the track through it (`Holding::Along`, `Track::holding`); `reached_with_body` tries it in a
+  scratch transaction, drops each item whose only use was a constraint left out until none is, and
+  makes the kept projections in the settle transaction, so the drag, its projections and their
+  constraints are one undo step and no projection is left unused.
 - Release commits one `settle_sketch` transaction and the dragged shape stays until an evaluation of
   that revision reaches the sketch, so it never jumps back. Escape, another edit or document, or a
   drag begun on an older revision drops it. A drag still solving at release carries its revision in
@@ -844,10 +852,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Target::involved`) and moves a several-placed one to where it lies now. While drawing, a hovered
   body corner, edge middle or round edge centre is acquired too (`Acquired::note_body`, as its
   `Target::Body`), and so is the centre of a round body edge whose middle or any point was hovered
-  (`BodySnaps::centre_of`); grabs acquire none. A body anchor is found each frame from its source's
-  outline (`BodySnaps::position`, constant time, so the per-frame cost stays that of the at most
-  `MAX_ACQUIRED_POINTS` anchors) and is dropped when the cache is rebuilt (`Acquired::keep_bodies`
-  from `Drawing::use_bodies`), as its `BodyTarget` names an older generation.
+  (`BodySnaps::centre_of`); a grab acquires them the same way from its landing (`Grab::follow`). A
+  body anchor is found each frame from its source's outline (`BodySnaps::position`, constant time,
+  so the per-frame cost stays that of the at most `MAX_ACQUIRED_POINTS` anchors) and is dropped when
+  the cache is rebuilt (`Acquired::keep_bodies` from `Drawing::use_bodies`), as its `BodyTarget`
+  names an older generation; a grab keeps the cache it began with (`Grab::snapping_to_bodies`), so
+  its anchors stay valid for the whole drag.
 - Each frame an anchor is found again where it lies now (`snap::position_of`: the crossing nearest
   where it was; an odd outline's centroid by the outline search from its first
   piece). One moving in a drag (touching the ignored entities, or an odd outline with a moving
@@ -870,7 +880,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `Draft::tracked` projects the corner or edge (`Draft::body_through`, reusing the sketch's
   existing projection or one the shape already made) and holds the point to the projected corner,
   the projected circle's centre or the middle of the projected edge (`Track::holding`) in the
-  shape's own transaction, so one undo takes both. The label names held tracks first (a body
+  shape's own transaction, so one undo takes both. A grab's release does the same in the drag's
+  settle transaction (`Join::tracks`, Dragging). The label names held tracks first (a body
   anchor as "a corner of", "the middle of an edge of" or "the centre of a round edge of" its body,
   `BodySnaps::anchor_words`) and ends `NOT_KEPT_THERE` when a track's anchor has no target (none
   does today). Where two tracks of one kind coincide (a right quadrant level with its
