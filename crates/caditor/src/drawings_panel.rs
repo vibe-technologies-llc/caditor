@@ -6,8 +6,8 @@ use caditor_document::{
     DrawingId, DrawingScale, DrawingViewError, DrawnView, FIT_GRADES, FeatureId, FitLetter, IsoFit,
     MAX_DIMENSION_DECIMALS, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_FIT_SIZE, MAX_TEXT_OFFSET,
     MIN_DETAIL_RADIUS, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView,
-    SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction, callout_lines,
-    callout_texts, deviation_text, dimension_problem, lay_out_sheet,
+    SheetOrientation, SheetPlan, SheetSize, StandardView, TitleFields, Transaction, ValuePlaces,
+    callout_lines, callout_texts, deviation_text, dimension_problem, lay_out_sheet,
 };
 use caditor_expression::{Dimension, Expression, format_decimals};
 use caditor_geometry::Point2;
@@ -257,6 +257,15 @@ impl DrawingsTool {
 }
 
 pub fn plan_of(model: &Model, drawing: &Drawing, sheet: &SheetViews) -> SheetPlan {
+    plan_holding(model, drawing, sheet, &ValuePlaces::default()).0
+}
+
+pub fn plan_holding(
+    model: &Model,
+    drawing: &Drawing,
+    sheet: &SheetViews,
+    held: &ValuePlaces,
+) -> (SheetPlan, ValuePlaces) {
     let document = model.document();
     let fields = TitleFields::of(document.properties(), &model.display_name(), drawing);
     let extents = sheet
@@ -267,8 +276,8 @@ pub fn plan_of(model: &Model, drawing: &Drawing, sheet: &SheetViews) -> SheetPla
     let mut plan = lay_out_sheet(drawing, &fields, &extents, &sheet.cuts());
     let callouts = callout_texts(document, model.evaluation(), drawing);
 
-    plan.annotate(drawing, &sheet.finished().collect(), &callouts);
-    plan
+    let chosen = plan.annotate_holding(drawing, &sheet.finished().collect(), &callouts, held);
+    (plan, chosen)
 }
 
 fn apply_or_say(

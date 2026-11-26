@@ -8,21 +8,23 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_kernel::{Curve2, EdgeId, EdgeName, FaceName, Interval, ViewSource};
 use caditor_sketch::annotation::{
     ARROW_LENGTH, ARROW_STUB, CIRCLE_LEADER_DIRECTION, DEGREE_SIGN, DIAMETER_SIGN, EXTENSION_GAP,
-    EXTENSION_OVERSHOOT, Footprint, LEADER_OVERSHOOT, LEADER_TEXT_GAP, Obstacles, RADIUS_PREFIX,
-    SpanEnd, SpanLayout, TEXT_LIFT, arrow_fits, arrowhead, extension_line, readable_angle,
+    EXTENSION_OVERSHOOT, LEADER_OVERSHOOT, LEADER_TEXT_GAP, RADIUS_PREFIX, SpanEnd, SpanLayout,
+    TEXT_LIFT, arrow_fits, arrowhead, extension_line, readable_angle,
 };
 use thiserror::Error;
 
 use crate::{
     drawing_callouts::{CalloutTexts, sheet_callout},
     drawing_centres::{cylinder_axis, sheet_centre},
+    drawing_clearance::{Clash, Clearance, LABEL_CLEARANCE},
     drawing_sheet::{
         PlacedView, SheetMark, SheetPlan, SheetText, TextAnchor, line_pitch, text_width,
     },
     drawing_views::ViewLines,
     drawings::{
-        Annotation, DetailParent, DimensionDirection, DimensionMeasure, DimensionTolerance,
-        Drawing, DrawingDimension, DrawingNote, DrawnView, EdgePoint, EdgeSpot, StandardView,
+        Annotation, AnnotationId, DetailParent, DimensionDirection, DimensionMeasure,
+        DimensionTolerance, Drawing, DrawingDimension, DrawingNote, DrawnView, EdgePoint, EdgeSpot,
+        StandardView,
     },
 };
 
@@ -39,8 +41,6 @@ const ROUND_SHARE: f64 = 1e-6;
 const FULL_TURN_SLACK: f64 = 1e-6;
 const BROKEN_REACH: f64 = 2.0;
 const LEADER_SHOULDER: f64 = 1.0;
-pub(crate) const LABEL_CLEARANCE: f64 = 0.5;
-const LABEL_CELL: f64 = 4.0;
 const SLIDES: [f64; 4] = [0.5, -0.5, 1.0, -1.0];
 const LEADER_TURN: f64 = PI / 12.0;
 const LEADER_TURNS: usize = 12;
@@ -1413,32 +1413,6 @@ fn laid_dimension(
     }
 }
 
-fn label_footprint(text: &SheetText) -> Footprint {
-    let [first, others @ ..] = text_corners(text);
-
-    let (low, high) = others
-        .into_iter()
-        .fold((first, first), |(low, high), corner| {
-            (low.min(corner), high.max(corner))
-        });
-    Footprint {
-        center: (low + high) / 2.0,
-        half: (high - low) / 2.0 + Vector2::splat(LABEL_CLEARANCE * DIMENSION_TEXT_HEIGHT / 2.0),
-    }
-}
-
-fn clear_of(labels: &Obstacles, texts: &[SheetText]) -> bool {
-    texts
-        .iter()
-        .all(|text| labels.overlap(&label_footprint(text)) <= 0.0)
-}
-
-fn add_labels(labels: &mut Obstacles, laid: &SheetAnnotation) {
-    for text in &laid.texts {
-        labels.add(label_footprint(text));
-    }
-}
-
 fn value_placed_by_hand(dimension: &DrawingDimension) -> bool {
     dimension.text_offset != 0.0
 }
@@ -1447,19 +1421,37 @@ fn dodged(
     dimension: &DrawingDimension,
     geometry: DimensionGeometry,
     placed: &PlacedView,
-    labels: &Obstacles,
-) -> Option<Laid> {
+    (clearance, held): (&Clearance, Option<Dodge>),
+) -> Option<(Laid, Dodge)> {
     let kept = laid_dimension(dimension, geometry, placed, Dodge::Kept)?;
 
-    if value_placed_by_hand(dimension) || clear_of(labels, &kept.texts) {
-        return Some(kept);
+    if value_placed_by_hand(dimension) {
+        return Some((kept, Dodge::Kept));
     }
 
-    let clear = Dodge::tried(&geometry)
+    let mut best = (clearance.clash(&kept.texts), kept, Dodge::Kept);
+    let tries = held
+        .filter(|held| *held != Dodge::Kept)
         .into_iter()
-        .filter_map(|dodge| laid_dimension(dimension, geometry, placed, dodge))
-        .find(|laid| clear_of(labels, &laid.texts));
-    Some(clear.unwrap_or(kept))
+        .chain(Dodge::tried(&geometry));
+
+    for dodge in tries {
+        if best.0 == Clash::Clear {
+            break;
+        }
+
+        let Some(laid) = laid_dimension(dimension, geometry, placed, dodge) else {
+            continue;
+        };
+        let clash = clearance.clash(&laid.texts);
+
+        if clash < best.0 {
+            best = (clash, laid, dodge);
+        }
+    }
+
+    let (_, laid, dodge) = best;
+    Some((laid, dodge))
 }
 
 fn broken_dimension(
@@ -1514,24 +1506,27 @@ fn sheet_dimension(
     drawing: &Drawing,
     dimension: &DrawingDimension,
     (plan, lines): (&SheetPlan, &DrawnLines<'_>),
-    labels: &Obstacles,
-) -> Option<SheetAnnotation> {
+    keeping: (&Clearance, Option<Dodge>),
+) -> Option<(SheetAnnotation, Dodge)> {
     let placed = plan.placed(dimension.view)?;
     let outcome = dimension_problem(drawing, dimension, lines)?;
 
     let laid = outcome.and_then(|geometry| {
-        dodged(dimension, geometry, placed, labels).ok_or(AnnotationProblem::Degenerate)
+        dodged(dimension, geometry, placed, keeping).ok_or(AnnotationProblem::Degenerate)
     });
 
     Some(match laid {
-        Ok(laid) => SheetAnnotation {
-            annotation: Annotation::Dimension(dimension.id),
-            marks: laid.marks,
-            texts: laid.texts,
-            measure: Some(laid.measure),
-            problem: None,
-        },
-        Err(problem) => broken_dimension(dimension, placed, problem),
+        Ok((laid, dodge)) => (
+            SheetAnnotation {
+                annotation: Annotation::Dimension(dimension.id),
+                marks: laid.marks,
+                texts: laid.texts,
+                measure: Some(laid.measure),
+                problem: None,
+            },
+            dodge,
+        ),
+        Err(problem) => (broken_dimension(dimension, placed, problem), Dodge::Kept),
     })
 }
 
@@ -1609,8 +1604,27 @@ fn sheet_note(note: &DrawingNote, plan: &SheetPlan, lines: &DrawnLines<'_>) -> S
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ValuePlaces(BTreeMap<AnnotationId, Dodge>);
+
+impl ValuePlaces {
+    fn held(&self, dimension: AnnotationId) -> Option<Dodge> {
+        self.0.get(&dimension).copied()
+    }
+}
+
 impl SheetPlan {
     pub fn annotate(&mut self, drawing: &Drawing, lines: &DrawnLines<'_>, callouts: &CalloutTexts) {
+        self.annotate_holding(drawing, lines, callouts, &ValuePlaces::default());
+    }
+
+    pub fn annotate_holding(
+        &mut self,
+        drawing: &Drawing,
+        lines: &DrawnLines<'_>,
+        callouts: &CalloutTexts,
+        held: &ValuePlaces,
+    ) -> ValuePlaces {
         let centres: Vec<SheetAnnotation> = drawing
             .centres
             .iter()
@@ -1627,10 +1641,10 @@ impl SheetPlan {
             .map(|callout| sheet_callout(drawing, callout, self, lines, callouts))
             .collect();
 
-        let mut labels = Obstacles::new(LABEL_CELL * DIMENSION_TEXT_HEIGHT);
+        let mut clearance = Clearance::of_sheet(self, lines, drawing.hidden_lines);
 
-        for laid in notes.iter().chain(&laid_callouts) {
-            add_labels(&mut labels, laid);
+        for laid in centres.iter().chain(&notes).chain(&laid_callouts) {
+            clearance.add(laid);
         }
 
         let mut by_id: Vec<&DrawingDimension> = drawing.dimensions.iter().collect();
@@ -1638,10 +1652,18 @@ impl SheetPlan {
         by_id.sort_by_key(|dimension| dimension.id);
 
         let mut laid_dimensions = BTreeMap::new();
+        let mut chosen = ValuePlaces::default();
 
         for dimension in by_id {
-            if let Some(laid) = sheet_dimension(drawing, dimension, (&*self, lines), &labels) {
-                add_labels(&mut labels, &laid);
+            let keeping = (&clearance, held.held(dimension.id));
+
+            if let Some((laid, dodge)) =
+                sheet_dimension(drawing, dimension, (&*self, lines), keeping)
+            {
+                clearance.add(&laid);
+                if dodge != Dodge::Kept {
+                    chosen.0.insert(dimension.id, dodge);
+                }
                 laid_dimensions.insert(dimension.id, laid);
             }
         }
@@ -1658,6 +1680,7 @@ impl SheetPlan {
             .chain(notes)
             .chain(laid_callouts)
             .collect();
+        chosen
     }
 
     pub fn annotation(&self, annotation: Annotation) -> Option<&SheetAnnotation> {

@@ -11,7 +11,7 @@ use caditor_sketch::{
 use crate::{
     combine_tests::{Pair, block, evaluate, pair},
     drawing_callouts_tests::{Drilled, drilled},
-    drawing_dimensions::LABEL_CLEARANCE,
+    drawing_clearance::LABEL_CLEARANCE,
     *,
 };
 
@@ -22,13 +22,13 @@ fn plate_drawing(pair: &Pair) -> Drawing {
     drawing
 }
 
-fn lines_of(document: &Document, drawing: &Drawing, view: StandardView) -> ViewLines {
+pub(crate) fn lines_of(document: &Document, drawing: &Drawing, view: StandardView) -> ViewLines {
     let evaluation = evaluate(document, &mut Recompute::default());
     let bodies = drawn_bodies(document, &evaluation, drawing);
     drawing_view(view, &bodies.solids()).unwrap()
 }
 
-fn edge_where(lines: &ViewLines, wanted: impl Fn(Point2, Point2) -> bool) -> EdgeName {
+pub(crate) fn edge_where(lines: &ViewLines, wanted: impl Fn(Point2, Point2) -> bool) -> EdgeName {
     lines
         .pieces
         .iter()
@@ -43,7 +43,7 @@ fn edge_where(lines: &ViewLines, wanted: impl Fn(Point2, Point2) -> bool) -> Edg
         .expect("an edge like that is in the view")
 }
 
-fn near(left: f64, right: f64) -> bool {
+pub(crate) fn near(left: f64, right: f64) -> bool {
     (left - right).abs() < 1e-6
 }
 
@@ -59,7 +59,7 @@ fn left_edge(lines: &ViewLines) -> EdgeName {
     edge_where(lines, |start, end| near(start.x, 0.0) && near(end.x, 0.0))
 }
 
-fn length_of(edge: EdgeName) -> DimensionMeasure {
+pub(crate) fn length_of(edge: EdgeName) -> DimensionMeasure {
     DimensionMeasure::Linear {
         from: EdgePoint {
             edge,
@@ -73,7 +73,7 @@ fn length_of(edge: EdgeName) -> DimensionMeasure {
     }
 }
 
-fn dimension(id: u64, measure: DimensionMeasure, place: Point2) -> DrawingDimension {
+pub(crate) fn dimension(id: u64, measure: DimensionMeasure, place: Point2) -> DrawingDimension {
     DrawingDimension {
         id: AnnotationId::from_raw(id),
         view: DrawnView::Standard(StandardView::Front),
@@ -85,11 +85,11 @@ fn dimension(id: u64, measure: DimensionMeasure, place: Point2) -> DrawingDimens
     }
 }
 
-fn front(view: StandardView) -> DrawnView {
+pub(crate) fn front(view: StandardView) -> DrawnView {
     DrawnView::Standard(view)
 }
 
-fn annotated(drawing: &Drawing, lines: &ViewLines) -> SheetPlan {
+pub(crate) fn annotated(drawing: &Drawing, lines: &ViewLines) -> SheetPlan {
     annotated_in(drawing, StandardView::Front, lines)
 }
 
@@ -102,7 +102,7 @@ fn annotated_in(drawing: &Drawing, view: StandardView, lines: &ViewLines) -> She
     plan
 }
 
-fn front_only(mut drawing: Drawing) -> Drawing {
+pub(crate) fn front_only(mut drawing: Drawing) -> Drawing {
     drawing.views = [StandardView::Front].into_iter().collect();
     drawing
 }
@@ -1173,7 +1173,7 @@ fn bars_drawing(spans: &[(f64, f64)]) -> (Drawing, ViewLines) {
     (drawing, lines)
 }
 
-fn edge_along(lines: &ViewLines, level: f64, (from, to): (f64, f64)) -> EdgeName {
+pub(crate) fn edge_along(lines: &ViewLines, level: f64, (from, to): (f64, f64)) -> EdgeName {
     edge_where(lines, |start, end| {
         near(start.y, level)
             && near(end.y, level)
@@ -1182,16 +1182,16 @@ fn edge_along(lines: &ViewLines, level: f64, (from, to): (f64, f64)) -> EdgeName
     })
 }
 
-fn laid_of(plan: &SheetPlan, id: u64) -> &SheetAnnotation {
+pub(crate) fn laid_of(plan: &SheetPlan, id: u64) -> &SheetAnnotation {
     plan.annotation(Annotation::Dimension(AnnotationId::from_raw(id)))
         .unwrap()
 }
 
-fn value_of(plan: &SheetPlan, id: u64) -> &SheetText {
+pub(crate) fn value_of(plan: &SheetPlan, id: u64) -> &SheetText {
     &laid_of(plan, id).texts[0]
 }
 
-fn gap_between(first: &SheetText, second: &SheetText) -> f64 {
+pub(crate) fn gap_between(first: &SheetText, second: &SheetText) -> f64 {
     let bounds = |text: &SheetText| Aabb2::from_points(text_corners(text)).unwrap();
     let (first, second) = (bounds(first), bounds(second));
 
@@ -1200,7 +1200,7 @@ fn gap_between(first: &SheetText, second: &SheetText) -> f64 {
         .max_element()
 }
 
-fn clearance() -> f64 {
+pub(crate) fn clearance() -> f64 {
     LABEL_CLEARANCE * DIMENSION_TEXT_HEIGHT
 }
 

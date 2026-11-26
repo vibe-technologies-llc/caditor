@@ -18,6 +18,7 @@ mod document;
 mod draft;
 mod drawing_callouts;
 mod drawing_centres;
+mod drawing_clearance;
 mod drawing_details;
 mod drawing_dimensions;
 mod drawing_fits;
@@ -161,9 +162,9 @@ pub use crate::{
         AngleRay, AnnotationProblem, ArcSpan, DEVIATION_TEXT_HEIGHT, DIMENSION_TEXT_HEIGHT,
         DimensionGeometry, DimensionRefusal, DrawnLines, EdgePick, LinePick, MINUS_SIGN,
         NOTE_TEXT_HEIGHT, PLUS_MINUS_SIGN, SeenEdge, SeenLine, SheetAnnotation, SheetMeasure,
-        ValueLines, deviation_text, dimension_from_picks, dimension_geometry, dimension_problem,
-        is_measured_view, measured_lines_of, note_on_sheet, note_place, pick_edge, pick_line,
-        seen_edge, seen_line, text_corners, value_lines, view_place,
+        ValueLines, ValuePlaces, deviation_text, dimension_from_picks, dimension_geometry,
+        dimension_problem, is_measured_view, measured_lines_of, note_on_sheet, note_place,
+        pick_edge, pick_line, seen_edge, seen_line, text_corners, value_lines, view_place,
     },
     drawing_fits::{FIT_GRADES, FitLetter, IsoFit, MAX_FIT_SIZE},
     drawing_sections::{
@@ -355,6 +356,8 @@ mod draft_tests;
 mod drawing_callouts_tests;
 #[cfg(test)]
 mod drawing_centres_tests;
+#[cfg(test)]
+mod drawing_clearance_tests;
 #[cfg(test)]
 mod drawing_dimensions_tests;
 #[cfg(test)]

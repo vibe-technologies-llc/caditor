@@ -110,11 +110,15 @@ beside the arrow on the side where you placed the dimension, above the line draw
 angle's arc too short does the same along the arc, and a circle too small for an arrow inside it
 takes its arrows from outside.
 
-Values keep clear of each other. Where a dimension's value would fall on a note, a callout or the
-value of a dimension added before it, the value slides along its line, moves to the other end of a
+Values keep clear of what is drawn around them. Where a dimension's value would fall on a line of a
+view, a centre mark, a note, a callout, a view label or a dimension added before it (its value,
+line, extension lines or arrows), the value slides along its line, moves to the other end of a
 short one, or a radius or diameter swings its leader round the circle (staying on an arc), until it
-stands clear; the dimension line stays where you placed it. When nothing clears, the value stays
-as placed, and a value you moved with **Value along** always stays where you put it.
+stands clear; the dimension line stays where you placed it. Where no place is clear of everything,
+a value would rather cross a line than sit on another text; when nothing does better, the value
+stays as placed. A value you moved with **Value along** always stays where you put it. While you
+drag a dimension or a view, a value that has stepped aside stays on that side while it is still
+clear, so it does not flick back and forth as you pass a neighbour.
 
 {command:model.drawing_dimension} (or **Add a dimension** above the sheet) dimensions edges of a
 front, top, right, left, section or detail view; the isometric view is not drawn true to size, so

@@ -193,10 +193,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Annotations beyond dimensions, notes, centre marks, callouts and tolerances:
   ordinate and baseline dimensions, geometric tolerances with datum features (ISO 1101), surface
   texture symbols (ISO 21920) and weld symbols (ISO 2553).
-- [low · medium] A sheet dimension's value keeps clear of other values, notes and callouts only
-  (`drawings.md`): it can still land on the view's own lines or on other dimensions' lines and
-  arrows, and one dragged near another can jump between positions as the keep-clear search is
-  redone each frame.
+- [low · medium] A sheet dimension keeps only its value clear of what is drawn before it
+  (`drawings.md`): a later dimension's own line, extension lines and arrows can still cross an
+  earlier one's value, since only values move, and section hatching is not interrupted or avoided
+  round a value.
 
 ## Application
 

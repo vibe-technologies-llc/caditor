@@ -9,6 +9,8 @@ paths:
   - "crates/caditor-document/src/drawing_dimensions_tests.rs"
   - "crates/caditor-document/src/drawing_centres.rs"
   - "crates/caditor-document/src/drawing_centres_tests.rs"
+  - "crates/caditor-document/src/drawing_clearance.rs"
+  - "crates/caditor-document/src/drawing_clearance_tests.rs"
   - "crates/caditor-document/src/drawing_callouts.rs"
   - "crates/caditor-document/src/drawing_callouts_tests.rs"
   - "crates/caditor-document/src/drawing_fits.rs"
@@ -216,21 +218,38 @@ lines, never a picture of the 3D view.
   lettering's pitch) lower, a blank line only leaving a gap; a leader runs from a shoulder beside
   the first line, past the block's widest line, to the middle of its edge with an arrowhead, or is left out with the problem when the
   edge is gone.
-- Values keep clear of each other, by sketch export's rule (`file-import-export.md`) without its
-  lanes, since a sheet dimension's place is the user's: `annotate` lays notes and callouts out
-  first and puts their texts, then each dimension's as it is laid out in `AnnotationId` order (the
-  list's order does not matter), into an `annotation::Obstacles`, every text's box grown by
-  `LABEL_CLEARANCE` (half a `DIMENSION_TEXT_HEIGHT`) shared between its sides. A dimension whose
-  value as placed overlaps one is tried again with only its value moved (`Dodge`), never its line
-  or place: a linear or angular one slides by `SLIDES` (a half and the whole of its room inside the
-  span, keeping `LABEL_CLEARANCE` from the ends, each way) and a value set outside takes the other
-  end; a radius or diameter turns its leader by `LEADER_TURN` (15°) steps each way up to half a
-  turn, on an arc only within the arc it sees (`SeenEdge::seen_arc`, the `ArcSpan` in
-  `DimensionGeometry::Radial`). The first clear try is kept, else the placed layout; nothing is
-  left out. A dimension with a `text_offset` (not zero) is placed by hand and never moved, though
-  later ones dodge it; a lost dimension's `?` stands at its place and is dodged. The view's own
-  lines are not avoided. The marks and texts hold the chosen layout, so bounds, picking and export
-  follow.
+- Values keep clear of what the sheet draws, by sketch export's rule (`file-import-export.md`)
+  without its lanes, since a sheet dimension's place is the user's (`drawing_clearance.rs`).
+  `annotate` builds one `Clearance` per plan: texts go into an `annotation::Obstacles`, every box
+  grown by `LABEL_CLEARANCE` (half a `DIMENSION_TEXT_HEIGHT`) shared between its sides; lines go
+  into `SheetLines`, a grid of `LINE_CELL` (two text heights) cells over the sheet holding each
+  segment in the cells it passes through, clipped to the sheet and a cell round it. The lines are
+  every view's drawn pieces (`drawn_pieces` with the drawing's `hidden_lines`, curves sampled at
+  `LINE_CHORD` on the sheet), the cutting lines and the plan's own marks and texts (frame, title
+  block, view labels, detail circles); centre marks, notes and callouts are added next, then each
+  dimension's texts and marks (lines, arcs, arrowheads) as it is laid out in `AnnotationId` order
+  (the list's order does not matter). A value is tested against the lines only through the cells
+  its box (the text's own rotated box grown the same) covers, so the work per try follows the
+  lines near it, not the view's size (the tally test). A dimension's own marks are not in it while
+  it is laid out, so its extension lines never count. A value as placed that is not clear is tried
+  again with only its value moved (`Dodge`), never its line or place: a linear or angular one
+  slides by `SLIDES` (a half and the whole of its room inside the span, keeping `LABEL_CLEARANCE`
+  from the ends, each way) and a value set outside takes the other end; a radius or diameter turns
+  its leader by `LEADER_TURN` (15°) steps each way up to half a turn, on an arc only within the
+  arc it sees (`SeenEdge::seen_arc`, the `ArcSpan` in `DimensionGeometry::Radial`). Each try is a
+  `Clash`: clear, on a line only, or on a text; the least is kept, the earliest among equals with
+  the placed layout first, so a value goes over a line rather than another text and stays as
+  placed when nothing does better; nothing is left out. Section hatching is not avoided. A
+  dimension with a `text_offset` (not zero) is placed by hand and never moved, though later ones
+  dodge it; a lost dimension's `?` stands at its place and is dodged. The marks and texts hold the
+  chosen layout, so bounds, picking and export follow.
+- `annotate_holding` takes the `ValuePlaces` an earlier layout chose and returns this one's; a
+  held dodge is tried right after the placed layout, so it stays while nothing is better. The
+  sheet canvas passes each frame's choice to the next while it shows a drag or a tool's preview
+  (`plan_holding`), so a value dragged past a neighbour does not flip between sides as the search
+  is redone, and forgets them once the preview ends: `annotate` and `plan_of`, which the canvas at
+  rest and export use, hold nothing, so a layout follows from the drawing alone and a value let go
+  may settle on the first clear try.
 - A tolerance is laid out with the value (`value_lines`, `ValueLines`): plus or minus and a fit
   without deviations on the value's line (`20 ±0.1`, `⌀10 H7`); deviations stacked beside it at
   `DEVIATION_TEXT_HEIGHT` (2.5 mm), the lower one's foot on the value's, the upper above, the group

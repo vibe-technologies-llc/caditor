@@ -3,7 +3,7 @@ use std::{borrow::Cow, f64::consts::TAU};
 use caditor_document::{
     Annotation, Drawing, DrawnView, EditError, LinePick, MAX_DETAIL_EXTENT, MIN_DETAIL_RADIUS,
     PlacedView, SheetAnnotation, SheetMark, SheetPlan, SheetText, TextAnchor, Transaction,
-    ViewLines, ViewMovement, drawn_hatching, seen_line,
+    ValuePlaces, ViewLines, ViewMovement, drawn_hatching, seen_line,
 };
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::{Curve2, Interval, ViewPiece, Visibility};
@@ -14,7 +14,7 @@ use egui::{
 
 use crate::{
     appearance::{self, Tokens},
-    drawings_panel::plan_of,
+    drawings_panel::plan_holding,
     icons,
     model::{Action, Model, Notice},
     sheet_tools::{
@@ -228,6 +228,7 @@ pub struct SheetCanvas {
     focus_pending: bool,
     id: Option<egui::Id>,
     delete_pending: bool,
+    held_values: ValuePlaces,
 }
 
 impl SheetCanvas {
@@ -1292,8 +1293,21 @@ pub fn canvas(
             .map_or(Cow::Borrowed(context.drawing), Cow::Owned),
     };
     let shown_plan = match shown_drawing {
-        Cow::Owned(_) => Cow::Owned(plan_of(context.model, &shown_drawing, context.views)),
-        Cow::Borrowed(_) => Cow::Borrowed(plan),
+        Cow::Owned(_) => {
+            let (shown, chosen) = plan_holding(
+                context.model,
+                &shown_drawing,
+                context.views,
+                &canvas.held_values,
+            );
+
+            canvas.held_values = chosen;
+            Cow::Owned(shown)
+        }
+        Cow::Borrowed(_) => {
+            canvas.held_values = ValuePlaces::default();
+            Cow::Borrowed(plan)
+        }
     };
     let painter = ui.painter_at(rect);
 
