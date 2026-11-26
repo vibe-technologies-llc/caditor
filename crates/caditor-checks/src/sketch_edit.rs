@@ -15,7 +15,7 @@ use crate::{
 
 const MOST_EDITS: usize = 8;
 const MOST_PICKED: usize = 4;
-const MOST_SPLIT_PAIRS: usize = 1024;
+const MOST_SPLIT_WORK: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EditKind {
@@ -172,16 +172,43 @@ fn picks(input: &mut Unstructured, sketch: &Sketch) -> Result<Option<[Pick; 2]>>
     ]))
 }
 
+fn split_work(sketch: &Sketch, curve: EntityId) -> usize {
+    sketch
+        .entity(curve)
+        .map_or(1, |entity| entity.points().len().max(1))
+}
+
+fn window<'a>(
+    input: &mut Unstructured,
+    loose: &'a [EntityId],
+    reach: usize,
+) -> Result<&'a [EntityId]> {
+    let spare = loose.len().saturating_sub(reach);
+
+    if spare == 0 {
+        return Ok(loose);
+    }
+
+    let start = input.int_in_range(0..=spare)?;
+    Ok(loose.get(start..start + reach).unwrap_or_default())
+}
+
 fn split_at(input: &mut Unstructured, sketch: &Sketch) -> Result<(EntityId, EntityId)> {
     let drawn = curves(sketch);
     let loose = points(sketch);
 
-    let candidates: Vec<EntityId> = if drawn.len() * loose.len() <= MOST_SPLIT_PAIRS {
-        drawn
+    let every_pair = loose
+        .len()
+        .saturating_mul(drawn.iter().map(|curve| split_work(sketch, *curve)).sum());
+    let (candidates, near) = if every_pair <= MOST_SPLIT_WORK {
+        (drawn, loose.as_slice())
     } else {
-        vec![curve(input, sketch)?]
+        let chosen = curve(input, sketch)?;
+        let reach = MOST_SPLIT_WORK / split_work(sketch, chosen);
+        (vec![chosen], window(input, &loose, reach)?)
     };
-    let on_curves: Vec<(EntityId, EntityId)> = loose
+
+    let on_curves: Vec<(EntityId, EntityId)> = near
         .iter()
         .flat_map(|point| candidates.iter().map(move |curve| (*curve, *point)))
         .filter(|(curve, point)| sketch.check_split(*curve, *point).is_ok())

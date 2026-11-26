@@ -30,7 +30,7 @@ paths:
 - Tests bound cost by work done, never by time: a count a test can read (interrupt polls through the
   kernel's `test_support::polls_during`, or a `tally` of work units in `caditor-kernel`,
   `caditor-file`, `caditor-document`, the STEP reader's `read/tally.rs` and the solver's
-  `solve/tally.rs`, free outside tests) with a
+  `solve/tally.rs`, free outside tests and, for the solver's, `fuzzing` builds) with a
   bound that holds for a stated growth of the input. A wait for another thread is bounded by a
   deadline fixed before the loop. `conventions_tests.rs` refuses a clock read (`elapsed`, a
   `Duration`'s `as_secs_f64` and the like, or a name bound from one) inside an assert

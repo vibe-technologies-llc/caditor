@@ -47,7 +47,9 @@ paths:
   Newton shift), so the diagnosis budget counts steps taken; the analysis polls cancellation before each part, constraint and null-space
   solve. Tests bound cost with `solve/tally.rs` work units (`fit.rs` adds its passes over the
   samples, `offset/around.rs` its curve evaluations and segment tests, `intersect.rs` its samples,
-  chord pairs and Newton steps), never wall-clock time.
+  chord pairs and Newton steps), never wall-clock time. The tally counts in tests and with the
+  `fuzzing` feature, where `fuzzing::measure_work` lets `caditor-checks` bound a generator's
+  edits by it; elsewhere adding to it is free.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. A minimum
   is a Newton step under the least shift predicting under a billionth of the cost

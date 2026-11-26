@@ -57,12 +57,22 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
 - `sketch_tests.rs` also runs the `sketch_edit` fuzz target's check over seeded cases: a refused
   edit leaves the sketch as it was and an applied one keeps its use counts equal to a count from
   scratch, with at least `FEWEST_EDITS_APPLIED` applied edits of every `EditKind`.
+- A split looks for a point lying on a curve among the sketch's pairs only while their work, the
+  loose points times the defining points of the curves (`split_work`), stays within
+  `MOST_SPLIT_WORK`; past it one curve is chosen and only a run of the loose points is tried, as
+  many as `MOST_SPLIT_WORK` over the curve's defining points, starting where the input says
+  (`window`). Each `check_split` of a spline costs a closest-point search over its samples, so
+  before the window four offsets of a fit spline (1,666 points, a 513-point spline) tried every
+  point and took 12.3 million `tally` units and 1.9 s in release, now 2.3 million and 36 ms
+  (`a_split_looks_for_its_point_among_the_fit_points_of_long_offsets_in_bounded_work`).
 - `expression_tests.rs` runs the `expression` fuzz target's check over its committed seeds.
 - `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
   `every_input_kept_in_the_regression_folder_still_holds` through the same checks, and
   `regressions/sketch_edit/` by `every_sketch_edit_input_kept_in_the_regression_folder_still_holds`
   through `edited_sketch` (a timeout's slow edit also gets a `tally` bound in the crate doing it,
-  as `offset/tests.rs` and `trim/spline/tests.rs` do). A crash libFuzzer finds in `document` or `sketch_edit` is copied
+  as `offset/tests.rs` and `trim/spline/tests.rs` do; a slow generator step is bounded here through
+  `caditor_sketch::fuzzing::measure_work`, the solver's tally, which counts in `fuzzing` builds
+  too). A crash libFuzzer finds in `document` or `sketch_edit` is copied
   there (`fuzz/artifacts` is not tracked), next to the fix.
 - Evaluation is bounded by a poll count (`POLL_LIMIT`) rather than a clock, so a case never gives
   different answers on a loaded machine; a case that exhausts it is skipped.

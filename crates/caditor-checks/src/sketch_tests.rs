@@ -6,7 +6,7 @@ use std::{
 
 use arbitrary::Unstructured;
 use caditor_geometry::Plane;
-use caditor_sketch::{Constraint, Entity, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{Constraint, Entity, FitSpacing, Sketch, SplineKind, fuzzing::measure_work};
 
 use crate::{
     seeded::{for_each_case, replay_case},
@@ -21,6 +21,7 @@ const LARGEST_SHIFT: f64 = 1e-3;
 const REPEATED_POINT_GAP: f64 = 1e-3;
 const EDITING_CASES: u64 = 1500;
 const FEWEST_EDITS_APPLIED: usize = 20;
+const SPLIT_SEARCH_WORK: usize = 4_000_000;
 
 fn has_a_closed_spaced_spline_through_one_point_twice(sketch: &Sketch) -> bool {
     sketch.entities().any(|(_, entity)| match entity {
@@ -391,4 +392,24 @@ fn every_sketch_edit_input_kept_in_the_regression_folder_still_holds() {
     }
 
     assert!(replayed > 0, "{} holds no input", folder.display());
+}
+
+#[test]
+fn a_split_looks_for_its_point_among_the_fit_points_of_long_offsets_in_bounded_work() {
+    let bytes = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("regressions/sketch_edit/split-search-among-offsets-of-a-fit-spline.bin"),
+    )
+    .unwrap();
+
+    let (edited, work) = measure_work(|| edited_sketch(&mut Unstructured::new(&bytes), Plane::XY));
+
+    assert!(
+        edited.is_ok_and(|tally| {
+            tally.applied.contains_key(&EditKind::Split)
+                || tally.refused.contains_key(&EditKind::Split)
+        }),
+        "the input no longer reaches a split"
+    );
+    assert!(work < SPLIT_SEARCH_WORK, "{work} units to replay the edits");
 }
