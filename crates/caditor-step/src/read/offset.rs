@@ -80,10 +80,34 @@ impl Fit<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Region {
+    pub u: Interval,
+    pub v: Interval,
+}
+
 pub(crate) fn offset(
     basis: &Surface,
     distance: f64,
     fit: &Fit<'_>,
+) -> Result<Surface, OffsetRefusal> {
+    offset_within(basis, distance, fit, None)
+}
+
+pub(crate) fn offset_over(
+    basis: &Surface,
+    distance: f64,
+    fit: &Fit<'_>,
+    region: Region,
+) -> Result<Surface, OffsetRefusal> {
+    offset_within(basis, distance, fit, Some(region))
+}
+
+fn offset_within(
+    basis: &Surface,
+    distance: f64,
+    fit: &Fit<'_>,
+    region: Option<Region>,
 ) -> Result<Surface, OffsetRefusal> {
     let grown = |radius: f64, what: OffsetBasis| {
         let offset = radius + distance;
@@ -144,6 +168,7 @@ pub(crate) fn offset(
                 |t| basis.normal(t, 0.0),
                 distance,
                 fit,
+                region.map(|region| region.u),
                 what,
             )?;
             let moved = Surface::from(Extrusion::new(profile, extrusion.direction())?);
@@ -163,6 +188,7 @@ pub(crate) fn offset(
                 |t| basis.normal(0.0, t),
                 distance,
                 fit,
+                region.map(|region| region.v),
                 what,
             )?;
             let moved = Surface::from(Revolution::new(
@@ -179,7 +205,7 @@ pub(crate) fn offset(
             )?;
             moved
         }
-        Surface::BSpline(spline) => fitted_surface(basis, spline, distance, fit)?,
+        Surface::BSpline(spline) => fitted_surface(basis, spline, distance, fit, region)?,
         _ => return Err(OffsetRefusal::Unsupported),
     })
 }
@@ -205,6 +231,7 @@ fn offset_profile(
     normal: impl Fn(f64) -> Option<Vector3>,
     distance: f64,
     fit: &Fit<'_>,
+    within: Option<Interval>,
     what: OffsetBasis,
 ) -> Result<(Curve, Vec<f64>), OffsetRefusal> {
     match profile {
@@ -230,7 +257,7 @@ fn offset_profile(
         _ => {}
     }
 
-    let range = profile
+    let whole = profile
         .domain()
         .bounded()
         .or_else(|| {
@@ -241,7 +268,12 @@ fn offset_profile(
         .ok_or(OffsetRefusal::Endless(what))?;
     let breaks = match profile {
         Curve::BSpline(spline) => spline.breakpoints(),
-        _ => vec![range.start(), range.end()],
+        _ => vec![whole.start(), whole.end()],
+    };
+
+    let (range, breaks) = match within.and_then(|within| overlap(whole, within)) {
+        Some(range) => (range, clipped(&breaks, range)),
+        None => (whole, breaks),
     };
     let exact = |t: f64| -> Result<Point3, OffsetRefusal> {
         let across = normal(t)
@@ -290,6 +322,28 @@ fn nudged(t: f64, range: Interval) -> f64 {
     } else {
         t - step
     }
+}
+
+fn overlap(whole: Interval, within: Interval) -> Option<Interval> {
+    Interval::new(
+        whole.start().max(within.start()),
+        whole.end().min(within.end()),
+    )
+    .filter(|range| range.length() > 0.0)
+}
+
+fn clipped(breaks: &[f64], range: Interval) -> Vec<f64> {
+    let mut kept = vec![range.start()];
+
+    kept.extend(
+        breaks
+            .iter()
+            .copied()
+            .filter(|at| *at > range.start() && *at < range.end()),
+    );
+    kept.push(range.end());
+    kept.dedup();
+    kept
 }
 
 fn spans(breaks: &[f64], most: usize) -> Vec<f64> {
@@ -421,11 +475,16 @@ fn fitted_surface(
     spline: &BSplineSurface,
     distance: f64,
     fit: &Fit<'_>,
+    region: Option<Region>,
 ) -> Result<Surface, OffsetRefusal> {
     let what = OffsetBasis::Spline;
     let (u_domain, v_domain) = (spline.u_domain(), spline.v_domain());
     let most = (MAX_SURFACE_SAMPLES - 1) / FIRST_PIECES;
-    let breaks_of = |knots: &[f64], domain: Interval| {
+    let breaks_of = |knots: &[f64], domain: Interval, within: Option<Interval>| {
+        if let Some(range) = within.and_then(|within| overlap(domain, within)) {
+            return spans(&clipped(knots, range), most);
+        }
+
         let mut breaks: Vec<f64> = knots
             .iter()
             .copied()
@@ -436,8 +495,8 @@ fn fitted_surface(
         spans(&breaks, most)
     };
 
-    let u_breaks = breaks_of(spline.u_knots(), u_domain);
-    let v_breaks = breaks_of(spline.v_knots(), v_domain);
+    let u_breaks = breaks_of(spline.u_knots(), u_domain, region.map(|region| region.u));
+    let v_breaks = breaks_of(spline.v_knots(), v_domain, region.map(|region| region.v));
     let exact = |u: f64, v: f64| -> Result<(Point3, Vector3), OffsetRefusal> {
         let across = basis
             .normal(u, v)
@@ -821,6 +880,67 @@ mod tests {
             "is offset farther than its surface of extrusion curves, so the offset folds over \
              itself"
         );
+    }
+
+    fn curled() -> Surface {
+        let half = std::f64::consts::FRAC_1_SQRT_2;
+        let profile = BSpline::rational(
+            2,
+            vec![
+                0.0, 0.0, 0.0, 0.2, 0.2, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8, 1.0, 1.0, 1.0,
+            ],
+            vec![
+                Point3::new(3.0, 0.0, 0.0),
+                Point3::new(3.0, 3.0, 0.0),
+                Point3::new(0.0, 3.0, 0.0),
+                Point3::new(-3.0, 3.0, 0.0),
+                Point3::new(-3.0, 0.0, 0.0),
+                Point3::new(-3.0, -1.5, 0.0),
+                Point3::new(-3.0, -3.0, 0.0),
+                Point3::new(-3.0, -4.0, 0.0),
+                Point3::new(-4.0, -4.0, 0.0),
+                Point3::new(-5.0, -4.0, 0.0),
+                Point3::new(-5.0, -3.0, 0.0),
+            ],
+            vec![1.0, half, 1.0, half, 1.0, 1.0, 1.0, half, 1.0, half, 1.0],
+        )
+        .unwrap();
+        Surface::from(Extrusion::new(Curve::BSpline(profile), Vector3::Z).unwrap())
+    }
+
+    #[test]
+    fn an_offset_folding_outside_a_region_is_fitted_over_it_and_still_refused_across_the_fold() {
+        let basis = curled();
+        let span = |start: f64, end: f64| Interval::new(start, end).unwrap();
+        let region = |end: f64| Region {
+            u: span(0.0, end),
+            v: span(-1.0, 11.0),
+        };
+
+        let whole = offset(&basis, 2.0, &within(1e-6));
+        let clear = offset_over(&basis, 2.0, &within(1e-6), region(0.45)).unwrap();
+        let across = offset_over(&basis, 2.0, &within(1e-6), region(0.7));
+
+        assert!(
+            matches!(whole, Err(OffsetRefusal::Folds(OffsetBasis::Extrusion))),
+            "{whole:?}"
+        );
+        assert!(
+            matches!(across, Err(OffsetRefusal::Folds(OffsetBasis::Extrusion))),
+            "{across:?}"
+        );
+        assert_eq!(clear.u_domain().bounded(), Some(span(0.0, 0.45)));
+
+        for u in span(0.0, 0.4).split(24) {
+            let moved = clear.point_at(Point2::new(u, 3.0));
+            let radius = Vector3::new(moved.x, moved.y, 0.0).length();
+
+            assert!(
+                (radius - 5.0).abs() < 1e-6,
+                "{moved} at {u} is off by {}",
+                radius - 5.0
+            );
+        }
     }
 
     #[test]

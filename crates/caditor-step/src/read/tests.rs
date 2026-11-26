@@ -1266,6 +1266,142 @@ fn a_face_on_an_offset_of_an_extruded_spline_arc_is_fitted_within_the_resolution
     assert_volume(read, std::f64::consts::PI * 25.0 / 2.0 * 10.0);
 }
 
+fn on_curled_offset(
+    prism: &caditor_kernel::Solid,
+    profile: &[(f64, f64, f64)],
+    knots: &str,
+) -> String {
+    let text = written("Half round", prism);
+    let cylinder = text
+        .lines()
+        .find(|line| line.contains("=CYLINDRICAL_SURFACE("))
+        .unwrap();
+    let id = cylinder.split_once('=').unwrap().0;
+    let mut basis = String::new();
+
+    for (index, (x, y, _)) in profile.iter().enumerate() {
+        basis.push_str(&format!(
+            "#{}=CARTESIAN_POINT('',({x:?},{y:?},0.));\n",
+            9101 + index
+        ));
+    }
+
+    let points: Vec<String> = (0..profile.len())
+        .map(|index| format!("#{}", 9101 + index))
+        .collect();
+    let weights: Vec<String> = profile
+        .iter()
+        .map(|(_, _, weight)| format!("{weight:?}"))
+        .collect();
+
+    basis.push_str(&format!(
+        "#9150=(BOUNDED_CURVE() B_SPLINE_CURVE(2,({}),.UNSPECIFIED.,.F.,.F.) \
+         B_SPLINE_CURVE_WITH_KNOTS({knots},.UNSPECIFIED.) CURVE() GEOMETRIC_REPRESENTATION_ITEM() \
+         RATIONAL_B_SPLINE_CURVE(({})) REPRESENTATION_ITEM(''));\n\
+         #9151=DIRECTION('',(0.,0.,1.));\n#9152=VECTOR('',#9151,1.);\n\
+         #9100=SURFACE_OF_LINEAR_EXTRUSION('',#9150,#9152);\nENDSEC;\nEND-ISO-10303-21;",
+        points.join(","),
+        weights.join(",")
+    ));
+    text.replace(cylinder, &format!("{id}=OFFSET_SURFACE('',#9100,2.,.F.);"))
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &basis)
+}
+
+fn arc_of_three() -> Vec<(f64, f64, f64)> {
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+
+    vec![
+        (3.0, 0.0, 1.0),
+        (3.0, 3.0, half),
+        (0.0, 3.0, 1.0),
+        (-3.0, 3.0, half),
+        (-3.0, 0.0, 1.0),
+    ]
+}
+
+fn curl_of_one(top: f64) -> [(f64, f64, f64); 4] {
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+
+    [
+        (-3.0, top - 1.0, half),
+        (-4.0, top - 1.0, 1.0),
+        (-5.0, top - 1.0, half),
+        (-5.0, top, 1.0),
+    ]
+}
+
+#[test]
+fn a_face_on_an_offset_folding_only_outside_its_region_is_fitted_over_that_region() {
+    let prism = half_round_prism();
+    let mut profile = arc_of_three();
+
+    profile.extend([(-3.0, -1.5, 1.0), (-3.0, -3.0, 1.0)]);
+    profile.extend(curl_of_one(-3.0));
+
+    let text = on_curled_offset(&prism, &profile, "(3,2,2,2,2,3),(0.,0.2,0.4,0.6,0.8,1.)");
+    let model = sample(&text);
+
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(model.solids.len(), 1);
+
+    let read = &model.solids[0].solid;
+    let profile_domain = read.faces().find_map(|(_, face)| match face.surface() {
+        caditor_kernel::Surface::Extrusion(extrusion) => extrusion.profile().domain().bounded(),
+        _ => None,
+    });
+    let surfaces: Vec<&caditor_kernel::Surface> =
+        prism.faces().map(|(_, face)| face.surface()).collect();
+    let mesh = read
+        .tessellate(&caditor_kernel::SamplingTolerance::new(0.05, 0.3).unwrap())
+        .unwrap();
+
+    assert!(
+        profile_domain.is_some_and(|domain| domain.start() == 0.0 && domain.end() < 0.6),
+        "{profile_domain:?}"
+    );
+    assert_eq!(read.faces().count(), prism.faces().count());
+    assert_eq!(read.edges().count(), prism.edges().count());
+
+    for point in mesh.positions() {
+        let gap = surfaces
+            .iter()
+            .map(|surface| surface.distance(*point))
+            .fold(f64::INFINITY, f64::min);
+
+        assert!(
+            gap <= caditor_kernel::LINEAR_RESOLUTION,
+            "{point} is {gap} mm off"
+        );
+    }
+
+    assert_volume(read, std::f64::consts::PI * 25.0 / 2.0 * 10.0);
+}
+
+#[test]
+fn a_face_on_an_offset_folding_where_its_region_reaches_is_still_refused() {
+    let prism = half_round_prism();
+    let mut profile = arc_of_three();
+
+    profile.extend(curl_of_one(0.0));
+
+    let text = on_curled_offset(&prism, &profile, "(3,2,2,2,3),(0.,0.25,0.5,0.75,1.)");
+    let offset = offset_entity(&text);
+
+    let face = entity_using(&text, "ADVANCED_FACE", &offset);
+
+    let model = sample(&text);
+
+    assert_eq!(
+        model.notes,
+        vec![format!(
+            "“Half round” was imported without its face {face}, because its entity {offset} is \
+             offset farther than its surface of extrusion curves, so the offset folds over \
+             itself; the hole it left was closed with flat facets, so its curved faces are \
+             approximated by flat ones."
+        )]
+    );
+}
+
 fn replica_operator(id: u64, origin: [f64; 3], mirrored: bool) -> String {
     let second = if mirrored {
         format!("#{}", id + 2)

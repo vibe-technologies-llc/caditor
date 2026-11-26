@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet},
     f64::consts::FRAC_PI_2,
     sync::{
@@ -18,7 +18,8 @@ use caditor_kernel::{
 use crate::read::{
     fault::Fault,
     graph::{Entity, Graph, Problem, Read},
-    offset::{Fit, OffsetRefusal, offset},
+    offset::{Fit, OffsetRefusal, offset, offset_over},
+    region::{Uses, used_region},
     spline::{Homogeneous, bezier_knots, clamp, expand_knots, knot_count, uniform_knots},
     structure::operator,
     units::Units,
@@ -187,6 +188,7 @@ pub(crate) struct Geometry<'a> {
     curves: RefCell<BTreeMap<u64, Read<Curve>>>,
     surfaces: RefCell<BTreeMap<u64, Read<Surface>>>,
     reversed: RefCell<BTreeSet<u64>>,
+    uses: OnceCell<Uses>,
 }
 
 impl<'a> Geometry<'a> {
@@ -199,6 +201,7 @@ impl<'a> Geometry<'a> {
             curves: RefCell::new(BTreeMap::new()),
             surfaces: RefCell::new(BTreeMap::new()),
             reversed: RefCell::new(BTreeSet::new()),
+            uses: OnceCell::new(),
         }
     }
 
@@ -208,6 +211,10 @@ impl<'a> Geometry<'a> {
 
     pub fn charge(&self, id: u64) -> Read<()> {
         self.work.charge(id)
+    }
+
+    pub fn uses(&self) -> &Uses {
+        self.uses.get_or_init(|| Uses::of(self.graph))
     }
 
     pub fn reversed(&self, surface: u64) -> bool {
@@ -778,6 +785,13 @@ impl<'a> Geometry<'a> {
                 };
 
                 let surface = offset(&basis, distance, &fit)
+                    .or_else(|refusal| match refusal {
+                        OffsetRefusal::Folds(_) => match used_region(self, id, &basis) {
+                            Some(region) => offset_over(&basis, distance, &fit, region),
+                            None => Err(refusal),
+                        },
+                        other => Err(other),
+                    })
                     .map_err(|refusal| Problem::new(id, Fault::Offset(refusal)))?;
 
                 self.follow_sense(id, reversed);

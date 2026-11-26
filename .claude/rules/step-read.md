@@ -199,6 +199,15 @@ paths:
   file's precision and otherwise refused saying how close it came, as is an offset whose normal turns
   against the basis's (`Folds`). Fitting charges the work budget and polls the interrupt. A reversed
   basis (below) offsets the other way.
+- An offset refused as `Folds` over its basis's whole domain is fitted once more over the region its
+  faces use (`region.rs`, `offset_over`): every face naming it as its surface (`Uses`, one pass over
+  the file per `Geometry`, made only when an offset folds), each edge sampled between its vertices
+  and projected onto the basis, the union of their uv boxes widened on each side by `REGION_MARGIN`
+  of its span plus `REGION_FLOOR` of the basis's domain (room for settling and healing to move
+  vertices) and clamped to the domain. A spline basis is restricted both ways, a swept one only
+  along its profile (an extrusion's u, a revolution's v). An offset another surface wraps (an
+  offset, replica or trimmed surface), or whose faces' edges cannot be read, keeps the refusal, as
+  does one folding inside that region; an offset that does not fold is fitted over the whole domain.
 - `POINT_REPLICA`, `CURVE_REPLICA` and `SURFACE_REPLICA` are their parent mapped by their
   `CARTESIAN_TRANSFORMATION_OPERATOR_3D` (`structure::operator`); a mirrored surface replica whose
   kernel normal runs against STEP's (`similar`'s `Sense`) is recorded in `Geometry::reversed`, which

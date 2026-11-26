@@ -8,6 +8,7 @@ mod look_tests;
 mod loose;
 mod offset;
 mod presentation;
+mod region;
 #[cfg(test)]
 mod seeds;
 mod snap;

@@ -1623,7 +1623,12 @@ fn healed_seam(
     fits.then_some((seam, interval))
 }
 
-fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Option<Interval> {
+pub(crate) fn parameter_range(
+    curve: &Curve,
+    from: Point3,
+    to: Point3,
+    closed: bool,
+) -> Option<Interval> {
     let domain = curve.domain();
     let search = search_range(curve);
     let low = curve.closest_parameter(from, search);

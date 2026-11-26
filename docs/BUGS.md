@@ -231,8 +231,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
-  cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
-  is refused even where the face's own region is clear: fit over the region the face uses.
+  cannot be read still loses the whole body.
 
 ## Viewer
 
