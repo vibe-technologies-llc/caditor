@@ -2029,8 +2029,11 @@ fn concave_first(
     let references = references_in(naming, sides.convex)?;
     let filling = propagate(solid, topology, sides.concave)?;
     let filled = planned_and_applied(solid, topology, &filling, shape, feature)?;
+    let bevels = bevels_of(solid, &filling, shape, feature);
 
-    let original = find_again(&filled, &references)?;
+    let original = find_again(&filled, &references, |reference| {
+        carried_onto_bevels(&filled, reference, &bevels, shape.origin(feature))
+    })?;
     let remaining: Vec<EdgeId> = original.keys().copied().collect();
     apply(&filled, &remaining, shape, feature)
         .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
@@ -2048,7 +2051,7 @@ fn convex_first(
     let cutting = propagate(solid, topology, sides.convex)?;
     let cut = planned_and_applied(solid, topology, &cutting, shape, feature)?;
 
-    let original = find_again(&cut, &references)?;
+    let original = find_again(&cut, &references, |_| Vec::new())?;
     let mut remaining: BTreeSet<EdgeId> = original.keys().copied().collect();
 
     remaining.extend(carried_round(&cut, &remaining, shape.origin(feature)));
@@ -2085,9 +2088,123 @@ fn carried_round(solid: &Solid, found: &BTreeSet<EdgeId>, made: FaceOrigin) -> V
         .collect()
 }
 
+struct Bevel {
+    name: FaceName,
+    between: BTreeSet<FaceName>,
+    feet: Vec<Point3>,
+}
+
+fn face_names(solid: &Solid, edge: EdgeId) -> BTreeSet<FaceName> {
+    face_set(solid, edge)
+        .into_iter()
+        .filter_map(|face| solid.face(face).map(|face| face.name()))
+        .collect()
+}
+
+fn bevels_of(solid: &Solid, filled: &[EdgeId], shape: BlendShape, feature: u64) -> Vec<Bevel> {
+    let geometries: Vec<EdgeGeometry> = filled
+        .iter()
+        .filter_map(|edge| analyze(solid, *edge).ok())
+        .collect();
+    let shared = shared_faces(&geometries);
+    filled
+        .iter()
+        .filter_map(|edge| {
+            let feet = geometries
+                .iter()
+                .find(|geometry| geometry.edge == *edge)
+                .map(|geometry| feet_along(solid, geometry, &shared, shape))
+                .unwrap_or_default();
+            Some(Bevel {
+                name: FaceName::blend(feature, solid.edge(*edge)?.name()),
+                between: face_names(solid, *edge),
+                feet,
+            })
+        })
+        .collect()
+}
+
+fn feet_along(
+    solid: &Solid,
+    geometry: &EdgeGeometry,
+    shared: &BTreeMap<FaceId, usize>,
+    shape: BlendShape,
+) -> Vec<Point3> {
+    let measured_on = measured_side(solid, geometry.faces, shared, shape.flipped());
+    let Ok(blend) = shape.cut(geometry, measured_on) else {
+        return Vec::new();
+    };
+    blend
+        .feet
+        .iter()
+        .flat_map(|foot| {
+            FIT_FRACTIONS
+                .iter()
+                .filter_map(|fraction| geometry.place(*foot, *fraction))
+        })
+        .collect()
+}
+
+fn holds_all(surface: &Surface, points: &[Point3]) -> bool {
+    !points.is_empty()
+        && points.iter().all(|point| {
+            surface
+                .point_at(surface.project(*point, None))
+                .distance(*point)
+                <= LINEAR_RESOLUTION
+        })
+}
+
+fn carried_onto_bevels(
+    filled: &Solid,
+    reference: &EdgeReference,
+    bevels: &[Bevel],
+    made: FaceOrigin,
+) -> Vec<EdgeId> {
+    let present: BTreeSet<FaceName> = filled.faces().map(|(_, face)| face.name()).collect();
+    let [first, second] = reference.faces();
+
+    let (kept, used_up) = match (present.contains(&first), present.contains(&second)) {
+        (true, false) => (first, second),
+        (false, true) => (second, first),
+        _ => return Vec::new(),
+    };
+    let made_faces: Vec<(FaceName, &Surface)> = filled
+        .faces()
+        .filter(|(_, face)| face.origin() == Some(made))
+        .map(|(_, face)| (face.name(), face.surface()))
+        .collect();
+    let healed_into = |bevel: &Bevel| -> Vec<FaceName> {
+        if present.contains(&bevel.name) {
+            return vec![bevel.name];
+        }
+        made_faces
+            .iter()
+            .filter(|(_, surface)| holds_all(surface, &bevel.feet))
+            .map(|(name, _)| *name)
+            .collect()
+    };
+
+    let across_used_up: BTreeSet<FaceName> = bevels
+        .iter()
+        .filter(|bevel| bevel.between.contains(&used_up))
+        .flat_map(healed_into)
+        .collect();
+    filled
+        .edges()
+        .map(|(id, _)| id)
+        .filter(|edge| {
+            let names = face_names(filled, *edge);
+            names.contains(&kept) && !names.is_disjoint(&across_used_up)
+        })
+        .filter(|edge| edge_convexity(filled, *edge) == Some(EdgeConvexity::Convex))
+        .collect()
+}
+
 fn find_again(
     filled: &Solid,
     references: &[(EdgeId, EdgeReference)],
+    carried: impl Fn(&EdgeReference) -> Vec<EdgeId>,
 ) -> Result<BTreeMap<EdgeId, EdgeId>, BlendError> {
     let naming = EdgeNaming::new(filled);
     let mut original = BTreeMap::new();
@@ -2096,7 +2213,10 @@ fn find_again(
         let found = match reference.resolve_by_names_in(&naming) {
             Ok(found) => vec![found],
             Err(ReferenceError::Ambiguous(candidates)) => candidates,
-            Err(ReferenceError::Missing) => return Err(BlendError::Lost(*edge)),
+            Err(ReferenceError::Missing) => match carried(reference).as_slice() {
+                [] => return Err(BlendError::Lost(*edge)),
+                successors => successors.to_vec(),
+            },
         };
         for piece in found {
             original.insert(piece, *edge);

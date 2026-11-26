@@ -680,14 +680,19 @@ paths:
   (`end_planes`) fits whatever face it lands on, since that end extends or clips the tool there.
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
-  solid (one not found is `Lost`; errors about unchosen edges of the filled solid are `AfterFill`
-  without an id). When that fails after the fill (a convex edge `UnsupportedEnd` or `Lost`, or any
-  `AfterFill`) the convex edges go first instead (`convex_first`) and the concave ones are re-found
-  in the cut solid, joined by every concave edge of a face this blend made whose both ends lie on
-  re-found edges (`carried_round`), so a boss's upright chosen with its base edges has its bevel
-  first and the base bevel carried round it (a fillet's base arc is tangent and joins by its
-  chain, so one base edge and the upright round onto the next side too); if that fails as well
-  the first order's error is reported.
+  solid (errors about unchosen edges of the filled solid are `AfterFill` without an id). One not
+  found because the fill used up one of its faces (a pocket's corner bevels meeting exactly across
+  its walls) is carried onto the convex edges between its other face and the fills of concave
+  edges on the used-up face (`carried_onto_bevels`), each fill found by its name or, when healing
+  merged it into a neighbour on the same surface (the four corner rounds of a bore), by the fill
+  faces whose surface holds its feet; with no such edge it is `Lost`. When that fails after the
+  fill (a convex edge `UnsupportedEnd` or `Lost`, or any `AfterFill`) the convex edges go first
+  instead (`convex_first`) and the concave ones are re-found in the cut solid, joined by every
+  concave edge of a face this blend made whose both ends lie on re-found edges (`carried_round`),
+  so a boss's upright chosen with its base edges has its bevel first and the base bevel carried
+  round it (a fillet's base arc is tangent and joins by its chain, so one base edge and the
+  upright round onto the next side too); if that fails as well the first order's error is
+  reported.
 - Ends continuing into another chosen edge stop flush, ends on a perpendicular face stop there, ends
   on a slanted face extend past it when the extension changes nothing, else are clipped by its
   plane. An end at a corner of two or more flat faces (where earlier chamfers met) extends past all
@@ -727,11 +732,11 @@ paths:
   edge on that face anywhere within some 2e-3 of the tangent circle and left the fillet's face
   untraceable (`Split`).
 - Refused corners, each pinned by a test: the upright of a boss whose foot an earlier blend rounded
-  is `UnsupportedEnd` (the fills' seam there is concave); fills that use up a whole face (a pocket's
-  walls) lose the edges on it (`Lost`), and cutting first leaves the pocket's corner edges ending at
-  the rim chamfers' mitre. A circular edge whose extended sweep would pass a full turn is
-  `WrapsAround`. `survey.rs` (ignored, in the stress job) chamfers and fillets every corner of
-  twenty bodies, and every one blends.
+  is `UnsupportedEnd` (the fills' seam there is concave); a 4 mm pocket's twelve edges filleted
+  2 mm is `TooLarge` for a floor edge, whose ball corners' setbacks take its whole length. A
+  circular edge whose extended sweep would pass a full turn is `WrapsAround`. `survey.rs`
+  (ignored, in the stress job) chamfers and fillets every corner of twenty bodies, and every one
+  blends.
 - Three straight edges of one kind filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball, subtracted at a convex corner and added at a
   concave one, a pocket's inside corner at its floor); other corners mitre. The corner is built

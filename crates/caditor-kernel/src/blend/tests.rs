@@ -649,13 +649,16 @@ fn an_edge_the_fill_swallowed_is_named_as_lost() {
     );
 
     assert_eq!(
-        find_again(&filled, &[(edge, reference)]),
+        find_again(&filled, &[(edge, reference)], |reference| {
+            carried_onto_bevels(&filled, reference, &[], FaceOrigin::Chamfer { feature: 50 })
+        }),
         Err(BlendError::Lost(edge))
     );
     assert_eq!(
         find_again(
             &block,
-            &[(edge, EdgeReference::capture(&block, edge).unwrap())]
+            &[(edge, EdgeReference::capture(&block, edge).unwrap())],
+            |_| Vec::new()
         )
         .unwrap()
         .get(&edge),
@@ -1198,26 +1201,81 @@ fn round_feet_meeting_exactly_on_a_face_use_it_up() {
     );
 }
 
-#[test]
-fn fills_using_up_a_pocket_s_walls_lose_its_rim() {
-    let block = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
-    let pocketed = boolean(
-        &block,
+fn pocketed_block() -> Solid {
+    boolean(
+        &block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1),
         &block_at((3.0, 3.0, 6.0), (4.0, 4.0, 4.0), 2),
         BooleanOperation::Difference,
     )
-    .unwrap();
-    let rim = edge_through(&pocketed, (5.0, 3.0, 10.0));
-    let pocket = edges_where(&pocketed, |middle| {
-        (3.0..=7.0).contains(&middle.x) && (3.0..=7.0).contains(&middle.y)
-    });
-    let chamfer = |distance| BlendShape::Chamfer { distance };
+    .unwrap()
+}
 
-    let walls_gone = blend(&pocketed, &pocket, chamfer(2.0), 50);
+#[test]
+fn fills_using_up_a_pocket_s_walls_carry_its_rim_onto_the_corner_bevels() {
+    let pocketed = pocketed_block();
+    let inside =
+        |middle: Point3| (3.0..=7.0).contains(&middle.x) && (3.0..=7.0).contains(&middle.y);
+
+    let pocket = edges_where(&pocketed, inside);
+    let above_floor = edges_where(&pocketed, |middle| inside(middle) && middle.z > 6.0 + 1e-9);
+    let corners = edges_where(&pocketed, |middle| {
+        inside(middle) && (middle.z - 8.0).abs() < 1e-9
+    });
+    let one_rim: Vec<EdgeId> = [edge_through(&pocketed, (5.0, 3.0, 10.0))]
+        .into_iter()
+        .chain(corners.iter().copied())
+        .collect();
+    let chamfer = |distance| BlendShape::Chamfer { distance };
+    let pocketed_volume = 1000.0 - 4.0 * 4.0 * 4.0;
+    let corner_bevels = 4.0 * (2.0 * 2.0 / 2.0) * 4.0;
+    let diamond = 2.0 * 2.0 * 2.0;
+    let funnel_under_the_diamond = 8.0;
+    let rim_bevel = (2.0 * 2.0 / 2.0) * 2.0 * 2f64.sqrt();
+    let rim_bevel_mitre = 4.0 / 3.0;
+    let rim_round_the_bore = spandrel(2.0) * 2.0 * PI * (2.0 + 2.0 * SPANDREL_CENTROID);
+
+    let every_edge = run(&pocketed, &pocket, chamfer(2.0));
+    let without_floor = run(&pocketed, &above_floor, chamfer(2.0));
+    let one_wall = run(&pocketed, &one_rim, chamfer(2.0));
+    let rounded = run(&pocketed, &above_floor, fillet(2.0));
 
     assert_eq!(pocket.len(), 12);
-    assert_eq!(walls_gone, Err(BlendError::Lost(rim)));
+    assert_eq!(above_floor.len(), 8);
+    assert_eq!(corners.len(), 4);
+
+    check(
+        "every edge",
+        &every_edge,
+        1000.0
+            - diamond * 2.0
+            - funnel_under_the_diamond
+            - 4.0 * (rim_bevel + 2.0 * rim_bevel_mitre),
+    );
+    check(
+        "rim and corners",
+        &without_floor,
+        pocketed_volume + corner_bevels - 4.0 * (rim_bevel + 2.0 * rim_bevel_mitre),
+    );
+    check(
+        "one rim edge and the corners",
+        &one_wall,
+        pocketed_volume + corner_bevels - 2.0 * (rim_bevel + rim_bevel_mitre),
+    );
+    check(
+        "rim and corners rounded",
+        &rounded,
+        1000.0 - PI * 2.0 * 2.0 * 4.0 - rim_round_the_bore,
+    );
+
+    assert!(!has_edge_through(&every_edge, (4.0, 4.0, 10.0)));
+    assert!(has_edge_through(&every_edge, (4.0, 4.0, 8.0)));
+    assert!(has_edge_through(
+        &every_edge,
+        (4.0 - 2f64.sqrt(), 4.0 - 2f64.sqrt(), 10.0)
+    ));
+    assert!(has_edge_through(&one_wall, (4.0, 6.0, 10.0)));
     assert!(blend(&pocketed, &pocket, chamfer(1.9), 50).is_ok());
+    assert!(is_too_large(blend(&pocketed, &pocket, fillet(2.0), 50)));
 }
 
 fn has_edge_through(solid: &Solid, point: (f64, f64, f64)) -> bool {
