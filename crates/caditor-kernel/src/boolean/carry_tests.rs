@@ -205,6 +205,29 @@ fn holes_breaking_into_earlier_holes_match_the_full_pipeline() {
 }
 
 #[test]
+fn holes_tangent_to_earlier_holes_or_the_sides_match_the_full_pipeline() {
+    let mut body = plate(3, 1);
+
+    for (index, center) in [
+        (5.0, 5.0),
+        (9.0, 5.0),
+        (28.0, 5.0),
+        (15.0, 2.0),
+        (19.0, 5.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let tool = drill_at(center, 2.0, 400 + index as u64);
+        let drilled = assert_same("tangent hole", &body, &tool, BooleanOperation::Difference);
+
+        if drilled.faces().next().is_some() {
+            body = drilled;
+        }
+    }
+}
+
+#[test]
 fn blocks_touching_or_almost_touching_match_the_full_pipeline() {
     let first = block((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
 
@@ -478,17 +501,21 @@ fn work_follows_the_contact_rather_than_the_body() {
     let mut body = plate(columns, columns);
     let mut work = Vec::new();
     let mut meshed = Vec::new();
+    let mut meshed_loops = Vec::new();
 
     for index in 0..columns * columns {
         let tool = drill(index, columns);
 
-        let ((drilled, units), faces) = tally::measure_meshed_faces(|| {
-            tally::measure(|| boolean(&body, &tool, BooleanOperation::Difference))
+        let (((drilled, units), faces), loops) = tally::measure_meshed_loops(|| {
+            tally::measure_meshed_faces(|| {
+                tally::measure(|| boolean(&body, &tool, BooleanOperation::Difference))
+            })
         });
 
         body = drilled.unwrap();
         work.push(units);
         meshed.push(faces);
+        meshed_loops.push(loops);
     }
 
     let (first, last) = (work.first().copied(), work.last().copied());
@@ -497,9 +524,20 @@ fn work_follows_the_contact_rather_than_the_body() {
     });
 
     assert_eq!(body.faces().count(), 6 + columns * columns);
+    assert_eq!(
+        meshed.first(),
+        Some(&3),
+        "the first hole leaves no loop out"
+    );
     assert!(
-        meshed.iter().all(|faces| *faces == 3),
-        "each hole meshes its wall and the top and bottom it opens, not the body: {meshed:?}"
+        meshed.iter().skip(1).all(|faces| *faces == 1),
+        "each later hole meshes its wall whole, not the top and bottom holding every hole: \
+         {meshed:?}"
+    );
+    assert!(
+        meshed_loops.iter().all(|loops| *loops == 5),
+        "each hole meshes its wall's loop and, on the top and bottom, its own rim beside their \
+         outer loops, whatever the holes drilled before: {meshed_loops:?}"
     );
     assert!(
         rebuilt_meshed > 6 + columns * columns,

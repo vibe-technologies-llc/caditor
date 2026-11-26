@@ -8,6 +8,8 @@ mod lumps;
 mod mapping;
 #[cfg(test)]
 mod mapping_tests;
+#[cfg(test)]
+mod new_loops_tests;
 mod pcurve;
 mod polygons;
 #[cfg(test)]
@@ -534,19 +536,37 @@ impl Solid {
             .filter_map(|shell| self.shell(*shell))
             .flat_map(|shell| shell.faces.iter().copied())
             .collect();
-        self.keeping(keep, &faces)
+        self.keeping(keep, &faces, &self.loops_of(&faces))
     }
 
-    pub(crate) fn keeping_faces(&self, faces: &BTreeSet<FaceId>) -> Option<Self> {
+    pub(crate) fn keeping_loops(&self, loops: &BTreeSet<LoopId>) -> Option<Self> {
+        let faces: BTreeSet<FaceId> = loops
+            .iter()
+            .filter_map(|face_loop| self.face_loop(*face_loop))
+            .map(|face_loop| face_loop.face)
+            .collect();
         let shells: BTreeSet<ShellId> = faces
             .iter()
             .filter_map(|face| self.face(*face))
             .map(|face| face.shell)
             .collect();
-        self.keeping(&shells, faces)
+        self.keeping(&shells, &faces, loops)
     }
 
-    fn keeping(&self, keep: &BTreeSet<ShellId>, faces: &BTreeSet<FaceId>) -> Option<Self> {
+    fn loops_of(&self, faces: &BTreeSet<FaceId>) -> BTreeSet<LoopId> {
+        faces
+            .iter()
+            .filter_map(|face| self.face(*face))
+            .flat_map(|face| face.loops.iter().copied())
+            .collect()
+    }
+
+    fn keeping(
+        &self,
+        keep: &BTreeSet<ShellId>,
+        faces: &BTreeSet<FaceId>,
+        loops: &BTreeSet<LoopId>,
+    ) -> Option<Self> {
         fn renumbered<Id: Copy + Ord>(kept: &BTreeSet<Id>) -> BTreeMap<Id, u32> {
             kept.iter()
                 .enumerate()
@@ -554,11 +574,6 @@ impl Solid {
                 .collect()
         }
 
-        let loops: BTreeSet<LoopId> = faces
-            .iter()
-            .filter_map(|face| self.face(*face))
-            .flat_map(|face| face.loops.iter().copied())
-            .collect();
         let coedges: BTreeSet<CoedgeId> = loops
             .iter()
             .filter_map(|owned| self.face_loop(*owned))
@@ -576,7 +591,7 @@ impl Solid {
             .collect();
 
         let (shell_ids, face_ids, loop_ids) =
-            (renumbered(keep), renumbered(faces), renumbered(&loops));
+            (renumbered(keep), renumbered(faces), renumbered(loops));
         let (coedge_ids, edge_ids, vertex_ids) = (
             renumbered(&coedges),
             renumbered(&edges),
@@ -635,11 +650,7 @@ impl Solid {
                 .map(|id| {
                     let found = self.face(*id)?;
                     Some(Face {
-                        loops: found
-                            .loops
-                            .iter()
-                            .map(|id| face_loop(*id))
-                            .collect::<Option<_>>()?,
+                        loops: found.loops.iter().filter_map(|id| face_loop(*id)).collect(),
                         shell: shell(found.shell)?,
                         ..found.clone()
                     })

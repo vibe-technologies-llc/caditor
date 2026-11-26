@@ -5,6 +5,7 @@ use std::cell::Cell;
 thread_local! {
     static UNITS: Cell<usize> = const { Cell::new(0) };
     static MESHED_FACES: Cell<usize> = const { Cell::new(0) };
+    static MESHED_LOOPS: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -25,6 +26,15 @@ pub(crate) fn add_meshed_faces(faces: usize) {
 pub(crate) fn add_meshed_faces(_faces: usize) {}
 
 #[cfg(test)]
+pub(crate) fn add_meshed_loops(loops: usize) {
+    add(loops);
+    MESHED_LOOPS.with(|tally| tally.set(tally.get().saturating_add(loops)));
+}
+
+#[cfg(not(test))]
+pub(crate) fn add_meshed_loops(_loops: usize) {}
+
+#[cfg(test)]
 pub(crate) fn measure<T>(work: impl FnOnce() -> T) -> (T, usize) {
     let before = UNITS.with(Cell::get);
     let result = work();
@@ -36,4 +46,11 @@ pub(crate) fn measure_meshed_faces<T>(work: impl FnOnce() -> T) -> (T, usize) {
     let before = MESHED_FACES.with(Cell::get);
     let result = work();
     (result, MESHED_FACES.with(Cell::get) - before)
+}
+
+#[cfg(test)]
+pub(crate) fn measure_meshed_loops<T>(work: impl FnOnce() -> T) -> (T, usize) {
+    let before = MESHED_LOOPS.with(Cell::get);
+    let result = work();
+    (result, MESHED_LOOPS.with(Cell::get) - before)
 }

@@ -294,9 +294,22 @@ paths:
     bounded solid of one shell has its material on the shell's bounded side, so the volume is
     positive. With two shells or more the sign tells a lump from a void and the lumps are placed,
     so the mesh is made as before. The faces with a loop not carried (new faces and faces given a
-    new loop) are still triangulated at the first validation tolerance (`keeping_faces`), a failure
-    the same `Tessellation` error the volume mesh gave, so a body that `display_mesh` could not
-    show even at `COARSE` is refused as before; only faces whose every loop is carried skip it.
+    new loop) are still triangulated at the first validation tolerance of the whole solid
+    (`keeping_loops`), a failure the same `Tessellation` error the volume mesh gave, so a body that
+    `display_mesh` could not show even at `COARSE` is refused as before; only faces whose every
+    loop is carried skip it.
+  - a plane given a new loop beside carried ones is triangulated with only its outer loop, its new
+    loops and the carried inner loops whose edge boxes come within `NEIGHBOUR_REACH` (a hundred
+    resolutions) of a new loop's edge box (`new_loops_neighbourhood`); a face of any other surface,
+    or with no carried loop, is triangulated whole. On a plane a boundary point is the projection of
+    a point of its edge's curve (or its pcurve's end, within the resolution of the curve), so the
+    sampled polyline of a loop, refined or parted, lies within the resolution of its edges' boxes,
+    and a crossing, a touch or a shared parameter position of two loops needs their boxes to meet;
+    carried loops were triangulated together in the valid solid, so loops the new ones do not reach
+    cannot fail the face. The outer loop is kept for the face's domain box, which sizes its grid.
+    `new_loops_tests.rs` compares the verdict with the whole face's on crossings, touches,
+    nestings, tangency to the outer boundary, a new outer loop and random loops, refused and
+    accepted.
 
 ## `Solid::find_crossing` (for importers)
 

@@ -12,22 +12,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   deep 0.35 s. With the groove's far face exactly on the shaft (no 5 % reach) the M4 took 0.5 s,
   the crest then being the groove's own helix rather than a marched one, but coincident faces were
   left out until they are known to hold on every face kind.
-- [medium · hard] A boolean still meshes, for validation, every face given a new loop, and makes
-  passes over every face, edge and loop of the body that the tool leaves alone, though the other
-  geometry work on them is carried, so a sequence of hole features stays quadratic: in release the
-  144th hole of a block takes 11.2 ms against 1.2 for the first (12.5 before quiet loops were
-  carried through untangling and validation and a one-shell result meshed only its faces with a
-  loop not carried;
-  `carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time`). Most of
-  it is triangulating the top and bottom faces, which hold every hole, to check that they can be
-  meshed (about 7 ms): a check of only the new loops against the face's carried ones would keep
-  that guarantee without the whole face. The rest is the input's face boxes (0.6 ms), imprinting,
-  which splits every edge and pools every vertex (1.1), the top and bottom faces' quiet loops copied
-  with their areas, grouped and sharpened (0.65 each), selecting and healing every face (0.45) and
-  `Plan::build`, whose vertex merging and naming visit every edge (0.8). A union touching one of
-  300 separated blocks takes 2.6 ms (18.2 before the blocks it does not reach were left alone),
-  mostly boxing, grouping and copying those blocks. A result of several shells, such as a block
-  with a void inside, is still meshed whole for its volumes and placement.
+- [medium · hard] A boolean still makes passes over every face, edge and loop of the body that the
+  tool leaves alone, though the geometry work on them is carried, so a sequence of hole features
+  stays quadratic: in release the 144th hole of a block takes 4.45 ms against 1.0 for the first
+  (11.7 before a plane given a new loop was meshed with only the carried loops beside it, 12.5
+  before quiet loops were carried through untangling and validation;
+  `carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time`). What
+  remains is the input's face boxes (0.6 ms), imprinting, which splits every edge and pools every
+  vertex (1.1), the top and bottom faces' quiet loops copied with their areas, grouped and
+  sharpened (0.65 each), and boxed once more in validation to find those beside the new loops,
+  selecting and healing every face (0.45) and `Plan::build`, whose vertex merging and naming visit
+  every edge (0.8). A face of another surface than a plane given a new loop, such as a tube's wall drilled
+  across, is still triangulated whole. A union touching one of 300 separated blocks takes 2.6 ms
+  (18.2 before the blocks it does not reach were left alone), mostly boxing, grouping and copying
+  those blocks. A result of several shells, such as a block with a void inside, is still meshed
+  whole for its volumes and placement.
 - [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
   the eight-edge rim of a pocket with rounded corners in a cylinder takes about 49 ms
   (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored; 57 ms on

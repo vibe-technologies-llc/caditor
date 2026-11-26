@@ -4,7 +4,9 @@ use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3, larger};
 use thiserror::Error;
 
 use crate::{
+    box_tree::BoxTree,
     interrupt::{self, Interrupted},
+    intersect::boxes_overlap,
     measure::faces_volume,
     sense::Sense,
     surface::Surface,
@@ -24,6 +26,7 @@ const POLE_MATCH: f64 = 1e-9;
 const SEAM_PROBES: [f64; 3] = [0.25, 0.5, 0.75];
 const SEAM_SEPARATION: f64 = 4.0 * PCURVE_TOLERANCE;
 const VALIDATION_COARSENESS: [f64; 4] = [20.0, 1.0, 0.1, 0.01];
+const NEIGHBOUR_REACH: f64 = 100.0 * LINEAR_RESOLUTION;
 const FLAT_SHELL_VOLUME: f64 = 1e-9;
 const EMPTY_SHELL_VOLUME: f64 = 1e-12;
 
@@ -198,8 +201,12 @@ fn validation_tolerance(solid: &Solid, coarseness: f64) -> SamplingTolerance {
     SamplingTolerance::for_extent(extent * coarseness)
 }
 
-fn new_faces_mesh(solid: &Solid, carried: &BTreeSet<LoopId>) -> Checked<()> {
-    let new: BTreeSet<FaceId> = solid
+pub(super) fn first_validation_tolerance(solid: &Solid) -> SamplingTolerance {
+    validation_tolerance(solid, VALIDATION_COARSENESS.first().copied().unwrap_or(1.0))
+}
+
+pub(super) fn faces_given_new_loops(solid: &Solid, carried: &BTreeSet<LoopId>) -> BTreeSet<FaceId> {
+    solid
         .faces()
         .filter(|(_, face)| {
             face.loops()
@@ -207,21 +214,101 @@ fn new_faces_mesh(solid: &Solid, carried: &BTreeSet<LoopId>) -> Checked<()> {
                 .any(|face_loop| !carried.contains(face_loop))
         })
         .map(|(id, _)| id)
-        .collect();
+        .collect()
+}
 
-    if new.is_empty() {
+pub(super) fn new_faces_mesh(solid: &Solid, carried: &BTreeSet<LoopId>) -> Checked<()> {
+    let mut meshed = BTreeSet::new();
+    let mut whole = 0;
+
+    for id in faces_given_new_loops(solid, carried) {
+        interrupt::check()?;
+
+        let face = face_of(solid, id)?;
+        let neighbourhood = new_loops_neighbourhood(solid, face, carried)?;
+
+        if neighbourhood.len() == face.loops().len() {
+            whole += 1;
+        }
+        meshed.extend(neighbourhood);
+    }
+
+    if meshed.is_empty() {
         return Ok(());
     }
-    tally::add_meshed_faces(new.len());
-
-    let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
-    let tolerance = validation_tolerance(solid, coarseness);
+    tally::add_meshed_faces(whole);
+    tally::add_meshed_loops(meshed.len());
 
     solid
-        .keeping_faces(&new)
+        .keeping_loops(&meshed)
         .ok_or(ValidationError::MissingEntity)?
-        .tessellate(&tolerance)?;
+        .tessellate(&first_validation_tolerance(solid))?;
     Ok(())
+}
+
+fn new_loops_neighbourhood(
+    solid: &Solid,
+    face: &Face,
+    carried: &BTreeSet<LoopId>,
+) -> Checked<Vec<LoopId>> {
+    let loops = face.loops();
+    let (Surface::Plane(_), Some(outer)) = (face.surface(), face.outer_loop()) else {
+        return Ok(loops.to_vec());
+    };
+
+    if !loops.iter().any(|face_loop| carried.contains(face_loop)) {
+        return Ok(loops.to_vec());
+    }
+
+    let mut new_edges = Vec::new();
+
+    for face_loop in loops
+        .iter()
+        .filter(|face_loop| !carried.contains(face_loop))
+    {
+        new_edges.extend(loop_edge_boxes(solid, *face_loop)?);
+    }
+
+    let reached = BoxTree::new(new_edges);
+    let Some(reach) = reached.bounds() else {
+        return Ok(loops.to_vec());
+    };
+    let mut neighbourhood = Vec::with_capacity(loops.len());
+
+    for face_loop in loops {
+        let near = *face_loop == outer
+            || !carried.contains(face_loop)
+            || loop_edge_boxes(solid, *face_loop)?
+                .into_iter()
+                .reduce(Aabb::union)
+                .is_some_and(|bounds| {
+                    boxes_overlap(&bounds, &reach, NEIGHBOUR_REACH)
+                        && !reached.overlapping(&bounds, NEIGHBOUR_REACH).is_empty()
+                });
+
+        if near {
+            neighbourhood.push(*face_loop);
+        }
+    }
+    Ok(neighbourhood)
+}
+
+fn loop_edge_boxes(solid: &Solid, loop_id: LoopId) -> Checked<Vec<Aabb>> {
+    let face_loop = solid
+        .face_loop(loop_id)
+        .ok_or(ValidationError::MissingEntity)?;
+
+    face_loop
+        .coedges()
+        .iter()
+        .map(|coedge| {
+            let edge = solid
+                .coedge(*coedge)
+                .and_then(|coedge| solid.edge(coedge.edge()))
+                .ok_or(ValidationError::MissingEntity)?;
+            Ok(edge.curve().bounding_box(edge.interval()))
+        })
+        .collect()
 }
 
 fn face_of(solid: &Solid, id: FaceId) -> Checked<&Face> {
@@ -854,10 +941,7 @@ impl Solid {
         least_of: impl Fn(Point3) -> Option<f64>,
         most_of: impl Fn(Point3) -> Option<f64>,
     ) -> Result<BTreeMap<ShellId, ShellSpan>, TessellationError> {
-        let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
-        let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
-
-        let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
+        let by_shell = shell_meshes(self, &first_validation_tolerance(self))?;
         Ok(by_shell
             .into_iter()
             .map(|(shell, shell_mesh)| {
@@ -873,10 +957,7 @@ impl Solid {
     }
 
     pub(crate) fn void_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
-        let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
-        let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
-
-        let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
+        let by_shell = shell_meshes(self, &first_validation_tolerance(self))?;
         Ok(by_shell
             .into_iter()
             .filter(|(shell, shell_mesh)| shell_volume(self, *shell, shell_mesh) < 0.0)
