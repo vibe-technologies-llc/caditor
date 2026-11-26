@@ -195,6 +195,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] Drawing dimensions refer to edges only (`drawings.md`): the outline a curved face
   shows in a view (a cylinder seen from the side) is named by its face and drawn twice, so a
   diameter across it cannot be taken there.
+- [low · medium] A sheet dimension's value keeps clear of other values, notes and callouts only
+  (`drawings.md`): it can still land on the view's own lines or on other dimensions' lines and
+  arrows, and one dragged near another can jump between positions as the keep-clear search is
+  redone each frame.
 
 ## Application
 
