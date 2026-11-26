@@ -242,12 +242,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
-## Drawing import
-
-- [low · easy] SVG text using ⌀, ↧, ⌴ or ⌵ loses the sign: `caditor-lettering` now draws these four
-  (Inter has no glyph for them) only through `lettered`, while SVG import walks `Typeface` glyphs
-  directly and reports them missing. Have SVG text take the same signs.
-
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view

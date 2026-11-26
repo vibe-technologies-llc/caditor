@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_geometry::Point2;
 use caditor_kernel::{Profile, ProfileCurve, Selection};
+use caditor_lettering::{Segment, Typeface};
 use skrifa::{
     FontRef, GlyphId, MetadataProvider,
     instance::{Location, Size},
@@ -885,4 +886,148 @@ fn text_paths_and_uses_repeating_a_long_path_past_the_copy_limit_are_refused_qui
     assert_eq!(used.unwrap_err(), ImportError::TooManyCopies);
     assert!(named_steps < 2 * traced_once, "{named_steps}");
     assert!(used_steps < 2 * traced_once, "{used_steps}");
+}
+
+const SIGNS: [char; 4] = ['\u{2300}', '\u{21a7}', '\u{2334}', '\u{2335}'];
+
+fn sign_bounds(character: char, weight: f64, italic: bool, size: f64, at: Point2) -> (Bounds, f64) {
+    let mut typeface = Typeface::parse(INTER, Some(INTER_ITALIC)).unwrap();
+
+    let instance = typeface.instance(weight, italic);
+    let drawn = typeface.sign(instance, character).unwrap().unwrap();
+    let scale = size / typeface.units_per_em();
+
+    let points = drawn
+        .outline
+        .iter()
+        .flat_map(|segment| match segment {
+            Segment::Line(from, to) => vec![*from, *to],
+            Segment::Bezier(points) => points.clone(),
+        })
+        .map(|point| Point2::new(at.x + point.x * scale, -at.y + point.y * scale));
+
+    (Bounds::of(points), drawn.advance * scale)
+}
+
+fn assert_bounds_close(actual: &Bounds, expected: &Bounds) {
+    assert_close(actual.low.x, expected.low.x);
+    assert_close(actual.low.y, expected.low.y);
+    assert_close(actual.high.x, expected.high.x);
+    assert_close(actual.high.y, expected.high.y);
+}
+
+#[test]
+fn the_diameter_depth_counterbore_and_countersink_signs_are_drawn_without_a_note() {
+    for character in SIGNS {
+        let drawing = read(&format!(
+            r#"<text x="10" y="50" font-size="20">{character}</text>"#
+        ));
+        let (expected, _) = sign_bounds(character, 400.0, false, 20.0, Point2::new(10.0, 50.0));
+
+        assert!(!drawing.curves.is_empty(), "{character}");
+        assert!(!loops(&drawing).is_empty(), "{character}");
+
+        assert_bounds_close(&whole(&drawing), &expected);
+
+        assert!(drawing.notes.is_empty(), "{character}: {:?}", drawing.notes);
+    }
+}
+
+#[test]
+fn a_sign_advances_the_pen_by_its_own_width_and_takes_no_kerning() {
+    let face = regular();
+    let scale = 20.0 / f64::from(face.units_per_em());
+    let extent = glyph_extent(&face, 'I');
+
+    for character in SIGNS {
+        let drawing = read(&format!(
+            r#"<text x="10" y="50" font-size="20">{character}I</text>"#
+        ));
+        let (_, advance) = sign_bounds(character, 400.0, false, 20.0, Point2::new(10.0, 50.0));
+        let letter = loops(&drawing).pop().unwrap();
+
+        assert_close(letter.low.x, 10.0 + advance + extent.low.x * scale);
+
+        assert!(drawing.notes.is_empty(), "{character}: {:?}", drawing.notes);
+    }
+}
+
+#[test]
+fn signs_follow_the_weight_and_lean_of_their_span() {
+    for character in SIGNS {
+        let drawing = read(&format!(
+            r#"<text x="10" y="50" font-size="20">I<tspan font-weight="700" font-style="italic">{character}</tspan></text>"#
+        ));
+        let regular_advance = advance(&regular(), 'I') * 20.0 / f64::from(regular().units_per_em());
+        let (expected, _) = sign_bounds(
+            character,
+            700.0,
+            true,
+            20.0,
+            Point2::new(10.0 + regular_advance, 50.0),
+        );
+        let (upright, _) = sign_bounds(
+            character,
+            400.0,
+            false,
+            20.0,
+            Point2::new(10.0 + regular_advance, 50.0),
+        );
+
+        let drawn = Bounds::of(
+            drawing
+                .curves
+                .iter()
+                .flat_map(points)
+                .filter(|point| point.x > 10.0 + regular_advance),
+        );
+
+        assert_bounds_close(&drawn, &expected);
+
+        assert!(expected.width() != upright.width(), "{character}");
+        assert!(drawing.notes.is_empty(), "{character}: {:?}", drawing.notes);
+    }
+}
+
+#[test]
+fn signs_on_a_path_sit_on_it_as_signs_on_that_baseline_do() {
+    for character in SIGNS {
+        let straight = read(&format!(
+            r#"<text x="10" y="50" font-size="20">I{character}I</text>"#
+        ));
+        let on_path = read(&format!(
+            r##"<defs><path id="p" d="M 10 50 L 190 50"/></defs>
+                <text font-size="20"><textPath href="#p">I{character}I</textPath></text>"##
+        ));
+
+        assert_same_bounds(&loops(&on_path), &loops(&straight));
+
+        assert!(on_path.notes.is_empty(), "{character}: {:?}", on_path.notes);
+    }
+}
+
+#[test]
+fn signs_bend_with_a_curved_path_and_stretched_signs_follow_it() {
+    for character in SIGNS {
+        let curved = read(&format!(
+            r##"<defs><path id="p" d="M 20 80 A 60 60 0 0 1 180 80"/></defs>
+                <text font-size="20"><textPath href="#p">I{character}I</textPath></text>"##
+        ));
+        let stretched = read(&format!(
+            r##"<defs><path id="p" d="M 20 80 A 60 60 0 0 1 180 80"/></defs>
+                <text font-size="20"><textPath href="#p" method="stretch">I{character}I</textPath></text>"##
+        ));
+        let flat = read(&format!(
+            r#"<text x="20" y="80" font-size="20">I{character}I</text>"#
+        ));
+
+        for drawing in [&curved, &stretched] {
+            assert!(drawing.notes.is_empty(), "{character}: {:?}", drawing.notes);
+            assert!(loops(drawing).len() >= 3, "{character}");
+            assert!(
+                whole(drawing).height() > whole(&flat).height(),
+                "{character}"
+            );
+        }
+    }
 }

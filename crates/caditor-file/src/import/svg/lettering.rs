@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use caditor_geometry::{Point2, Vector2};
 use caditor_lettering::{GlyphId, Instance, Segment, Typeface};
 
@@ -181,6 +183,7 @@ struct Placed {
     at: Point2,
     advance: f64,
     glyph: Option<GlyphId>,
+    sign: Option<char>,
     instance: Instance,
     scale: f64,
     stretch: f64,
@@ -239,7 +242,7 @@ impl<'a, 't> Walker<'a, 't> {
         };
         let italic_carried = typeface.has_italic();
 
-        let placed = lay_out(typeface, &letters, &positions, &tracks);
+        let placed = lay_out(typeface, &letters, &positions, &tracks)?;
 
         self.note_style(&letters, italic_carried);
 
@@ -247,12 +250,12 @@ impl<'a, 't> Walker<'a, 't> {
         let mut hidden = false;
 
         for (letter, placed) in letters.iter().zip(&placed) {
-            let Some(glyph) = placed.glyph else {
+            if placed.glyph.is_none() && placed.sign.is_none() {
                 if !letter.character.is_whitespace() {
                     self.tally.missing_letters = self.tally.missing_letters.saturating_add(1);
                 }
                 continue;
-            };
+            }
 
             if placed.off_path {
                 if !letter.character.is_whitespace() {
@@ -277,16 +280,14 @@ impl<'a, 't> Walker<'a, 't> {
             };
 
             if self.shapes.len() >= MAX_READ_CURVES {
-                let count = typeface.curve_count(placed.instance, glyph);
+                let count = curve_count(typeface, placed)?;
 
                 self.charge(count)?;
                 self.beyond_the_limit = self.beyond_the_limit.saturating_add(count);
                 continue;
             }
 
-            let segments = typeface
-                .outline(placed.instance, glyph)
-                .map_err(|_| ImportError::Cancelled)?;
+            let segments = outline_of(typeface, placed)?;
             let warping = placed.warped_along.and_then(|index| tracks.get(index));
 
             let (outline, matrix) = match warping {
@@ -476,12 +477,30 @@ impl<'a, 't> Walker<'a, 't> {
     }
 }
 
+fn outline_of(typeface: &mut Typeface<'_>, placed: &Placed) -> Result<Arc<[Segment]>, ImportError> {
+    match (placed.glyph, placed.sign) {
+        (Some(glyph), _) => typeface.outline(placed.instance, glyph),
+        (None, Some(character)) => typeface
+            .sign(placed.instance, character)
+            .map(|drawn| drawn.map_or_else(|| Arc::from([]), |drawn| Arc::clone(&drawn.outline))),
+        (None, None) => Ok(Arc::from([])),
+    }
+    .map_err(|_| ImportError::Cancelled)
+}
+
+fn curve_count(typeface: &mut Typeface<'_>, placed: &Placed) -> Result<usize, ImportError> {
+    match placed.glyph {
+        Some(glyph) => Ok(typeface.curve_count(placed.instance, glyph)),
+        None => Ok(outline_of(typeface, placed)?.len()),
+    }
+}
+
 fn lay_out(
     typeface: &mut Typeface<'_>,
     letters: &[Letter<'_>],
     positions: &Positions,
     tracks: &[Track],
-) -> Vec<Placed> {
+) -> Result<Vec<Placed>, ImportError> {
     let units_per_em = typeface.units_per_em();
     let mut placed: Vec<Placed> = Vec::with_capacity(letters.len());
     let mut starts: Vec<(usize, Run)> = Vec::new();
@@ -538,12 +557,22 @@ fn lay_out(
             at(&positions.dy).unwrap_or(0.0),
         );
 
-        let advance = typeface.advance(instance, glyph) * scale;
+        let drawn = match glyph {
+            None if !letter.character.is_whitespace() => typeface
+                .sign(instance, letter.character)
+                .map_err(|_| ImportError::Cancelled)?,
+            _ => None,
+        };
+        let advance = match &drawn {
+            Some(drawn) => drawn.advance * scale,
+            None => typeface.advance(instance, glyph) * scale,
+        };
 
         placed.push(Placed {
             at: pen,
             advance,
             glyph,
+            sign: drawn.map(|_| letter.character),
             instance,
             scale,
             stretch: 1.0,
@@ -616,7 +645,7 @@ fn lay_out(
             }
         }
     }
-    placed
+    Ok(placed)
 }
 
 fn fitted(placed: &mut [Placed], fit: &Fit, end_of_chunk: usize) {
@@ -971,6 +1000,7 @@ mod tests {
                 at: Point2::new(advance * index as f64, 0.0),
                 advance,
                 glyph: None,
+                sign: None,
                 instance,
                 scale: 1.0,
                 stretch: 1.0,

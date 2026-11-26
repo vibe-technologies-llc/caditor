@@ -211,7 +211,10 @@ paths:
   font names ignored). Every family is drawn in Inter; a first family other than Inter or a generic
   sans-serif is named in one note (at most `MAX_NAMED_ELEMENTS`). Weight sets the `wght` axis
   (100 to 900), rounded to the nearest hundred inside the face's range (`lettering.md`); italic and oblique use the italic face, upright and noted only when none was handed
-  in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
+  in. A character without a glyph is first asked of `Typeface::sign`: the diameter, depth, counterbore and
+  countersink signs (U+2300, U+21A7, U+2334, U+2335) draw as outlines at the letter's weight and lean, advance by their
+  own width, take no kerning, and warp, fit and anchor like any glyph. Any other takes the missing
+  glyph's advance, draws nothing and is counted.
 - Glyphs come from `caditor-lettering` (`lettering.md`): its `Typeface` reads the faces handed in,
   kerns, and gives each glyph merged into one outline, which `path::traced` turns into the same
   exact splines and lines `path` makes. `read_drawing` installs its `CancelToken` as the kernel

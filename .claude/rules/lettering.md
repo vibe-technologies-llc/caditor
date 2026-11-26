@@ -53,5 +53,5 @@ it without either depending on the other.
   `FALLBACK_STEM` when the face has no `I`), shears it by the italic cut's `post` angle, and caches
   it per weight and character beside the glyph outlines. `lay_line` asks for a sign only for a
   character the face lacks, so it is never listed in `Lettered::missing`; it advances by the
-  design's width plus a side bearing, takes no kerning and is a `Letter` like any other. Only
-  `lettered` uses them: SVG import's `Typeface` walk still counts them as missing glyphs.
+  design's width plus a side bearing, takes no kerning and is a `Letter` like any other. `Typeface::sign` is
+  the one source: SVG import asks it too for a character without a glyph (`file-import-export.md`).
