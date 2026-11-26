@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     panic::{self, AssertUnwindSafe},
     sync::{
         Arc,
@@ -86,6 +87,15 @@ impl Polled {
         Self {
             abandoned: true,
             ..Self::default()
+        }
+    }
+
+    fn then(self, later: Self) -> Self {
+        Self {
+            shown: later.shown.or(self.shown),
+            finished: later.finished.or(self.finished),
+            abandoned: self.abandoned || later.abandoned,
+            blocked: later.blocked.or(self.blocked),
         }
     }
 }
@@ -261,11 +271,25 @@ struct Active {
     previous: Option<Previous>,
 }
 
+struct Queued {
+    feature: FeatureId,
+    label: String,
+    drags: Vec<Drag>,
+    finish: Option<Option<Join>>,
+}
+
+impl Queued {
+    fn is_held(&self) -> bool {
+        self.finish.is_none()
+    }
+}
+
 #[derive(Default)]
 pub struct SketchDragging {
     worker: Option<Worker>,
     next_drag: u64,
     active: Option<Active>,
+    queued: VecDeque<Queued>,
     #[cfg(test)]
     results_held: bool,
 }
@@ -295,24 +319,16 @@ impl SketchDragging {
                 label,
                 drags,
             } => self.drag(feature, label, drags, start),
-            DragCommand::Finish { join } => {
-                let Some(active) = &mut self.active else {
-                    return Polled::default();
-                };
-
-                active.join = join;
-                if active.revision != start.revision {
-                    self.cancel();
-                    return Polled::abandoned();
+            DragCommand::Finish { join } if !self.queued.is_empty() => {
+                if let Some(held) = self.queued.back_mut().filter(|queued| queued.is_held()) {
+                    held.finish = Some(join);
                 }
-                if active.received < active.sent {
-                    active.finishing = true;
-                    return Polled::default();
-                }
-                Polled {
-                    finished: self.active.take().map(Active::finished),
-                    ..Polled::default()
-                }
+                Polled::default()
+            }
+            DragCommand::Finish { join } => self.finish(join, start),
+            DragCommand::Cancel if self.waits_for_finishing() => {
+                self.drop_queued_held();
+                Polled::default()
             }
             DragCommand::Cancel => {
                 self.cancel();
@@ -321,8 +337,33 @@ impl SketchDragging {
         }
     }
 
+    pub fn resume(&mut self, start: &Start<'_>) -> Polled {
+        let mut polled = Polled::default();
+
+        while self.active.is_none() && polled.finished.is_none() {
+            let Some(queued) = self.queued.pop_front() else {
+                break;
+            };
+
+            let moved = self.move_active(queued.feature, queued.label, queued.drags, start);
+
+            polled = polled.then(moved);
+            if let Some(join) = queued.finish {
+                let finished = self.finish(join, start);
+
+                polled = polled.then(finished);
+            }
+        }
+        polled
+    }
+
     pub fn cancel_held(&mut self) -> bool {
-        let held = self.active.as_ref().is_some_and(|active| !active.finishing);
+        if self.waits_for_finishing() {
+            self.drop_queued_held();
+            return false;
+        }
+
+        let held = self.active.is_some();
 
         if held {
             self.cancel();
@@ -331,8 +372,43 @@ impl SketchDragging {
     }
 
     pub fn cancel(&mut self) {
+        self.queued.clear();
+        self.drop_active();
+    }
+
+    fn drop_active(&mut self) {
         if let (Some(active), Some(worker)) = (self.active.take(), &self.worker) {
             worker.abandon_before(active.drag.saturating_add(1));
+        }
+    }
+
+    fn waits_for_finishing(&self) -> bool {
+        !self.queued.is_empty() || self.active.as_ref().is_some_and(|active| active.finishing)
+    }
+
+    fn drop_queued_held(&mut self) {
+        if self.queued.back().is_some_and(Queued::is_held) {
+            self.queued.pop_back();
+        }
+    }
+
+    fn queue(&mut self, feature: FeatureId, label: String, drags: Vec<Drag>) {
+        match self.queued.back_mut().filter(|queued| queued.is_held()) {
+            Some(held) if held.feature == feature => held.drags = drags,
+            Some(held) => {
+                *held = Queued {
+                    feature,
+                    label,
+                    drags,
+                    finish: None,
+                };
+            }
+            None => self.queued.push_back(Queued {
+                feature,
+                label,
+                drags,
+                finish: None,
+            }),
         }
     }
 
@@ -384,12 +460,47 @@ impl SketchDragging {
         drags: Vec<Drag>,
         start: &Start<'_>,
     ) -> Polled {
-        let continues = self.active.as_ref().is_some_and(|active| {
-            active.feature == feature && active.revision == start.revision && !active.finishing
-        });
+        if self.waits_for_finishing() {
+            self.queue(feature, label, drags);
+            return Polled::default();
+        }
+        self.move_active(feature, label, drags, start)
+    }
+
+    fn finish(&mut self, join: Option<Join>, start: &Start<'_>) -> Polled {
+        let Some(active) = &mut self.active else {
+            return Polled::default();
+        };
+
+        active.join = join;
+        if active.revision != start.revision {
+            self.drop_active();
+            return Polled::abandoned();
+        }
+        if active.received < active.sent {
+            active.finishing = true;
+            return Polled::default();
+        }
+        Polled {
+            finished: self.active.take().map(Active::finished),
+            ..Polled::default()
+        }
+    }
+
+    fn move_active(
+        &mut self,
+        feature: FeatureId,
+        label: String,
+        drags: Vec<Drag>,
+        start: &Start<'_>,
+    ) -> Polled {
+        let continues = self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.feature == feature && active.revision == start.revision);
 
         if !continues {
-            self.cancel();
+            self.drop_active();
 
             let Some(sketch) = (start.shown)(feature) else {
                 return Polled::default();
@@ -475,7 +586,10 @@ impl Active {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        cell::RefCell,
+        time::{Duration, Instant},
+    };
 
     use caditor_document::Document;
     use caditor_geometry::{Plane, Point2};
@@ -615,6 +729,107 @@ mod tests {
         thread::sleep(Duration::from_millis(20));
 
         assert!(dragging.poll().finished.is_none());
+    }
+
+    fn moved(feature: FeatureId, label: &str, point: EntityId, to: Point2) -> DragCommand {
+        DragCommand::Move {
+            feature,
+            label: label.to_owned(),
+            drags: vec![Drag::Point { point, to }],
+        }
+    }
+
+    #[test]
+    fn a_drag_begun_while_the_last_is_finishing_commits_after_it_from_its_result() {
+        let (sketch, _, end) = line_from_origin();
+        let mut sketch = Sketch::clone(&sketch);
+
+        let other = sketch.add_point(Point2::new(0.0, 20.0));
+        let feature = feature();
+        let parameters = ParameterValues::default();
+        let committed = RefCell::new(Arc::new(sketch));
+        let shown = |_| Some(Arc::clone(&committed.borrow()));
+        let mut dragging = SketchDragging::default();
+
+        dragging.hold_results(true);
+
+        let before = start(1, &parameters, &shown);
+        let first_to = Point2::new(12.0, 5.0);
+        let second_to = Point2::new(-4.0, 22.0);
+
+        dragging.perform(moved(feature, "Drag Line", end, first_to), &before);
+
+        let first_released = dragging.perform(DragCommand::Finish { join: None }, &before);
+
+        dragging.perform(moved(feature, "Drag Point", other, second_to), &before);
+
+        let second_released = dragging.perform(DragCommand::Finish { join: None }, &before);
+
+        assert!(first_released.finished.is_none());
+        assert!(second_released.finished.is_none());
+        assert!(!second_released.abandoned);
+        assert!(dragging.poll().finished.is_none());
+
+        dragging.hold_results(false);
+
+        let first = until_finished(&mut dragging);
+        let first_sketch = first.sketch.unwrap();
+
+        assert_eq!(first.label, "Drag Line");
+        assert_eq!(first.revision, 1);
+        assert!(first_sketch.point(end).unwrap().distance(first_to) < 1e-9);
+        assert!(dragging.poll().finished.is_none());
+
+        *committed.borrow_mut() = first_sketch;
+
+        let after = start(2, &parameters, &shown);
+        let resumed = dragging.resume(&after);
+        let second = resumed
+            .finished
+            .unwrap_or_else(|| until_finished(&mut dragging));
+        let second_sketch = second.sketch.unwrap();
+
+        assert_eq!(second.label, "Drag Point");
+        assert_eq!(second.revision, 2);
+        assert!(second_sketch.point(end).unwrap().distance(first_to) < 1e-9);
+        assert!(second_sketch.point(other).unwrap().distance(second_to) < 1e-9);
+        assert!(!dragging.is_dragging());
+        assert!(dragging.resume(&after).finished.is_none());
+    }
+
+    #[test]
+    fn cancelling_while_the_last_drag_finishes_drops_only_the_held_one() {
+        let (sketch, _, end) = line_from_origin();
+        let feature = feature();
+        let parameters = ParameterValues::default();
+        let shown = move |_| Some(Arc::clone(&sketch));
+        let mut dragging = SketchDragging::default();
+
+        dragging.hold_results(true);
+
+        let start = start(1, &parameters, &shown);
+        let first_to = Point2::new(12.0, 5.0);
+
+        dragging.perform(moved(feature, "Drag Line", end, first_to), &start);
+        dragging.perform(DragCommand::Finish { join: None }, &start);
+        dragging.perform(
+            moved(feature, "Drag Again", end, Point2::new(3.0, 3.0)),
+            &start,
+        );
+
+        let cancelled = dragging.perform(DragCommand::Cancel, &start);
+
+        assert!(!cancelled.abandoned);
+        assert!(!dragging.cancel_held());
+
+        dragging.hold_results(false);
+
+        let first = until_finished(&mut dragging);
+
+        assert_eq!(first.label, "Drag Line");
+        assert!(first.sketch.unwrap().point(end).unwrap().distance(first_to) < 1e-9);
+        assert!(dragging.resume(&start).finished.is_none());
+        assert!(!dragging.is_dragging());
     }
 
     #[test]

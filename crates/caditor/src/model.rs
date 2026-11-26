@@ -34,7 +34,7 @@ use crate::{
     constraint_remedies::ConstraintRemedies,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
-    drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled},
+    drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled, SketchDragging},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
     image_export::ReadPixels,
@@ -1583,6 +1583,21 @@ impl Model {
     }
 
     fn drag(&mut self, command: DragCommand) {
+        let polled = self.with_drag_start(|dragging, start| dragging.perform(command, start));
+
+        self.dragged(polled);
+    }
+
+    fn resume_drags(&mut self) -> bool {
+        let polled = self.with_drag_start(SketchDragging::resume);
+
+        self.dragged(polled)
+    }
+
+    fn with_drag_start(
+        &mut self,
+        act: impl FnOnce(&mut SketchDragging, &drag_solver::Start<'_>) -> Polled,
+    ) -> Polled {
         let revision = self.revision();
         let shown = |feature| {
             let owner = self.editor.document().feature(feature)?;
@@ -1597,9 +1612,7 @@ impl Model {
             shown: &shown,
             wake: &wake,
         };
-        let polled = self.display.dragging.perform(command, &start);
-
-        self.dragged(polled);
+        act(&mut self.display.dragging, &start)
     }
 
     #[cfg(test)]
@@ -1639,10 +1652,13 @@ impl Model {
         if let Some((feature, sketch)) = shown {
             self.display.sketches.show_dragged(feature, sketch);
         }
-        if let Some(finished) = finished {
-            self.commit_drag(finished);
+        match finished {
+            Some(finished) => {
+                self.commit_drag(finished);
+                self.resume_drags() || changed
+            }
+            None => changed,
         }
-        changed
     }
 
     fn commit_drag(&mut self, finished: Finished) {

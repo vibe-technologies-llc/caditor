@@ -144,6 +144,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   drag begun on an older revision drops it. A drag still solving at release carries its revision in
   `Finished`; `Model::commit_drag` drops a solution arriving after the revision moved on (an undo
   meanwhile) with a notice, so the undo and its redo stand.
+- A drag begun while the last is still finishing (released, or a typed Move, Rotate or Scale, which
+  sends `Move` and `Finish` together, before the worker answered) waits behind it rather than
+  replacing it: `SketchDragging` queues its moves (the newest kept per drag), finish and cancel as
+  `Queued`, and starts nothing until the finishing drag's `Finished` is out. `Model::dragged` commits
+  that one, then `SketchDragging::resume` starts the queued drags in order from the sketch shown
+  after the commit at the new revision, so each is its own undo step and the later never undoes the
+  earlier; a first drag outlived by its revision still gets its notice before the next starts.
+  Escape and `cancel_held` then drop only the queued held drag, never a released one still solving.
 - When the worker cannot solve its newest frame (`Polled::blocked`, a `Blocking`;
   `Model::drag_blocked`), the viewport says `DRAG_BLOCKED` beside the pointer (polite live region) and
   the geometry stays at the last good frame, followed by the constraints the failed solve named

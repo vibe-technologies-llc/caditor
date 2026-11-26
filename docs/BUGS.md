@@ -181,14 +181,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   rectangle is drawn 17.579 by 15.039 and the line itself moves 0.12 mm. Other shapes are spared
   by the `!tracked` guard of the same function; the rectangle branch needs the same for a slanted
   track, or to round along it.
-- [medium · medium] A drag begun while the last one is still being solved discards that one without
-  a word. `SketchDragging::drag` does not continue a drag that is `finishing` and cancels it, so its
-  `Finished` never arrives, nothing is committed and no notice is raised (unlike a drag outlived by
-  its revision). A typed Move, Rotate or Scale sends `Move` and `Finish` together, so it is always
-  finishing until the worker answers; a released pointer drag is whenever the release beats its last
-  solve. At the `SketchDragging` level: `Move` of a line's end, `Finish`, `Move` of another point,
-  `Finish` gives one `Finished` labelled by the second drag with the line's end where it started.
-  The window is one frame on a small sketch and as long as a solve on a large one.
 - [low · easy] The ghost of a typed Move, Rotate or Scale draws what will not happen:
   `Moving::preview`, `Transforming::preview` and `sketch_handles::preview_typed` walk the whole
   selection, so selected projected geometry is drawn moving though it is left out, and they draw
