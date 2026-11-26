@@ -109,7 +109,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 
 - With Select, a primary drag starting on a non-reference entity of the edited sketch is a `Grab`: a
   point, line, arc or spline moves its points by the pointer's offset, a circle alone changes radius,
-  and a selected grabbed entity moves every selected entity.
+  and a selected grabbed entity moves every selected entity. A grab takes only what `movable`
+  allows (`sketch_drag.rs`, as Move, Rotate and Scale): projected items are left out of the grab's
+  points, so a projection is never its handle, never lands the group and never gets a
+  `Drag::Point`, and stays a snap target; grabbing a projected item is refused (`Unmovable`).
 - Each pointer move sends `DragCommand::Move`; `SketchDragging` (in `Display`) gives the newest to its
   worker thread, which drops older unstarted ones and solves each from the previous solution of the
   drag (`solve_from`). Results show through `DisplayedSketches::show_dragged`.
@@ -664,7 +667,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   centre's state), kept by the selection while the sketch has it (`Pickable::is_available`),
   included in box/lasso selection, Select all and Move/Rotate/Scale (`sketch_drag.rs`),
   deleted with Delete through `remove_sketch_items` (a first gear takes its meshing gears) and
-  dragged by its centre (`ViewportState` grabs the centre for a gear; a pair moves together, the
+  dragged by its centre (`Grab::of` takes the gear's id and moves its centre; a pair moves together, the
   solver holding the distance).
 - Text (`Tool::Text`, `texting.rs`; Polygon's arrow menu, the palette's "Write or edit sketch
   text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
@@ -689,7 +692,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   as one `SketchShape` under its id (`scene::sketch_shapes`, coloured by its anchor's state), kept by
   the selection while the sketch has it (`Pickable::is_available`), included in box/lasso selection,
   Select all and Move/Rotate/Scale (`sketch_drag.rs`), deleted with Delete through
-  `remove_sketch_items`, and dragged by its anchor (`ViewportState` grabs the anchor for a text).
+  `remove_sketch_items`, and dragged by its anchor (`Grab::of` takes the text's id and moves its anchor).
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's arrow menu) joins two
   curve ends with a spline (`sketch.md`, Blend curves). It takes the end of a line, arc or spline
   (projected included) nearest the pointer on the curve under it, or a selected point ending exactly

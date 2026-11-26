@@ -3772,11 +3772,6 @@ impl ViewportState {
         let from = self.on_sketch(model, feature, press.cursor)?;
         let selected = sketch_tools::selected_entities(&self.selection, feature);
 
-        let grabbed = sketch
-            .text(grabbed)
-            .map(|text| text.anchor)
-            .or_else(|| sketch.gear(grabbed).map(|gear| gear.centre))
-            .unwrap_or(grabbed);
         Grab::of(&sketch, feature, grabbed, &selected, from).map(|grab| {
             PrimaryDrag::Grab(
                 grab.snapping_to_bodies(&self.body_snaps)

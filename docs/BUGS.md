@@ -181,14 +181,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   rectangle is drawn 17.579 by 15.039 and the line itself moves 0.12 mm. Other shapes are spared
   by the `!tracked` guard of the same function; the rectangle branch needs the same for a slanted
   track, or to round along it.
-- [medium · easy] Dragging a selection that holds projected geometry treats the projected points as
-  moving. `Grab::of` leaves out only reference ids (`is_reference`), not what `sketch_drag::movable`
-  leaves out, so projected points are among `Handles::Points`: one nearest the press becomes the
-  handle (a free line from (0, 6) to (30, 6) grabbed at (15, 6) with a projected line from (14, 5)
-  to (16, 5) selected takes the projected end as its handle), `Grab::snapper_landing` and
-  `snap::nearest_moved` land the group by a point that stays where it is, the selected projections
-  are ignored as snap targets (`Grab::moving_with`) and each is sent to the solver as a
-  `Drag::Point`. Move, Rotate and Scale already leave them out.
 - [medium · medium] A drag begun while the last one is still being solved discards that one without
   a word. `SketchDragging::drag` does not continue a drag that is `finishing` and cancels it, so its
   `Finished` never arrives, nothing is committed and no notice is raised (unlike a drag outlived by
@@ -197,11 +189,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   solve. At the `SketchDragging` level: `Move` of a line's end, `Finish`, `Move` of another point,
   `Finish` gives one `Finished` labelled by the second drag with the line's end where it started.
   The window is one frame on a small sketch and as long as a solve on a large one.
-- [low · easy] A selected text or gear grabbed with other items selected moves alone.
-  `ViewportState::begin_primary` hands `Grab::of` the text's anchor or the gear's centre as the
-  grabbed entity while the selection holds the text's or gear's own id, so `selected.contains` is
-  false and only that point moves; a selected line grabbed with the same selection moves them all.
-  Found by reading, not run.
 - [low · easy] The ghost of a typed Move, Rotate or Scale draws what will not happen:
   `Moving::preview`, `Transforming::preview` and `sketch_handles::preview_typed` walk the whole
   selection, so selected projected geometry is drawn moving though it is left out, and they draw

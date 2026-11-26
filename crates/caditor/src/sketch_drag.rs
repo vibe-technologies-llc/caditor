@@ -133,7 +133,7 @@ impl Grab {
         selected: &[EntityId],
         from: Point2,
     ) -> Option<Self> {
-        if grabbed.is_reference() || sketch.entity(grabbed).is_none() {
+        if !movable(sketch, grabbed) {
             return None;
         }
 
@@ -141,7 +141,7 @@ impl Grab {
             selected
                 .iter()
                 .copied()
-                .filter(|entity| !entity.is_reference())
+                .filter(|entity| movable(sketch, *entity))
                 .collect()
         } else {
             vec![grabbed]
@@ -152,8 +152,18 @@ impl Grab {
                 centre: sketch.point(*center)?,
                 radius: *radius,
             },
-            _ => Handles::Points(points_of(sketch, &together)),
+            _ => Handles::Points(
+                points_of(sketch, &together)
+                    .into_iter()
+                    .filter(|(point, _)| !sketch.is_fixed(*point))
+                    .collect(),
+            ),
         };
+
+        if matches!(&handles, Handles::Points(points) if points.is_empty()) {
+            return None;
+        }
+
         let handle = match &handles {
             Handles::Points(points) => points.iter().copied().min_by(|a, b| {
                 a.1.distance_squared(from)
@@ -1306,8 +1316,9 @@ fn selectable(sketch: &Sketch, caught: impl Iterator<Item = EntityId>) -> Vec<En
 #[cfg(test)]
 mod tests {
     use caditor_document::{Document, FeatureKind};
+    use caditor_expression::{Expression, Unit};
     use caditor_geometry::Plane;
-    use caditor_sketch::Constraint;
+    use caditor_sketch::{Gear, Text, TextAlign};
 
     use super::*;
     use crate::snap::{Target, tests::Scaled};
@@ -1773,6 +1784,251 @@ mod tests {
             ]
         );
         assert_eq!(turned.pivot, Point2::new(1.5, 6.0));
+    }
+
+    struct BesideProjected {
+        sketch: Sketch,
+        free: EntityId,
+        free_ends: (EntityId, EntityId),
+        projected: EntityId,
+        projected_ends: (EntityId, EntityId),
+    }
+
+    fn beside_projected() -> BesideProjected {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let free = sketch.add_line(Point2::new(0.0, 6.0), Point2::new(30.0, 6.0));
+        let projected = sketch.add_line(Point2::new(14.0, 5.0), Point2::new(16.0, 5.0));
+        let free_ends = ends(&sketch, free);
+        let projected_ends = ends(&sketch, projected);
+
+        for id in [projected, projected_ends.0, projected_ends.1] {
+            sketch.set_projected(id, true).unwrap();
+        }
+
+        BesideProjected {
+            sketch,
+            free,
+            free_ends,
+            projected,
+            projected_ends,
+        }
+    }
+
+    #[test]
+    fn a_group_grab_takes_a_moving_point_as_its_handle_and_sends_no_projected_point() {
+        let BesideProjected {
+            sketch,
+            free,
+            free_ends: (start, end),
+            projected,
+            projected_ends: (projected_start, projected_end),
+        } = beside_projected();
+
+        let mut grab = Grab::of(
+            &sketch,
+            feature(),
+            free,
+            &[free, projected],
+            Point2::new(15.0, 6.0),
+        )
+        .unwrap();
+
+        let handle = grab.handle.map(|(point, _)| point).unwrap();
+
+        assert!(handle == start || handle == end);
+
+        let Some(DragCommand::Move { drags, .. }) = grab.to(Point2::new(16.0, 7.0)) else {
+            panic!("the selection is dragged");
+        };
+
+        assert_eq!(
+            drags,
+            vec![
+                Drag::Point {
+                    point: start,
+                    to: Point2::new(1.0, 7.0)
+                },
+                Drag::Point {
+                    point: end,
+                    to: Point2::new(31.0, 7.0)
+                },
+            ]
+        );
+
+        let moving = grab.moving_with(&sketch);
+
+        for stays in [projected, projected_start, projected_end] {
+            assert!(!moving.contains(&stays));
+        }
+    }
+
+    #[test]
+    fn a_group_grab_lands_a_moving_point_on_what_is_projected() {
+        let BesideProjected {
+            sketch,
+            free,
+            free_ends: (_, end),
+            projected,
+            projected_ends: (_, projected_end),
+        } = beside_projected();
+
+        let mut grab = Grab::of(
+            &sketch,
+            feature(),
+            free,
+            &[free, projected],
+            Point2::new(15.0, 6.0),
+        )
+        .unwrap();
+
+        let command = grab.follow(
+            Point2::new(1.0, 5.05),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+            None,
+        );
+
+        assert!(command.is_some());
+        assert_eq!(
+            grab.landing().and_then(|landing| landing.target),
+            Some(Target::Point(projected_end))
+        );
+        assert_eq!(grab.landed.map(|(point, _)| point), Some(end));
+    }
+
+    #[test]
+    fn a_grabbed_projection_is_refused_and_a_selection_of_only_projections_has_nothing_to_grab() {
+        let BesideProjected {
+            sketch,
+            free,
+            projected,
+            projected_ends: (projected_start, _),
+            ..
+        } = beside_projected();
+
+        assert!(
+            Grab::of(
+                &sketch,
+                feature(),
+                projected,
+                &[projected, free],
+                Point2::new(15.0, 5.0)
+            )
+            .is_none()
+        );
+        assert!(
+            Grab::of(
+                &sketch,
+                feature(),
+                projected_start,
+                &[],
+                Point2::new(14.0, 5.0)
+            )
+            .is_none()
+        );
+    }
+
+    fn text_at(sketch: &mut Sketch, at: Point2) -> (EntityId, EntityId) {
+        let anchor = sketch.add_point(at);
+        let text = sketch
+            .add_text(Text {
+                anchor,
+                content: "Vent".to_owned(),
+                height: Expression::measure(5.0, Unit::Millimetre),
+                angle: Expression::measure(0.0, Unit::Degree),
+                bold: false,
+                italic: false,
+                align: TextAlign::Left,
+            })
+            .unwrap();
+
+        (text, anchor)
+    }
+
+    fn gear_at(sketch: &mut Sketch, at: Point2) -> (EntityId, EntityId) {
+        let centre = sketch.add_point(at);
+        let gear = sketch
+            .add_parametric_gear(Gear {
+                centre,
+                module: Expression::measure(2.0, Unit::Millimetre),
+                teeth: Expression::number(20.0),
+                pressure_angle: Expression::measure(20.0, Unit::Degree),
+                profile_shift: Expression::number(0.0),
+                root_fillet: Expression::measure(0.5, Unit::Millimetre),
+                bore: Expression::measure(6.0, Unit::Millimetre),
+                turn: Expression::measure(0.0, Unit::Degree),
+                meshing: None,
+                chain: None,
+            })
+            .unwrap();
+
+        (gear, centre)
+    }
+
+    #[test]
+    fn a_selected_text_or_gear_grabbed_with_a_selected_line_moves_with_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+
+        let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        let (start, end) = ends(&sketch, line);
+        let (text, anchor) = text_at(&mut sketch, Point2::new(0.0, 20.0));
+        let (gear, centre) = gear_at(&mut sketch, Point2::new(50.0, 50.0));
+
+        let selected = [line, text, gear];
+
+        for grabbed in [text, gear] {
+            let mut grab = Grab::of(
+                &sketch,
+                feature(),
+                grabbed,
+                &selected,
+                Point2::new(1.0, 1.0),
+            )
+            .unwrap();
+
+            let Some(DragCommand::Move { drags, label, .. }) = grab.to(Point2::new(3.0, 2.0))
+            else {
+                panic!("the selection is dragged");
+            };
+
+            assert_eq!(label, "Drag 3 items");
+            assert_eq!(
+                drags,
+                vec![
+                    Drag::Point {
+                        point: start,
+                        to: Point2::new(2.0, 1.0)
+                    },
+                    Drag::Point {
+                        point: end,
+                        to: Point2::new(12.0, 1.0)
+                    },
+                    Drag::Point {
+                        point: anchor,
+                        to: Point2::new(2.0, 21.0)
+                    },
+                    Drag::Point {
+                        point: centre,
+                        to: Point2::new(52.0, 51.0)
+                    },
+                ]
+            );
+        }
+
+        let mut alone = Grab::of(&sketch, feature(), text, &[line], Point2::new(1.0, 1.0)).unwrap();
+
+        let Some(DragCommand::Move { drags, .. }) = alone.to(Point2::new(3.0, 2.0)) else {
+            panic!("the text is dragged");
+        };
+
+        assert_eq!(
+            drags,
+            vec![Drag::Point {
+                point: anchor,
+                to: Point2::new(2.0, 21.0)
+            }]
+        );
     }
 
     #[test]
