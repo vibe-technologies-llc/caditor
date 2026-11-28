@@ -41,10 +41,10 @@ caditor-wayland.path = "crates/caditor-wayland"
 caditor-windows.path = "crates/caditor-windows"
 caditor-zstd.path = "crates/caditor-zstd"
 
-ahash = "0.8.14"
+ahash = "0.8.15"
 arbitrary = "1.5.0"
 anyhow = "1.0.105"
-blake3 = { version = "1.8.7", features = ["pure"] }
+blake3 = { version = "1.8.8", features = ["pure"] }
 crc32fast = "1.5.6"
 dunce = "1.0.5"
 egui = { version = "0.37.0", features = ["default_fonts"] }
